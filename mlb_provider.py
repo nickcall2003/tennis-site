@@ -440,3 +440,53 @@ def get_game_injuries(date: dt.date, game_id: int):
         "home": get_injuries(g["home"]["team_id"]),
         "away": get_injuries(g["away"]["team_id"]),
     }
+
+
+# ---- pitcher strikeout props -------------------------------------------
+
+def _pitcher_k_rate(pid):
+    """Season strikeouts-per-start for a pitcher (K / games started)."""
+    if not pid:
+        return None, None
+    try:
+        data = _get(f"{BASE}/people/{pid}",
+                    {"hydrate": f"stats(group=[pitching],type=[season],season={SEASON})"})
+        person = data["people"][0]
+        st = person["stats"][0]["splits"][0]["stat"]
+        ks = float(st.get("strikeOuts", 0) or 0)
+        gs = float(st.get("gamesStarted", 0) or 0)
+        name = person.get("fullName")
+        if gs >= 1:
+            return ks / gs, name
+        # reliever or no starts: fall back to K per 9 * ~5.5 IP
+        k9 = float(st.get("strikeoutsPer9Inn", 0) or 0)
+        if k9:
+            return k9 / 9 * 5.5, name
+    except Exception:
+        pass
+    return None, None
+
+
+def get_props(date: dt.date, game_id: int):
+    """Pitcher strikeout props for both starters in a game."""
+    from props import project_prop, default_line
+    g = get_game(date, game_id)
+    if not g:
+        return {"error": "not found"}
+    home_pid = _starter_id(date, game_id, "home")
+    away_pid = _starter_id(date, game_id, "away")
+    out = []
+    for side, pid, opp in (("home", home_pid, g["away"]["name"]),
+                           ("away", away_pid, g["home"]["name"])):
+        rate, name = _pitcher_k_rate(pid)
+        if not rate:
+            continue
+        line = default_line("strikeouts", rate)
+        proj = project_prop("strikeouts", rate, line)
+        if proj:
+            proj["player"] = name
+            proj["team"] = g[side]["name"]
+            proj["opponent"] = opp
+            proj["label"] = "Strikeouts"
+            out.append(proj)
+    return {"game_id": game_id, "props": out}

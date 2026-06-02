@@ -70,13 +70,19 @@ if USE_REAL:
     from seed import build_day
     provider = APITennisProvider()
     engine = PredictionEngine()
-    try:
-        years = int(os.environ.get("TRAIN_YEARS", "2"))
-        this_year = dt.date.today().year
-        n = engine.train_from_sackmann(range(this_year - years + 1, this_year + 1))
-        print(f"[predictions] trained on {n} matches, {len(engine._by_key)} players")
-    except Exception as e:
-        print(f"[predictions] history training skipped ({e})")
+    # Prefer the precomputed ratings file (low memory, no pandas at runtime).
+    loaded = engine.load_ratings(os.environ.get("RATINGS_FILE", "ratings.json"))
+    if loaded:
+        print(f"[predictions] loaded {loaded} precomputed ratings (low-memory mode)")
+    else:
+        # Fallback: train live from Sackmann CSVs (heavier on RAM).
+        try:
+            years = int(os.environ.get("TRAIN_YEARS", "2"))
+            this_year = dt.date.today().year
+            n = engine.train_from_sackmann(range(this_year - years + 1, this_year + 1))
+            print(f"[predictions] trained on {n} matches, {len(engine._by_key)} players")
+        except Exception as e:
+            print(f"[predictions] history training skipped ({e})")
     try:
         ranks = provider.get_rankings()
         engine.load_rankings(ranks)
@@ -294,6 +300,16 @@ def match_detail(match_id: int):
         )
         writeup = generate_writeup(ctx, LLM_COMPLETE)
 
+        lines = None
+        props = None
+        try:
+            from betting import tennis_lines, tennis_props
+            bo = 5 if (m.best_of == 5) else 3
+            lines = tennis_lines(prob_a, bo)
+            props = tennis_props(prob_a, bo)
+        except Exception as e:
+            print(f"[detail] lines failed: {e}")
+
         return {
             "id": m.id, "tier": m.tier, "tournament": m.tournament, "round": m.round,
             "surface": m.surface, "player_a": m.player_a, "player_b": m.player_b,
@@ -303,6 +319,7 @@ def match_detail(match_id: int):
             "h2h": h2h, "form_a": fa, "form_b": fb,
             "recent_a": ra_list, "recent_b": rb_list,
             "weather": m.weather, "weather_effect": m.weather_effect,
+            "lines": lines, "props": props,
             "score": None if not live else {
                 "sets_a": _sets_list(live.sets_a), "sets_b": _sets_list(live.sets_b),
                 "game_a": live.game_a, "game_b": live.game_b,
@@ -424,6 +441,11 @@ def mlb_game(game_id: int, date: str | None = None):
         return {"error": "not found"}
     g = dict(g)
     g["analysis"] = _mlb_analysis(g)
+    try:
+        from betting import mlb_lines
+        g["lines"] = mlb_lines(g["exp_runs_home"], g["exp_runs_away"])
+    except Exception as e:
+        print(f"[mlb] lines failed: {e}")
     return g
 
 
@@ -447,6 +469,220 @@ def mlb_injuries(game_id: int, date: str | None = None):
     except Exception as e:
         print(f"[mlb] injuries failed: {e}")
         return {"error": "unavailable"}
+
+
+def _confidence_rank(conf):
+    return {"high": 3, "medium": 2, "low": 1}.get(conf, 0)
+
+
+def _gather_plays(target: dt.date):
+    """Collect candidate plays (moneyline picks) across sports for a day."""
+    plays = []
+    # --- tennis (from DB) ---
+    with SessionLocal() as db:
+        rows = (db.query(Match, Prediction, LiveState)
+                  .join(Prediction, Prediction.match_id == Match.id)
+                  .outerjoin(LiveState, LiveState.match_id == Match.id)
+                  .filter(Match.scheduled >= dt.datetime.combine(target, dt.time.min),
+                          Match.scheduled <= dt.datetime.combine(target, dt.time.max))
+                  .all())
+        for m, pred, live in rows:
+            if live and live.status == "finished":
+                continue
+            prob = max(pred.prob_a, 1 - pred.prob_a)
+            pick = m.player_a if pred.prob_a >= 0.5 else m.player_b
+            plays.append({
+                "sport": "tennis", "id": m.id, "kind": "moneyline",
+                "match": f"{m.player_a} vs {m.player_b}", "tournament": m.tournament,
+                "pick": f"{pick} to win", "prob": round(prob, 3),
+                "confidence": getattr(pred, "confidence", "high"),
+                "event_time": m.event_time, "surface": m.surface,
+                "score_key": prob + 0.05 * _confidence_rank(getattr(pred, "confidence", "high")),
+            })
+    # --- MLB (live from provider) ---
+    if USE_REAL:
+        try:
+            from mlb_provider import get_games
+            for g in get_games(target):
+                if g["status"] == "finished":
+                    continue
+                prob = max(g["prob_home"], 1 - g["prob_home"])
+                pick = g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"]
+                plays.append({
+                    "sport": "mlb", "id": g["id"], "kind": "moneyline",
+                    "match": f"{g['away']['name']} @ {g['home']['name']}",
+                    "tournament": g.get("venue", ""),
+                    "pick": f"{pick} to win", "prob": round(prob, 3),
+                    "confidence": g["confidence"], "event_time": g.get("event_time"),
+                    "score_key": prob + 0.05 * _confidence_rank(g["confidence"]),
+                })
+        except Exception as e:
+            print(f"[picks] mlb gather failed: {e}")
+    # --- NBA & NFL (live from ESPN) ---
+    for sp in ("nba", "nfl"):
+        try:
+            from espn_provider import get_games as _espn_games
+            for g in _espn_games(sp, target):
+                if g["status"] == "finished":
+                    continue
+                prob = max(g["prob_home"], 1 - g["prob_home"])
+                pick = g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"]
+                plays.append({
+                    "sport": sp, "id": g["id"], "kind": "moneyline",
+                    "match": f"{g['away']['name']} @ {g['home']['name']}",
+                    "tournament": g.get("venue", ""),
+                    "pick": f"{pick} to win", "prob": round(prob, 3),
+                    "confidence": g["confidence"], "event_time": g.get("event_time"),
+                    "score_key": prob + 0.05 * _confidence_rank(g["confidence"]),
+                })
+        except Exception as e:
+            print(f"[picks] {sp} gather failed: {e}")
+    plays.sort(key=lambda p: -p["score_key"])
+    return plays
+
+
+def _short_reason(p):
+    pct = round(p["prob"] * 100)
+    if p["sport"] == "tennis":
+        base = f"Model favors {p['pick'].replace(' to win','')} at {pct}%"
+        if p.get("surface") and p["surface"] != "Unknown":
+            base += f" on {p['surface'].lower()}"
+        return base + f" \u2014 {p['confidence']} confidence."
+    return f"Model favors {p['pick'].replace(' to win','')} at {pct}% \u2014 {p['confidence']} confidence."
+
+@app.get("/api/picks/free")
+def free_picks(date: str | None = None):
+    """3-4 highest-confidence plays of the day across sports (the free tier)."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    _ensure_day(target)
+    plays = _gather_plays(target)
+    # only show genuinely confident plays
+    strong = [p for p in plays if p["confidence"] != "low" and p["prob"] >= 0.62][:4]
+    for p in strong:
+        p["reason"] = _short_reason(p)
+        p.pop("score_key", None)
+    return {"date": target.isoformat(), "picks": strong}
+
+
+@app.get("/api/picks/best")
+def best_bets(date: str | None = None, sport: str | None = None, min_prob: float = 0.0):
+    """Larger, filterable set of model plays with deeper detail (premium-style)."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    _ensure_day(target)
+    plays = _gather_plays(target)
+    out = []
+    for p in plays:
+        if sport and p["sport"] != sport:
+            continue
+        if p["prob"] < min_prob:
+            continue
+        p["reason"] = _short_reason(p)
+        p.pop("score_key", None)
+        out.append(p)
+    return {"date": target.isoformat(), "count": len(out), "picks": out}
+
+
+def _team_writeup(g, sport):
+    league = sport.upper()
+    fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
+    dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
+    favp = round((g["prob_home"] if g["prob_home"] >= 0.5 else 1 - g["prob_home"]) * 100)
+    margin = abs(g["exp_margin"])
+    s = [f"The model makes {fav['name']} the {league} pick at {favp}%"
+         + (f" at home." if g['prob_home'] >= 0.5 else " on the road.")]
+    if fav["record"] and dog["record"]:
+        s.append(f"Records: {fav['name']} {fav['record']} vs {dog['name']} {dog['record']}.")
+    s.append(f"Projected margin is about {margin:.0f} point{'s' if margin != 1 else ''} in "
+             f"{fav['name']}'s favor.")
+    s.append(f"Confidence is {g['confidence']}.")
+    return " ".join(s)
+
+
+_TEAM_AI_PROMPT = """You are a {league} analyst writing a short game preview.
+Use ONLY these facts; invent nothing. 2-3 tight paragraphs on why the model favors the pick,
+covering records, the projected margin, and home/road. Natural prose, no markdown.
+
+FACTS:
+{facts}
+"""
+
+
+def _team_analysis(g, sport):
+    base = _team_writeup(g, sport)
+    if LLM_COMPLETE is None:
+        return base
+    import json as _j
+    facts = {
+        "league": sport.upper(), "home": g["home"]["name"], "away": g["away"]["name"],
+        "home_record": g["home"]["record"], "away_record": g["away"]["record"],
+        "home_win_pct": round(g["prob_home"] * 100), "exp_margin": g["exp_margin"],
+        "venue": g.get("venue"), "confidence": g["confidence"],
+    }
+    try:
+        return LLM_COMPLETE(_TEAM_AI_PROMPT.format(league=sport.upper(),
+                                                   facts=_j.dumps(facts, indent=2))).strip() or base
+    except Exception:
+        return base
+
+
+@app.get("/api/{sport}/games")
+def team_games(sport: str, date: str | None = None):
+    if sport not in ("nba", "nfl"):
+        return []
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from espn_provider import get_games
+        return get_games(sport, target)
+    except Exception as e:
+        print(f"[{sport}] games failed: {e}")
+        return []
+
+
+@app.get("/api/{sport}/game/{game_id}")
+def team_game(sport: str, game_id: str, date: str | None = None):
+    if sport not in ("nba", "nfl"):
+        return {"error": "bad sport"}
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from espn_provider import get_game
+        g = get_game(sport, target, game_id)
+    except Exception as e:
+        print(f"[{sport}] game failed: {e}")
+        g = None
+    if not g:
+        return {"error": "not found"}
+    g = dict(g)
+    g["analysis"] = _team_analysis(g, sport)
+    try:
+        from betting import team_lines
+        g["lines"] = team_lines(g["prob_home"], g["exp_margin"], sport)
+    except Exception as e:
+        print(f"[{sport}] lines failed: {e}")
+    return g
+
+
+@app.get("/api/mlb/props/{game_id}")
+def mlb_props(game_id: int, date: str | None = None):
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from mlb_provider import get_props
+        return get_props(target, game_id)
+    except Exception as e:
+        print(f"[mlb] props failed: {e}")
+        return {"props": []}
+
+
+@app.get("/api/{sport}/props/{game_id}")
+def team_props(sport: str, game_id: str, date: str | None = None):
+    if sport not in ("nba", "nfl"):
+        return {"props": []}
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from espn_provider import get_props
+        return get_props(sport, target, game_id)
+    except Exception as e:
+        print(f"[{sport}] props failed: {e}")
+        return {"props": []}
 
 
 @app.websocket("/ws/live")

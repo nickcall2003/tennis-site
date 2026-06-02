@@ -107,6 +107,38 @@ class PredictionEngine:
     def train_from_csv(self, path):
         self._ingest_url(path)
 
+    # ---- precomputed ratings (memory-saver) ------------------------------
+    # Train once offline, export to a small JSON, and have the live server LOAD
+    # that JSON instead of pandas+CSVs. Cuts the biggest memory user entirely
+    # while preserving every bit of the historical training.
+
+    def export_ratings(self, path):
+        import json
+        data = {
+            "overall": self.model.overall,
+            "surface": {s: dict(v) for s, v in self.model.surface.items()},
+            "matches_overall": self.model.matches_overall,
+            "by_key": self._by_key,
+        }
+        with open(path, "w") as f:
+            json.dump(data, f)
+        return len(self.model.overall)
+
+    def load_ratings(self, path):
+        """Load precomputed ratings. Returns player count, or 0 if unavailable."""
+        import json
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except Exception:
+            return 0
+        self.model.overall = {k: float(v) for k, v in data.get("overall", {}).items()}
+        for s, v in data.get("surface", {}).items():
+            self.model.surface[s] = {k: float(val) for k, val in v.items()}
+        self.model.matches_overall = data.get("matches_overall", {}) or {}
+        self._by_key = {k: float(v) for k, v in data.get("by_key", {}).items()}
+        return len(self.model.overall)
+
     def preset_demo_ratings(self):
         demo = {"Carlos Alcaraz": 2120, "Casper Ruud": 1870, "Jannik Sinner": 2150,
                 "Daniil Medvedev": 1980, "Iga Swiatek": 2100, "Aryna Sabalenka": 2060,
