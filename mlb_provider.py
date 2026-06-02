@@ -1,0 +1,403 @@
+"""
+mlb_provider.py
+---------------
+Adapter for the free, official MLB Stats API (https://statsapi.mlb.com) — no key.
+
+Pulls a day's games with probable pitchers and live scores, enriches each side
+with team offense, starter ERA, bullpen ERA, ballpark factor and weather, then
+runs mlb_model.predict_game. Results are cached in memory per date (MLB has
+~15 games/day, so this is light) and refreshed for live scores.
+
+Everything that enriches a game is wrapped in try/except: if a stat call fails
+the model simply falls back to league average for that input, so a game always
+gets a prediction.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import time
+
+import mlb_data as MD
+from mlb_model import GameFactors, TeamInput, predict_game
+
+BASE = "https://statsapi.mlb.com/api/v1"
+SEASON = dt.date.today().year
+
+_team_cache = {}       # team_id -> (ts, {rpg, bullpen_era})
+_pitcher_cache = {}    # pitcher_id -> (ts, {era, ip})
+_weather_cache = {}    # (lat,lon) -> (ts, factor)
+_games_cache = {}      # date -> (ts, [games])
+_DAY_TTL = 6 * 3600
+_LIVE_TTL = 25         # seconds for the day's score refresh
+
+
+def _get(url, params=None):
+    import httpx
+    r = httpx.get(url, params=params or {}, timeout=20.0)
+    r.raise_for_status()
+    return r.json()
+
+
+# ---- enrichment ---------------------------------------------------------
+
+def _team_stats(team_id):
+    c = _team_cache.get(team_id)
+    if c and time.time() - c[0] < _DAY_TTL:
+        return c[1]
+    out = {"rpg": None, "bullpen_era": None}
+    try:
+        hit = _get(f"{BASE}/teams/{team_id}/stats",
+                   {"stats": "season", "group": "hitting", "season": SEASON})
+        stat = hit["stats"][0]["splits"][0]["stat"]
+        runs, games = float(stat.get("runs", 0)), float(stat.get("gamesPlayed", 0) or 0)
+        if games:
+            out["rpg"] = runs / games
+    except Exception:
+        pass
+    try:
+        pit = _get(f"{BASE}/teams/{team_id}/stats",
+                   {"stats": "season", "group": "pitching", "season": SEASON})
+        stat = pit["stats"][0]["splits"][0]["stat"]
+        out["bullpen_era"] = float(stat.get("era")) if stat.get("era") else None
+    except Exception:
+        pass
+    _team_cache[team_id] = (time.time(), out)
+    return out
+
+
+def _pitcher_stats(pid):
+    if not pid:
+        return {"era": None, "ip": None, "name": None}
+    c = _pitcher_cache.get(pid)
+    if c and time.time() - c[0] < _DAY_TTL:
+        return c[1]
+    out = {"era": None, "ip": None, "name": None}
+    try:
+        data = _get(f"{BASE}/people/{pid}",
+                    {"hydrate": f"stats(group=[pitching],type=[season],season={SEASON})"})
+        person = data["people"][0]
+        out["name"] = person.get("fullName")
+        splits = person["stats"][0]["splits"][0]["stat"]
+        out["era"] = float(splits.get("era")) if splits.get("era") not in (None, "-.--") else None
+        ip = splits.get("inningsPitched")
+        out["ip"] = float(ip) if ip else None
+    except Exception:
+        pass
+    _pitcher_cache[pid] = (time.time(), out)
+    return out
+
+
+def _weather_factor(lat, lon, dome):
+    if dome or lat is None:
+        return 1.0, "Indoor / roof"
+    key = (round(lat, 2), round(lon, 2))
+    c = _weather_cache.get(key)
+    if c and time.time() - c[0] < _DAY_TTL:
+        return c[1]
+    factor, note = 1.0, None
+    try:
+        data = _get("https://api.open-meteo.com/v1/forecast",
+                    {"latitude": lat, "longitude": lon, "current": "temperature_2m,wind_speed_10m",
+                     "temperature_unit": "fahrenheit", "wind_speed_unit": "mph"})
+        cur = data.get("current", {})
+        temp, wind = cur.get("temperature_2m"), cur.get("wind_speed_10m")
+        # Warm air carries the ball; strong wind adds variance (modeled as a small boost).
+        if temp is not None:
+            factor *= 1.0 + max(-0.04, min(0.05, (temp - 70) * 0.0015))
+        if wind is not None and wind > 12:
+            factor *= 1.02
+        note = (f"{round(temp)}\u00b0F" if temp is not None else "") + \
+               (f", wind {round(wind)} mph" if wind is not None else "")
+    except Exception:
+        pass
+    res = (round(factor, 3), note)
+    _weather_cache[key] = (time.time(), res)
+    return res
+
+
+# ---- schedule -----------------------------------------------------------
+
+def _status(game):
+    abs = (game.get("status", {}) or {}).get("abstractGameState", "")
+    if abs == "Final":
+        return "finished"
+    if abs == "Live":
+        return "live"
+    return "scheduled"
+
+
+def _ct_time(iso):
+    """Game time (UTC ISO) -> Central-time 'H:MM AM/PM'."""
+    try:
+        utc = dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        ct = utc - dt.timedelta(hours=5)   # America/Chicago (DST; close enough for display)
+        h = ct.hour % 12 or 12
+        return f"{h}:{ct.minute:02d} {'AM' if ct.hour < 12 else 'PM'} CT"
+    except Exception:
+        return ""
+
+
+def get_games(date: dt.date, force_live=False):
+    key = date.isoformat()
+    c = _games_cache.get(key)
+    ttl = _LIVE_TTL if force_live else _DAY_TTL
+    if c and time.time() - c[0] < ttl and not force_live:
+        return c[1]
+
+    try:
+        sched = _get(f"{BASE}/schedule",
+                     {"sportId": 1, "date": key, "gameType": "R",
+                      "hydrate": "probablePitcher,linescore,team"})
+    except Exception:
+        return []
+    games = []
+    dates = sched.get("dates", [])
+    raw_games = dates[0]["games"] if dates else []
+    for g in raw_games:
+        gid = g.get("gamePk")
+        home_t = g["teams"]["home"]; away_t = g["teams"]["away"]
+        home_id = home_t["team"]["id"]; away_id = away_t["team"]["id"]
+        hmeta = MD.team_meta(home_id) or {}; ameta = MD.team_meta(away_id) or {}
+        hp = _pitcher_stats((home_t.get("probablePitcher") or {}).get("id"))
+        ap = _pitcher_stats((away_t.get("probablePitcher") or {}).get("id"))
+        hs = _team_stats(home_id); as_ = _team_stats(away_id)
+        wfactor, wnote = _weather_factor(hmeta.get("lat"), hmeta.get("lon"), hmeta.get("dome", False))
+
+        home = TeamInput(name=home_t["team"].get("name", "Home"), abbr=hmeta.get("abbr", ""),
+                         team_id=home_id, runs_per_game=hs["rpg"],
+                         starter_name=hp["name"] or (home_t.get("probablePitcher") or {}).get("fullName"),
+                         starter_era=hp["era"], starter_ip=hp["ip"], bullpen_era=hs["bullpen_era"],
+                         logo=MD.logo_url(home_id))
+        away = TeamInput(name=away_t["team"].get("name", "Away"), abbr=ameta.get("abbr", ""),
+                         team_id=away_id, runs_per_game=as_["rpg"],
+                         starter_name=ap["name"] or (away_t.get("probablePitcher") or {}).get("fullName"),
+                         starter_era=ap["era"], starter_ip=ap["ip"], bullpen_era=as_["bullpen_era"],
+                         logo=MD.logo_url(away_id))
+
+        gf = GameFactors(park_factor=hmeta.get("park", 1.0), weather_factor=wfactor)
+        pred = predict_game(home, away, gf)
+
+        ls = g.get("linescore", {}) or {}
+        status = _status(g)
+        prominence = (home.runs_per_game or 4.4) + (away.runs_per_game or 4.4)
+
+        games.append({
+            "id": gid, "sport": "mlb", "status": status,
+            "event_time": _ct_time(g.get("gameDate", "")),
+            "home": _side(home, home_t, hp), "away": _side(away, away_t, ap),
+            "prob_home": pred["prob_home"], "confidence": pred["confidence"],
+            "exp_runs_home": pred["exp_runs_home"], "exp_runs_away": pred["exp_runs_away"],
+            "factors": pred["factors"], "park_factor": gf.park_factor,
+            "weather": wnote, "venue": (g.get("venue", {}) or {}).get("name", ""),
+            "prominence": prominence,
+            "score": {
+                "home": home_t.get("score"), "away": away_t.get("score"),
+                "inning": ls.get("currentInningOrdinal", ""),
+                "state": ls.get("inningState", ""),
+            },
+            "winner": ("home" if (status == "finished" and (home_t.get("score") or 0) > (away_t.get("score") or 0))
+                       else "away" if status == "finished" else None),
+        })
+    _games_cache[key] = (time.time(), games)
+    return games
+
+
+def _side(t: TeamInput, raw, pitcher):
+    rec = raw.get("leagueRecord", {}) or {}
+    return {
+        "team_id": t.team_id, "name": t.name, "abbr": t.abbr, "logo": t.logo,
+        "record": f"{rec.get('wins','')}-{rec.get('losses','')}" if rec.get("wins") is not None else "",
+        "runs_per_game": round(t.runs_per_game, 2) if t.runs_per_game else None,
+        "bullpen_era": t.bullpen_era,
+        "starter": {"name": t.starter_name, "era": t.starter_era, "ip": t.starter_ip},
+    }
+
+
+def get_game(date: dt.date, game_id: int):
+    for g in get_games(date, force_live=True):
+        if g["id"] == game_id:
+            return g
+    return None
+
+
+# ---- batter vs pitcher (lazy, detail-page only) -------------------------
+
+def _lineup_or_roster(game_id, team_id, side_key):
+    """
+    Return a list of batter dicts [{id,name,order}] for a side.
+    Prefers the posted lineup from the live boxscore; falls back to the
+    team's position-player roster if the lineup isn't out yet.
+    """
+    # 1) try the posted lineup from the game's boxscore
+    try:
+        box = _get(f"https://statsapi.mlb.com/api/v1/game/{game_id}/boxscore")
+        team = box["teams"][side_key]
+        order = team.get("battingOrder") or []
+        players = team.get("players", {})
+        out = []
+        for i, pid in enumerate(order):
+            p = players.get(f"ID{pid}") or {}
+            person = p.get("person", {})
+            out.append({"id": person.get("id", pid),
+                        "name": person.get("fullName", "Batter"),
+                        "order": i + 1})
+        if out:
+            return out, True   # True = real posted lineup
+    except Exception:
+        pass
+    # 2) fall back to roster position players (no batting order yet)
+    try:
+        roster = _get(f"{BASE}/teams/{team_id}/roster", {"rosterType": "active"})
+        out = []
+        for r in roster.get("roster", []):
+            pos = (r.get("position", {}) or {}).get("abbreviation", "")
+            if pos in ("P",):       # skip pitchers
+                continue
+            person = r.get("person", {})
+            out.append({"id": person.get("id"), "name": person.get("fullName", "Batter"), "order": None})
+        return out[:9], False
+    except Exception:
+        return [], False
+
+
+def _bvp(batter_id, pitcher_id):
+    """Career batter-vs-pitcher line, or None if no history / on error."""
+    if not batter_id or not pitcher_id:
+        return None
+    try:
+        data = _get(f"{BASE}/people/{batter_id}",
+                    {"hydrate": f"stats(group=[hitting],type=[vsPlayer],opposingPlayerId={pitcher_id})"})
+        person = data["people"][0]
+        for blk in person.get("stats", []):
+            # the career-total split is the most useful single line
+            tkey = (blk.get("type", {}) or {}).get("displayName", "")
+            splits = blk.get("splits", [])
+            if not splits:
+                continue
+            # prefer the "vsPlayerTotal" aggregate if present, else first split
+            st = splits[-1].get("stat", {}) if "Total" in tkey else splits[0].get("stat", {})
+            ab = int(st.get("atBats", 0) or 0)
+            if ab <= 0:
+                continue
+            return {
+                "ab": ab, "h": int(st.get("hits", 0) or 0),
+                "hr": int(st.get("homeRuns", 0) or 0),
+                "rbi": int(st.get("rbi", 0) or 0),
+                "bb": int(st.get("baseOnBalls", 0) or 0),
+                "so": int(st.get("strikeOuts", 0) or 0),
+                "avg": st.get("avg", ""),
+            }
+    except Exception:
+        return None
+    return None
+
+
+def get_matchups(date: dt.date, game_id: int):
+    """
+    For a game, return each team's batters vs the OPPONENT's starting pitcher.
+    Lazy: call only when a detail page is opened.
+    """
+    g = get_game(date, game_id)
+    if not g:
+        return {"error": "not found"}
+    home_sp = (g["home"]["starter"] or {})
+    away_sp = (g["away"]["starter"] or {})
+    # need pitcher IDs — fetch from the schedule's probable pitcher ids
+    home_pid = _starter_id(date, game_id, "home")
+    away_pid = _starter_id(date, game_id, "away")
+
+    def build(side_key, team_id, opp_pitcher_id, opp_pitcher_name):
+        batters, posted = _lineup_or_roster(game_id, team_id, side_key)
+        rows = []
+        for b in batters:
+            line = _bvp(b["id"], opp_pitcher_id)
+            rows.append({"batter": b["name"], "order": b["order"], "line": line})
+        return {"pitcher": opp_pitcher_name, "posted": posted, "batters": rows}
+
+    return {
+        "home_team": g["home"]["name"], "away_team": g["away"]["name"],
+        # home batters face the AWAY starter, and vice-versa
+        "home": build("home", g["home"]["team_id"], away_pid, away_sp.get("name")),
+        "away": build("away", g["away"]["team_id"], home_pid, home_sp.get("name")),
+    }
+
+
+def _starter_id(date, game_id, side_key):
+    """Look up a probable starter's player id from the cached schedule."""
+    try:
+        sched = _get(f"{BASE}/schedule",
+                     {"sportId": 1, "date": date.isoformat(), "gamePk": game_id,
+                      "hydrate": "probablePitcher"})
+        for d in sched.get("dates", []):
+            for g in d.get("games", []):
+                if g.get("gamePk") == game_id:
+                    pp = g["teams"][side_key].get("probablePitcher") or {}
+                    return pp.get("id")
+    except Exception:
+        pass
+    return None
+
+
+# ---- injuries (roster status) -------------------------------------------
+
+_injury_cache = {}    # team_id -> (ts, [ {name, position, status, note} ])
+_INJ_TTL = 3 * 3600
+
+# Roster status codes/descriptions that mean "not available to play".
+_OUT_HINTS = ("injured list", "10-day", "15-day", "60-day", "7-day",
+              "disabled", "bereavement", "paternity", "restricted",
+              "suspended", "il")
+
+
+def _is_out(status_desc: str) -> bool:
+    s = (status_desc or "").lower()
+    return any(h in s for h in _OUT_HINTS)
+
+
+def get_injuries(team_id):
+    """
+    Return a team's currently-unavailable players from the roster status.
+    [{name, position, status, note}]. Cached a few hours.
+    """
+    if not team_id:
+        return []
+    c = _injury_cache.get(team_id)
+    if c and time.time() - c[0] < _INJ_TTL:
+        return c[1]
+    out = []
+    try:
+        data = _get(f"{BASE}/teams/{team_id}/roster",
+                    {"rosterType": "fullRoster",
+                     "hydrate": "person(injuries)"})
+        for r in data.get("roster", []):
+            status = (r.get("status", {}) or {}).get("description", "")
+            if not _is_out(status):
+                continue
+            person = r.get("person", {}) or {}
+            pos = (r.get("position", {}) or {}).get("abbreviation", "")
+            # injury note, if the hydrate provided one
+            note = ""
+            injuries = person.get("injuries") or []
+            if injuries:
+                inj = injuries[0]
+                note = inj.get("description") or inj.get("comment") or ""
+            out.append({"name": person.get("fullName", "Player"),
+                        "position": pos, "status": status, "note": note})
+    except Exception:
+        pass
+    # pitchers and regulars first-ish: sort P last so position players show on top
+    out.sort(key=lambda x: (x["position"] == "P", x["name"]))
+    _injury_cache[team_id] = (time.time(), out)
+    return out
+
+
+def get_game_injuries(date: dt.date, game_id: int):
+    g = get_game(date, game_id)
+    if not g:
+        return {"error": "not found"}
+    return {
+        "home_team": g["home"]["name"], "away_team": g["away"]["name"],
+        "home": get_injuries(g["home"]["team_id"]),
+        "away": get_injuries(g["away"]["team_id"]),
+    }

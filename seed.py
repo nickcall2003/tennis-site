@@ -134,17 +134,34 @@ def build_day(provider, engine: PredictionEngine, day) -> int:
             if db.query(Match).filter_by(provider_match_id=info.provider_match_id).first():
                 continue  # already stored (idempotent)
 
-            prob_a, confident = engine.predict_feed(info.player_a, info.player_b)
+            prob_a, confidence = engine.predict_feed(info.player_a, info.player_b)
+            meta = provider.fixture_meta(info.provider_match_id) if hasattr(provider, "fixture_meta") else {}
+
+            # prominence = how "big" the match is, for the home highlights.
+            # Sum of both players' ratings; unknown players score low. Tour
+            # events get a small bump over challengers.
+            ra, _ = engine._rating(info.player_a)
+            rb, _ = engine._rating(info.player_b)
+            prominence = (ra or 1450) + (rb or 1450)
+            if info.tier in ("ATP", "WTA"):
+                prominence += 150
 
             match = Match(
                 provider_match_id=info.provider_match_id, tier=info.tier,
                 tournament=info.tournament, surface=info.surface,
                 player_a=info.player_a, player_b=info.player_b,
                 scheduled=info.scheduled, best_of=info.best_of, status=info.status,
+                event_time=meta.get("event_time"),
+                tournament_key=meta.get("tournament_key"),
+                round=meta.get("round"),
+                player_a_key=meta.get("player_a_key"),
+                player_b_key=meta.get("player_b_key"),
+                prominence=prominence,
             )
             db.add(match)
             db.flush()
-            db.add(Prediction(match_id=match.id, prob_a=prob_a, confident=confident))
+            db.add(Prediction(match_id=match.id, prob_a=prob_a,
+                              confident=(confidence != "low"), confidence=confidence))
 
             score = provider.get_live_score(info.provider_match_id)
             db.add(LiveState(

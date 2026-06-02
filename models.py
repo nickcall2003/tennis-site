@@ -34,6 +34,13 @@ class Match(Base):
     scheduled: Mapped[datetime] = mapped_column(DateTime, index=True)
     best_of: Mapped[int] = mapped_column(Integer, default=3)
     status: Mapped[str] = mapped_column(String(16), default="scheduled", index=True)
+    # new fields for the richer UI
+    event_time: Mapped[str | None] = mapped_column(String(8), nullable=True)      # "13:30" CT
+    tournament_key: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    round: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    player_a_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    player_b_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    prominence: Mapped[float] = mapped_column(Float, default=0.0, index=True)     # for "biggest matches"
 
     prediction: Mapped["Prediction"] = relationship(back_populates="match", uselist=False)
     live: Mapped["LiveState"] = relationship(back_populates="match", uselist=False)
@@ -49,7 +56,8 @@ class Prediction(Base):
     prob_a: Mapped[float] = mapped_column(Float)            # model: P(player_a wins)
     fair_prob_a: Mapped[float | None] = mapped_column(Float, nullable=True)   # de-vigged book
     edge_a: Mapped[float | None] = mapped_column(Float, nullable=True)        # model - fair
-    confident: Mapped[bool] = mapped_column(default=True)   # False if a player was unmatched
+    confident: Mapped[bool] = mapped_column(default=True)   # legacy flag
+    confidence: Mapped[str] = mapped_column(String(8), default="high")  # high|medium|low
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     match: Mapped["Match"] = relationship(back_populates="prediction")
