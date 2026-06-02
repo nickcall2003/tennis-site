@@ -265,7 +265,7 @@ function render(){renderTabs();renderBubbles();loadTournaments();
     el.className="card"+(fin?(m.correct?" correct":(m.correct===false?" wrong":"")):m.status==="live"?" live":"");
     el.innerHTML=matchCardHTML(m);el.onclick=()=>openDetail(m.id);list.appendChild(el);});}
 function showView(detail){document.getElementById("main").style.display=detail?"none":"";
-  document.getElementById("side").style.display=detail?"none":"";document.getElementById("detail").style.display=detail?"block":"none";}
+  document.getElementById("side").style.display=(detail||sport==="mlb")?"none":"";document.getElementById("detail").style.display=detail?"block":"none";}
 async function openDetail(id){detailId=id;detailTab="analysis";showView(true);location.hash="m"+id;
   document.getElementById("detail").innerHTML='<div class="empty">Loading match&hellip;</div>';await refreshDetail();
   if(detailTimer)clearInterval(detailTimer);detailTimer=setInterval(()=>{if(detailId)refreshDetail(true);},12000);}
@@ -292,8 +292,10 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
     if(m.h2h)meta+='<div class="meta-line"><b>Head-to-head:</b> '+m.h2h+'</div>';
     if(m.form_a)meta+='<div class="meta-line"><b>'+m.player_a+':</b> '+m.form_a+" "+formPills(m.recent_a)+'</div>';
     if(m.form_b)meta+='<div class="meta-line"><b>'+m.player_b+':</b> '+m.form_b+" "+formPills(m.recent_b)+'</div>';
+    if(m.weather)meta+='<div class="meta-line"><b>Weather:</b> '+m.weather+(m.weather_effect?' &middot; '+m.weather_effect:"")+'</div>';
     meta+='<div class="meta-line"><b>Confidence:</b> '+confLabel+'</div>';
-    body='<div class="panel"><div class="analysis">'+(m.analysis||"")+'</div>'+meta+'</div>';
+    const paras=(m.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
+    body='<div class="panel"><div class="analysis">'+paras+'</div>'+meta+'</div>';
   }else{body='<div class="panel">'+statsHTML(m)+'</div>';}
   document.getElementById("detail").innerHTML='<button class="back" onclick="closeDetail()">\u2039 Back to matches</button>'+head+tabs+body;}
 function setDetailTab(t){detailTab=t;refreshDetail(true);}
@@ -311,8 +313,10 @@ function statsHTML(m){const s=m.stats;
   h+=statRow("Total Games Won",a.games_won,b.games_won,a.games_won,b.games_won);
   h+=statRow("Total Points Won",a.total_points_won,b.total_points_won,a.total_points_won,b.total_points_won);
   return h;}
-async function reload(){if(detailId)return;renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip;</div>';
-  if(sport==="mlb"){await loadMLB();renderMLB();}else{await loadDay();render();loadAccuracy();}}
+async function reload(){if(detailId)return;const tok=++loadToken;const mySport=sport;
+  renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
+  if(mySport==="mlb"){await loadMLB();if(tok!==loadToken||sport!=="mlb")return;renderMLB();}
+  else{await loadDay();if(tok!==loadToken||sport!=="tennis")return;render();}}
 function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";const ws=new WebSocket(proto+"://"+location.host+"/ws/live");
   ws.onclose=()=>setTimeout(connectWS,1500);
   ws.onmessage=ev=>{const msg=JSON.parse(ev.data);if(msg.type!=="score")return;const m=byId[msg.match_id];if(!m)return;
@@ -321,6 +325,7 @@ function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";const w
     if(!detailId)render();};}
 // ===== MLB =====
 let sport="tennis",mlbGames=[],mlbDetailTab="prediction",mlbMatchups=null,mlbInjuries=null,mlbGame=null;
+let loadToken=0;
 function setSport(s){if(s===sport){toggleMenu(false);return;}
   sport=s;tFilter=null;tabMode="all";if(detailId)closeDetail();
   document.getElementById("sport-tag").textContent=s==="mlb"?"MLB":"Tennis";
@@ -328,6 +333,7 @@ function setSport(s){if(s===sport){toggleMenu(false);return;}
   document.getElementById("acc-badge").style.display=s==="mlb"?"none":"";
   document.getElementById("side").style.display=s==="mlb"?"none":"";
   document.querySelector(".shell").style.gridTemplateColumns=s==="mlb"?"1fr":"";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
   toggleMenu(false);reload();}
 function toggleMenu(force){const m=document.getElementById("menu");const open=force===undefined?!m.classList.contains("open"):force;m.classList.toggle("open",open);}
 document.getElementById("menu-btn").onclick=e=>{e.stopPropagation();toggleMenu();};
@@ -430,7 +436,8 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
   let body;
   if(mlbDetailTab==="matchups"){body=matchupsHTML();}
   else if(mlbDetailTab==="injuries"){body=injuriesHTML();}
-  else{body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#e4d8c2;margin-bottom:18px">'+(g.analysis||"")+'</div>'+
+  else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
+    body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#e4d8c2;margin-bottom:18px">'+mp+'</div>'+
     '<div class="stat-sec">Why \u2014 the factors</div>'+
     '<div class="fac"><span class="va">'+g.away.abbr+'</span><span class="lab"></span><span class="vb">'+g.home.abbr+'</span></div>'+
     facRow("Projected runs",g.exp_runs_away,g.exp_runs_home)+
@@ -445,11 +452,12 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
 
 document.getElementById("home-link").onclick=closeDetail;
 window.addEventListener("hashchange",()=>{if(!location.hash&&detailId)closeDetail();});
-(async function(){await reload();connectWS();
+(async function(){await reload();connectWS();loadAccuracy();
   if(location.hash.indexOf("#m")===0)openDetail(parseInt(location.hash.slice(2)));
   else if(location.hash.indexOf("#g")===0){setSport("mlb");openMLBDetail(parseInt(location.hash.slice(2)));}
 })();
 setInterval(()=>{if(!detailId&&ymd(selected)===ymd(startOfDay(new Date())))reload();},30000);
+setInterval(loadAccuracy,300000);  // refresh 30-day badge every 5 min, independent of date
 </script>
 </body>
 </html>

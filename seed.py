@@ -146,6 +146,17 @@ def build_day(provider, engine: PredictionEngine, day) -> int:
             if info.tier in ("ATP", "WTA"):
                 prominence += 150
 
+            # weather (outdoor venues only; resolves by tournament/city)
+            wx_summary = wx_effect = None
+            try:
+                from weather import play_style_effect
+                wx = get_match_weather(info.tournament, info.scheduled)
+                if wx.applicable:
+                    wx_summary = wx.summary()
+                    wx_effect = play_style_effect(wx)
+            except Exception:
+                pass
+
             match = Match(
                 provider_match_id=info.provider_match_id, tier=info.tier,
                 tournament=info.tournament, surface=info.surface,
@@ -157,6 +168,7 @@ def build_day(provider, engine: PredictionEngine, day) -> int:
                 player_a_key=meta.get("player_a_key"),
                 player_b_key=meta.get("player_b_key"),
                 prominence=prominence,
+                weather=wx_summary, weather_effect=wx_effect,
             )
             db.add(match)
             db.flush()

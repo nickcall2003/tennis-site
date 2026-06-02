@@ -214,8 +214,47 @@ def _side(t: TeamInput, raw, pitcher):
     }
 
 
+def _refresh_scores(date: dt.date, games):
+    """Update only the live scores on already-built games (one schedule call)."""
+    key = date.isoformat()
+    try:
+        sched = _get(f"{BASE}/schedule",
+                     {"sportId": 1, "date": key, "gameType": "R", "hydrate": "linescore"})
+    except Exception:
+        return games
+    by_id = {}
+    for d in sched.get("dates", []):
+        for g in d.get("games", []):
+            by_id[g.get("gamePk")] = g
+    for game in games:
+        raw = by_id.get(game["id"])
+        if not raw:
+            continue
+        ht, at = raw["teams"]["home"], raw["teams"]["away"]
+        ls = raw.get("linescore", {}) or {}
+        status = _status(raw)
+        game["status"] = status
+        game["score"] = {"home": ht.get("score"), "away": at.get("score"),
+                         "inning": ls.get("currentInningOrdinal", ""),
+                         "state": ls.get("inningState", "")}
+        game["winner"] = ("home" if (status == "finished" and (ht.get("score") or 0) > (at.get("score") or 0))
+                          else "away" if status == "finished" else None)
+    _games_cache[key] = (time.time(), games)
+    return games
+
+
 def get_game(date: dt.date, game_id: int):
-    for g in get_games(date, force_live=True):
+    # Use the cached, fully-enriched day; refresh just the scores if it's stale.
+    key = date.isoformat()
+    c = _games_cache.get(key)
+    if c:
+        games = c[1]
+        if time.time() - c[0] >= _LIVE_TTL:
+            games = _refresh_scores(date, games)
+        for g in games:
+            if g["id"] == game_id:
+                return g
+    for g in get_games(date):
         if g["id"] == game_id:
             return g
     return None

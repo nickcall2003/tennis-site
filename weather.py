@@ -113,7 +113,7 @@ def parse_open_meteo(data: dict, when: datetime) -> WeatherReport:
 
 def get_match_weather(tournament: str, when: datetime) -> WeatherReport:
     """The function the rest of the app calls. Handles indoor gating + failures."""
-    venue = VENUES.get(tournament)
+    venue = resolve_venue(tournament)
     if venue is None:
         return WeatherReport(applicable=False, note="Venue location unknown.")
     lat, lon, indoor = venue
@@ -124,3 +124,61 @@ def get_match_weather(tournament: str, when: datetime) -> WeatherReport:
     if data is None:
         return WeatherReport(applicable=False, note="Weather data unavailable.")
     return parse_open_meteo(data, when)
+
+
+# Broader city/keyword fallback so common tour stops resolve even without an
+# exact VENUES entry. Matched as a substring of the tournament name (lowercased).
+CITY_HINTS: dict[str, tuple[float, float, bool]] = {
+    "melbourne": (-37.82, 144.98, False), "paris": (48.86, 2.35, False),
+    "london": (51.51, -0.13, False), "wimbledon": (51.43, -0.21, False),
+    "new york": (40.75, -73.85, False), "us open": (40.75, -73.85, False),
+    "madrid": (40.44, -3.68, False), "rome": (41.93, 12.45, False),
+    "monte": (43.74, 7.43, False), "indian wells": (33.72, -116.31, False),
+    "miami": (25.78, -80.13, False), "cincinnati": (39.10, -84.51, False),
+    "toronto": (43.65, -79.38, False), "montreal": (45.50, -73.57, False),
+    "barcelona": (41.39, 2.16, False), "dubai": (25.20, 55.27, False),
+    "acapulco": (16.86, -99.88, False), "rio": (-22.91, -43.17, False),
+    "buenos aires": (-34.60, -58.38, False), "shanghai": (31.23, 121.47, False),
+    "beijing": (39.90, 116.40, False), "tokyo": (35.68, 139.69, False),
+    "stuttgart": (48.78, 9.18, True), "vienna": (48.21, 16.37, True),
+    "basel": (47.56, 7.59, True), "halle": (52.06, 8.36, False),
+    "queens": (51.48, -0.21, False), "hamburg": (53.55, 9.99, False),
+    "estoril": (38.70, -9.40, False), "munich": (48.14, 11.58, False),
+    "geneva": (46.20, 6.14, False), "eastbourne": (50.77, 0.28, False),
+    "washington": (38.91, -77.01, False), "winston": (36.10, -80.24, False),
+    "adelaide": (-34.93, 138.60, False), "brisbane": (-27.47, 153.03, False),
+    "doha": (25.29, 51.53, False), "marseille": (43.30, 5.37, True),
+    "rotterdam": (51.92, 4.48, True), "metz": (49.12, 6.18, True),
+    "antwerp": (51.22, 4.40, True),
+}
+
+
+def resolve_venue(tournament: str):
+    """Find (lat, lon, indoor) for a tournament by exact match then city hint."""
+    if tournament in VENUES:
+        return VENUES[tournament]
+    name = (tournament or "").lower()
+    for key, loc in CITY_HINTS.items():
+        if key in name:
+            return loc
+    return None
+
+
+def play_style_effect(report: "WeatherReport") -> str | None:
+    """A grounded sentence on how the conditions tend to affect play."""
+    if not report or not report.applicable:
+        return None
+    bits = []
+    t = report.temp_c
+    wind = report.wind_kph or 0
+    desc = (report.description or "").lower()
+    if t is not None:
+        if t >= 30:
+            bits.append("Hot air is thinner and lively, so the ball flies \u2014 helping big servers and flat hitters.")
+        elif t <= 12:
+            bits.append("Cold, dense air slows the ball and deadens bounce, favoring patient baseliners and heavy topspin.")
+    if "overcast" in desc or "fog" in desc or "rain" in desc:
+        bits.append("Damp, heavy air makes the court play slower, rewarding grinders over shotmakers.")
+    if wind >= 20:
+        bits.append("Strong wind disrupts ball toss and timing \u2014 a leveler that can hurt the cleaner ball-striker.")
+    return " ".join(bits) if bits else None

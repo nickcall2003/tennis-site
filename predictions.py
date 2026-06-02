@@ -147,3 +147,42 @@ class PredictionEngine:
 
     def predict(self, player_a, player_b, surface):
         return self.model.win_probability(player_a, player_b, surface, surface_weight=0.5)
+
+    def analysis_facts(self, name_a, name_b, surface="Unknown"):
+        """
+        Structured, data-backed facts for the analysis writeup. Every value
+        here is derived from the rating model, so nothing is invented.
+        Returns a dict (all keys optional / None when not derivable).
+        """
+        ra, sa = self._rating(name_a)
+        rb, sb = self._rating(name_b)
+        facts = {"rated_a": ra is not None, "rated_b": rb is not None}
+        if ra is None or rb is None:
+            return facts
+
+        # overall edge
+        overall_p = expected_score(ra, rb)
+        facts["overall_prob_a"] = round(overall_p, 3)
+        facts["rating_gap"] = round(abs(ra - rb))
+        facts["edge_size"] = ("decisive" if abs(ra - rb) >= 150 else
+                              "clear" if abs(ra - rb) >= 70 else
+                              "slight" if abs(ra - rb) >= 25 else "negligible")
+
+        # surface-specific comparison (only if we have history-based surface ratings)
+        if surface in self.model.surface and sa == "history" and sb == "history":
+            sra = self.model.get_surface(name_a, surface)
+            srb = self.model.get_surface(name_b, surface)
+            surf_p = expected_score(sra, srb)
+            facts["surface_prob_a"] = round(surf_p, 3)
+            # does the surface help or hurt the favorite vs their overall level?
+            fav_overall = overall_p >= 0.5
+            fav_surface = surf_p >= 0.5
+            delta = surf_p - overall_p
+            facts["surface_swing"] = round(delta, 3)
+            if abs(delta) >= 0.04:
+                better = name_a if delta > 0 else name_b
+                facts["surface_note"] = (
+                    f"{surface} suits {better} more than their overall level suggests")
+            facts["surface_aligned"] = (fav_overall == fav_surface)
+        return facts
+

@@ -36,8 +36,34 @@ from ws import manager
 PROVIDER_NAME = os.environ.get("TENNIS_PROVIDER", "mock").lower()
 USE_REAL = PROVIDER_NAME == "apitennis"
 
-# Optional LLM for nicer write-ups. Leave None to use the deterministic template.
-LLM_COMPLETE = None
+# Optional AI narrative for write-ups. If ANTHROPIC_API_KEY is set in the
+# environment, we use Claude to turn the computed FACTS into richer prose
+# (under a strict "use only these facts" instruction). With no key, the
+# deterministic template is used — same facts, plainer wording, no cost.
+def _make_llm_complete():
+    key = os.environ.get("ANTHROPIC_API_KEY")
+    if not key:
+        return None
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+    except Exception as e:
+        print(f"[ai] anthropic unavailable, using template ({e})")
+        return None
+
+    def complete(prompt: str) -> str:
+        msg = client.messages.create(
+            model=model, max_tokens=400,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        parts = [b.text for b in msg.content if getattr(b, "type", "") == "text"]
+        return "\n".join(parts).strip()
+    print(f"[ai] AI narrative enabled with {model}")
+    return complete
+
+
+LLM_COMPLETE = _make_llm_complete()
 
 if USE_REAL:
     from apitennis import APITennisProvider
@@ -80,10 +106,22 @@ def _ensure_day(day: dt.date) -> None:
         print(f"[build] could not build {key}: {e}")
 
 
+def _backfill_recent(days: int = 30) -> None:
+    """Build the past `days` days once at startup so 30-day accuracy is real.
+    Past days are settled, so this is a one-time cost; today keeps refreshing."""
+    if not USE_REAL:
+        return
+    today = dt.date.today()
+    for off in range(1, days + 1):
+        _ensure_day(today - dt.timedelta(days=off))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if USE_REAL:
         _ensure_day(dt.date.today())
+        # backfill prior days in the background so startup isn't blocked
+        asyncio.get_event_loop().run_in_executor(None, _backfill_recent, 30)
     else:
         build_today(provider)
     task = asyncio.create_task(live_engine.run())
@@ -239,10 +277,20 @@ def match_detail(match_id: int):
             except Exception as e:
                 print(f"[detail] stats failed: {e}")
 
+        # data-backed facts for the deeper writeup
+        facts = {}
+        if USE_REAL and engine is not None:
+            try:
+                facts = engine.analysis_facts(m.player_a, m.player_b, m.surface)
+            except Exception as e:
+                print(f"[detail] facts failed: {e}")
+
+        form_form_a = form_form_b = None
         ctx = MatchContext(
             player_a=m.player_a, player_b=m.player_b, tier=m.tier, surface=m.surface,
             prob_a=prob_a, confidence=confidence, form_a=fa, form_b=fb,
             h2h=h2h, recent_a=ra_list, recent_b=rb_list,
+            facts=facts, weather=m.weather, weather_effect=m.weather_effect,
         )
         writeup = generate_writeup(ctx, LLM_COMPLETE)
 
@@ -254,6 +302,7 @@ def match_detail(match_id: int):
             "analysis": writeup,
             "h2h": h2h, "form_a": fa, "form_b": fb,
             "recent_a": ra_list, "recent_b": rb_list,
+            "weather": m.weather, "weather_effect": m.weather_effect,
             "score": None if not live else {
                 "sets_a": _sets_list(live.sets_a), "sets_b": _sets_list(live.sets_b),
                 "game_a": live.game_a, "game_b": live.game_b,
@@ -263,9 +312,15 @@ def match_detail(match_id: int):
         }
 
 
+_acc_cache = {"ts": 0.0, "data": None}
+
+
 @app.get("/api/accuracy")
 def accuracy(days: int = 30):
-    """Rolling accuracy over finished matches in the last N days (from the DB)."""
+    """Rolling accuracy over finished matches in the last N days (cached 5 min)."""
+    import time as _t
+    if _acc_cache["data"] and _t.time() - _acc_cache["ts"] < 300 and _acc_cache["data"]["days"] == days:
+        return _acc_cache["data"]
     since = dt.datetime.now() - dt.timedelta(days=days)
     picks = correct = 0
     with SessionLocal() as db:
@@ -283,7 +338,10 @@ def accuracy(days: int = 30):
             if predicted == live.winner:
                 correct += 1
     pct = round(100 * correct / picks) if picks else None
-    return {"days": days, "picks": picks, "correct": correct, "accuracy": pct}
+    data = {"days": days, "picks": picks, "correct": correct, "accuracy": pct}
+    _acc_cache["ts"] = _t.time()
+    _acc_cache["data"] = data
+    return data
 
 
 @app.get("/api/mlb/games")
@@ -321,6 +379,38 @@ def _mlb_writeup(g):
     return " ".join(s)
 
 
+_MLB_AI_PROMPT = """You are a baseball analyst writing a short MLB game preview.
+Write 2-3 tight paragraphs on why the model favors the pick. Use ONLY these facts; do not
+invent any stat, injury, or result. Cover the projected runs, starting pitching matchup,
+bullpen, park and weather. Natural prose, no markdown.
+
+FACTS:
+{facts}
+"""
+
+
+def _mlb_analysis(g):
+    base = _mlb_writeup(g)
+    if LLM_COMPLETE is None:
+        return base
+    import json as _j
+    facts = {
+        "favorite": g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"],
+        "home_team": g["home"]["name"], "away_team": g["away"]["name"],
+        "home_win_pct": round(g["prob_home"] * 100), "away_win_pct": round((1 - g["prob_home"]) * 100),
+        "proj_runs_home": g["exp_runs_home"], "proj_runs_away": g["exp_runs_away"],
+        "home_starter": g["home"]["starter"], "away_starter": g["away"]["starter"],
+        "home_bullpen_era": g["home"].get("bullpen_era"), "away_bullpen_era": g["away"].get("bullpen_era"),
+        "park_factor": g.get("park_factor"), "venue": g.get("venue"), "weather": g.get("weather"),
+        "confidence": g["confidence"],
+    }
+    try:
+        text = LLM_COMPLETE(_MLB_AI_PROMPT.format(facts=_j.dumps(facts, indent=2))).strip()
+        return text or base
+    except Exception:
+        return base
+
+
 @app.get("/api/mlb/game/{game_id}")
 def mlb_game(game_id: int, date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
@@ -333,7 +423,7 @@ def mlb_game(game_id: int, date: str | None = None):
     if not g:
         return {"error": "not found"}
     g = dict(g)
-    g["analysis"] = _mlb_writeup(g)
+    g["analysis"] = _mlb_analysis(g)
     return g
 
 

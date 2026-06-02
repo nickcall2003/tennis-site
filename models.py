@@ -41,6 +41,8 @@ class Match(Base):
     player_a_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
     player_b_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
     prominence: Mapped[float] = mapped_column(Float, default=0.0, index=True)     # for "biggest matches"
+    weather: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    weather_effect: Mapped[str | None] = mapped_column(String(240), nullable=True)
 
     prediction: Mapped["Prediction"] = relationship(back_populates="match", uselist=False)
     live: Mapped["LiveState"] = relationship(back_populates="match", uselist=False)
