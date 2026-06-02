@@ -1,111 +1,53 @@
 """
-providers/base.py
------------------
-The seam between your site and whatever data feed you buy.
+providers/goalserve.py
+----------------------
+A STUB showing how a real provider adapter is wired. It does not run without a
+real API key and network access -- it exists to show that switching from the
+mock to a paid feed means implementing these same three methods and mapping
+the feed's fields onto our neutral dataclasses.
 
-Every provider (Goalserve, Matchstat, etc.) returns data in its own shape.
-Rather than letting that shape leak into the rest of the app, each provider
-gets an *adapter* that translates the feed into these neutral dataclasses.
-The database, prediction engine, API, and UI only ever see THESE types -- so
-you can swap or add providers later without touching anything else.
+Goalserve returns tennis data as XML/JSON with fields like:
+    <player name="..." serve="True" sets_won="2" set1="6" set2="3" game_score="40" .../>
+You'd parse that and fill in LiveScore / MatchStats below. Other providers
+(Matchstat, Data Sports Group, etc.) differ only in field names and transport;
+the contract you expose to the rest of the app stays identical.
 
-To add a real provider you subclass TennisProvider and implement three
-methods. That's the whole contract.
+Replace MockTennisProvider with GoalserveProvider in app/main.py once you have
+credentials, and nothing else in the codebase needs to change.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+import os
 from datetime import datetime
 
-
-# Tiers we support. Predictions work for all four; live STATS are reliable for
-# ATP/WTA/CHALLENGER and frequently absent at ITF (see notes in the README).
-TIERS = ("ATP", "WTA", "CHALLENGER", "ITF")
+from base import LiveScore, MatchInfo, MatchStats, TennisProvider
 
 
-@dataclass
-class MatchInfo:
-    """Pre-match facts: who, where, when, what level."""
-    provider_match_id: str
-    tier: str                      # one of TIERS
-    tournament: str
-    surface: str                   # "Hard" | "Clay" | "Grass"
-    player_a: str
-    player_b: str
-    scheduled: datetime
-    best_of: int = 3               # 3 for most, 5 for men's Slams
-    status: str = "scheduled"      # scheduled | live | finished
+class GoalserveProvider(TennisProvider):
+    name = "goalserve"
 
+    BASE_URL = "https://www.goalserve.com/getfeed"  # example; see your docs
 
-@dataclass
-class LiveScore:
-    """
-    A snapshot of where a match stands right now.
+    def __init__(self, api_key: str | None = None) -> None:
+        self.api_key = api_key or os.environ.get("GOALSERVE_API_KEY")
+        if not self.api_key:
+            raise RuntimeError("Set GOALSERVE_API_KEY to use the live feed.")
+        # import requests/httpx here in the real implementation
 
-    sets_a / sets_b   -> games won in each completed/in-progress set, e.g.
-                         [6, 3, 2] means 6-x, 3-x, currently 2-x.
-    game_a / game_b   -> current game score as displayed: "0","15","30","40","AD"
-    server            -> "a" or "b": who is serving
-    status            -> scheduled | live | finished
-    winner            -> "a" | "b" | None
-    """
-    sets_a: list[int] = field(default_factory=list)
-    sets_b: list[int] = field(default_factory=list)
-    game_a: str = "0"
-    game_b: str = "0"
-    server: str = "a"
-    status: str = "live"
-    winner: str | None = None
-
-    def scoreline(self, name_a: str, name_b: str) -> str:
-        """Human string like: 'Alcaraz leads 2-0 sets, 3-3, 40-30'."""
-        sets = " ".join(f"{a}-{b}" for a, b in zip(self.sets_a, self.sets_b))
-        return f"{name_a} {sets} | game {self.game_a}-{self.game_b} (serv: {self.server})"
-
-
-@dataclass
-class PlayerStats:
-    """
-    In-match serve/return stats for ONE player. Every field is optional
-    because at ITF level these often simply aren't collected -- a None here
-    means 'not available', which the UI shows gracefully.
-    """
-    aces: int | None = None
-    double_faults: int | None = None
-    first_serve_pct: float | None = None          # 0-1
-    first_serve_won_pct: float | None = None       # 0-1
-    second_serve_won_pct: float | None = None      # 0-1
-    break_points_won: int | None = None
-    break_points_faced: int | None = None
-    total_points_won: int | None = None
-
-
-@dataclass
-class MatchStats:
-    """Both players' stats, or None for either side if unavailable."""
-    player_a: PlayerStats | None = None
-    player_b: PlayerStats | None = None
-
-    @property
-    def available(self) -> bool:
-        return self.player_a is not None or self.player_b is not None
-
-
-class TennisProvider(ABC):
-    """Implement these three methods for any real data feed."""
-
-    name: str = "base"
-
-    @abstractmethod
     def get_schedule(self, day: datetime) -> list[MatchInfo]:
-        """All matches scheduled for the given day, across the tiers you cover."""
+        # 1. GET the day's tennis schedule feed for your covered tiers.
+        # 2. For each match element, build a MatchInfo(...).
+        # 3. Map provider tier labels -> your TIERS ("ATP"/"WTA"/...).
+        raise NotImplementedError("Wire up the real Goalserve schedule feed here.")
 
-    @abstractmethod
     def get_live_score(self, provider_match_id: str) -> LiveScore:
-        """Current score state for one match."""
+        # 1. GET the live feed for this match id.
+        # 2. Read sets_won / set1..set5 / game_score / serve flags.
+        # 3. Return LiveScore(sets_a=..., game_a=..., server=..., status=...).
+        raise NotImplementedError("Map the live score feed onto LiveScore here.")
 
-    @abstractmethod
     def get_match_stats(self, provider_match_id: str) -> MatchStats:
-        """Current in-match stats for one match (may be empty at ITF level)."""
+        # Map serve/return stat fields onto PlayerStats. Remember many ITF
+        # matches will have none -- return MatchStats() (empty) in that case.
+        raise NotImplementedError("Map the stats feed onto MatchStats here.")

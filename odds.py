@@ -1,169 +1,132 @@
 """
-main.py
+odds.py
 -------
-The web server. Run it with:
+Everything for turning sportsbook odds into a FAIR probability you can
+honestly compare your model against.
 
-    uvicorn app.main:app --reload
+This file is where most beginner prediction sites go wrong. The key idea:
 
-Then open http://127.0.0.1:8000.
+  A sportsbook line is NOT a probability. It includes the "vig" (the book's
+  built-in margin). The two sides of a market add up to MORE than 100%. You
+  must strip that margin out before comparing anything to your model, or
+  every game will look like a bet when it isn't.
 
-DATA FEED SELECTION (via environment variables):
-  TENNIS_PROVIDER=apitennis   + TENNIS_API_KEY=<your key>   -> REAL matches
-  (anything else)                                           -> simulated demo
-
-For real predictions, the model trains on Jeff Sackmann's free history at
-startup (TRAIN_YEARS controls how many recent years; needs internet on the
-host). If training is unavailable, matches/scores are still real and the
-prediction falls back to 50/50 (flagged as low-confidence).
-
-REST endpoints:
-    GET /api/matches?date=YYYY-MM-DD   -> that day's matches + predictions + score
-    GET /api/matches/{id}              -> one match incl. latest stats snapshot
-WebSocket:
-    /ws/live                           -> pushed live score updates
+Example: Celtics -150, opponent +130
+  -150 implies 60.0%
+  +130 implies 43.5%
+  Total = 103.5%   <- that extra 3.5% is the vig
+  Fair Celtics = 60.0 / 103.5 = 58.0%   <- THIS is what you compare to.
 """
 
 from __future__ import annotations
 
-import asyncio
-import datetime as dt
-import json
-import os
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
-
-from .db import SessionLocal
-from .live import LiveEngine
-from .models import LiveState, Match, MatchAnalysis, Prediction, StatSnapshot
-from .predictions import PredictionEngine
-from .ws import manager
-
-# ---- choose the data feed from the environment --------------------------
-PROVIDER_NAME = os.environ.get("TENNIS_PROVIDER", "mock").lower()
-USE_REAL = PROVIDER_NAME == "apitennis"
-
-if USE_REAL:
-    from .providers.apitennis import APITennisProvider
-    from .seed import build_day
-    provider = APITennisProvider()          # reads TENNIS_API_KEY from env
-    engine = PredictionEngine()
-    try:
-        years = int(os.environ.get("TRAIN_YEARS", "2"))
-        this_year = dt.date.today().year
-        engine.train_from_sackmann(range(this_year - years + 1, this_year + 1))
-        print(f"[predictions] trained on {len(engine._by_key)} players")
-    except Exception as e:
-        print(f"[predictions] training skipped ({e}); predictions default to 50/50")
-else:
-    from .providers.mock import MockTennisProvider
-    from .seed import build_today
-    provider = MockTennisProvider()
-    engine = None
-# -------------------------------------------------------------------------
-
-live_engine = LiveEngine(provider)
-_built_dates: set[str] = set()
+from dataclasses import dataclass, field
+from datetime import datetime
 
 
-def _ensure_day(day: dt.date) -> None:
-    """For the real feed, build a day's fixtures on demand (idempotent)."""
-    if not USE_REAL:
-        return
-    key = day.isoformat()
-    if key in _built_dates:
-        return
-    try:
-        build_day(provider, engine, dt.datetime(day.year, day.month, day.day))
-        _built_dates.add(key)
-    except Exception as e:
-        print(f"[build] could not build {key}: {e}")
+# ---- American odds <-> probability --------------------------------------
+
+def american_to_prob(odds: int) -> float:
+    """Convert American odds to the implied probability (vig still included)."""
+    if odds < 0:
+        return -odds / (-odds + 100.0)
+    return 100.0 / (odds + 100.0)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    if USE_REAL:
-        _ensure_day(dt.date.today())
-    else:
-        build_today(provider)
-    task = asyncio.create_task(live_engine.run())
-    yield
-    live_engine.running = False
-    task.cancel()
+def american_to_decimal(odds: int) -> float:
+    """Convert American odds to decimal odds (total return per $1 staked)."""
+    if odds < 0:
+        return 1.0 + 100.0 / -odds
+    return 1.0 + odds / 100.0
 
 
-app = FastAPI(title="Tennis Predictions", lifespan=lifespan)
+# ---- removing the vig ----------------------------------------------------
+
+def devig_two_way(odds_a: int, odds_b: int) -> tuple[float, float]:
+    """
+    Take both sides of a two-way market (e.g. a tennis match) and return the
+    FAIR, no-vig probabilities that sum to exactly 1.0.
+
+    Uses the simple proportional method: divide each implied probability by
+    the total. It's the standard starting point. (Fancier methods exist --
+    Shin, logarithmic, power -- but proportional is fine to begin with.)
+    """
+    p_a = american_to_prob(odds_a)
+    p_b = american_to_prob(odds_b)
+    total = p_a + p_b
+    return p_a / total, p_b / total
 
 
-def _sets_list(csv: str) -> list[int]:
-    return [int(x) for x in csv.split(",")] if csv else []
+# ---- comparing model vs market ------------------------------------------
+
+def edge(model_prob: float, fair_prob: float) -> float:
+    """
+    Your edge = how much more likely YOUR model thinks the outcome is, versus
+    the book's fair (no-vig) probability. Positive = potential value.
+    """
+    return model_prob - fair_prob
 
 
-@app.get("/api/matches")
-def list_matches(date: str | None = None):
-    target = dt.date.fromisoformat(date) if date else dt.date.today()
-    _ensure_day(target)
-    with SessionLocal() as db:
-        rows = (db.query(Match)
-                  .filter(Match.scheduled >= dt.datetime.combine(target, dt.time.min),
-                          Match.scheduled <= dt.datetime.combine(target, dt.time.max))
-                  .order_by(Match.scheduled).all())
-        out = []
-        for m in rows:
-            pred = db.query(Prediction).filter_by(match_id=m.id).one_or_none()
-            live = db.query(LiveState).filter_by(match_id=m.id).one_or_none()
-            predicted = None
-            correct = None
-            if pred is not None:
-                predicted = "a" if pred.prob_a >= 0.5 else "b"
-                if live and live.status == "finished" and live.winner in ("a", "b"):
-                    correct = (predicted == live.winner)
-            out.append({
-                "id": m.id, "tier": m.tier, "tournament": m.tournament,
-                "surface": m.surface, "player_a": m.player_a, "player_b": m.player_b,
-                "scheduled": m.scheduled.isoformat(), "status": m.status,
-                "predicted_winner": predicted, "correct": correct,
-                "prediction": None if not pred else {
-                    "prob_a": pred.prob_a, "confident": pred.confident,
-                    "fair_prob_a": pred.fair_prob_a, "edge_a": pred.edge_a,
-                },
-                "score": None if not live else {
-                    "sets_a": _sets_list(live.sets_a), "sets_b": _sets_list(live.sets_b),
-                    "game_a": live.game_a, "game_b": live.game_b,
-                    "server": live.server, "status": live.status, "winner": live.winner,
-                },
-            })
-        return out
+def expected_value(model_prob: float, odds: int) -> float:
+    """
+    Expected profit per $1 staked, using YOUR model's probability against the
+    actual (with-vig) payout the book offers. Positive EV = +EV bet.
+
+        EV = p * (decimal_odds - 1)  -  (1 - p) * 1
+    """
+    profit_if_win = american_to_decimal(odds) - 1.0
+    return model_prob * profit_if_win - (1.0 - model_prob) * 1.0
 
 
-@app.get("/api/matches/{match_id}")
-def match_detail(match_id: int):
-    with SessionLocal() as db:
-        m = db.get(Match, match_id)
-        if not m:
-            return {"error": "not found"}
-        snap = (db.query(StatSnapshot).filter_by(match_id=match_id)
-                  .order_by(StatSnapshot.captured_at.desc()).first())
-        stats = json.loads(snap.payload) if snap and snap.payload else None
-        return {"id": m.id, "player_a": m.player_a, "player_b": m.player_b,
-                "tier": m.tier, "stats": stats, "stats_available": stats is not None}
+# ---- closing line value tracking ----------------------------------------
+#
+# CLV is the real test of whether your model has signal. Win/loss is noisy
+# over hundreds of games; CLV tells the truth in dozens. The question it
+# answers: did your prediction beat where the line CLOSED (right before the
+# match)? If your model's fair probability is consistently higher than the
+# closing fair probability on the side you flagged, you are "beating the
+# close" -- the strongest evidence a model is real.
+
+@dataclass
+class CLVRecord:
+    match: str
+    side: str                 # which player you flagged
+    model_prob: float         # your model's probability for that side
+    open_fair_prob: float     # fair (no-vig) prob when you made the pick
+    close_fair_prob: float | None = None  # filled in right before the match
+    won: bool | None = None   # filled in after the match settles
+
+    @property
+    def clv(self) -> float | None:
+        """
+        Positive CLV means the market moved toward your side after you picked
+        it (the closing fair prob rose above where you got in). That's good.
+        """
+        if self.close_fair_prob is None:
+            return None
+        return self.close_fair_prob - self.open_fair_prob
 
 
-@app.websocket("/ws/live")
-async def ws_live(ws: WebSocket):
-    await manager.connect(ws)
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        await manager.disconnect(ws)
+@dataclass
+class CLVTracker:
+    """A tiny in-memory log. In a real site this lives in your database."""
 
+    records: list[CLVRecord] = field(default_factory=list)
 
-@app.get("/")
-def index():
-    return FileResponse("app/static/index.html")
+    def log(self, match: str, side: str, model_prob: float, open_fair_prob: float) -> CLVRecord:
+        rec = CLVRecord(match=match, side=side, model_prob=model_prob, open_fair_prob=open_fair_prob)
+        self.records.append(rec)
+        return rec
 
-
-app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    def summary(self) -> dict:
+        closed = [r for r in self.records if r.clv is not None]
+        if not closed:
+            return {"picks": len(self.records), "closed": 0}
+        avg_clv = sum(r.clv for r in closed) / len(closed)
+        beat = sum(1 for r in closed if r.clv > 0)
+        return {
+            "picks": len(self.records),
+            "closed": len(closed),
+            "avg_clv": avg_clv,
+            "pct_beat_close": beat / len(closed),
+        }

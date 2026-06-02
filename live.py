@@ -1,100 +1,123 @@
 """
-predictions.py
---------------
-Wraps the Elo engine from the prototype. In production you call
-train_from_csv() on Sackmann's data once a day; for the demo we preset a few
-ratings so probabilities are sensible without any data download.
+live.py
+-------
+The heartbeat of the live site. A background loop that, every few seconds:
+
+  1. asks the provider for the current score + stats of each live match
+  2. compares to what's stored ("diffing")
+  3. if anything changed, writes it to the database
+  4. pushes the change to every connected browser over WebSocket
+
+This is the pattern that keeps your costs sane: ONE process talks to the paid
+feed on a fixed schedule; thousands of users read from your database and get
+pushed updates. Users never trigger a provider call.
+
+In production you'd run this as its own worker process (and swap the in-loop
+sleep for the provider's push/WebSocket feed if they offer one). For the demo
+it runs as an asyncio task inside the web server.
 """
 
 from __future__ import annotations
 
-import re
+import asyncio
+import json
 
-import pandas as pd
+from db import SessionLocal
+from models import LiveState, Match, StatSnapshot
+from base import LiveScore, MatchStats, TennisProvider
+from ws import manager
 
-from .elo import TennisElo, expected_score
-
-_SACKMANN_ATP = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_{y}.csv"
-_SACKMANN_WTA = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_matches_{y}.csv"
+POLL_SECONDS = 1.5          # demo speed; real feeds update every ~5s
+STATS_EVERY_N_TICKS = 5     # snapshot stats less often than score
 
 
-def _name_key(full_name: str) -> str | None:
-    """
-    Turn a player name into a join key: last name + first initial.
-    Works for both 'Mariano Navone' (Sackmann) and 'M. Navone' (the feed),
-    so the two data sources line up without exact-string matching.
-    """
-    if not full_name:
+def _score_to_dict(s: LiveScore) -> dict:
+    return {
+        "sets_a": s.sets_a, "sets_b": s.sets_b,
+        "game_a": s.game_a, "game_b": s.game_b,
+        "server": s.server, "status": s.status, "winner": s.winner,
+    }
+
+
+def _stats_to_dict(st: MatchStats) -> dict | None:
+    if not st.available:
         return None
-    name = full_name.strip()
-    m = re.match(r"^([A-Za-z])\.\s+(.+)$", name)        # "M. Navone"
-    if m:
-        initial, last = m.group(1), m.group(2)
-    else:
-        parts = name.split()
-        if len(parts) < 2:
-            return None
-        initial, last = parts[0][0], parts[-1]
-    return f"{last.lower().replace('-', ' ').strip()}|{initial.lower()}"
 
-
-class PredictionEngine:
-    def __init__(self) -> None:
-        self.model = TennisElo()
-        self._by_key: dict[str, float] = {}   # name_key -> best overall rating
-
-    def train_from_csv(self, path: str) -> None:
-        """Replay a match-history CSV (tourney_date, surface, winner_name, loser_name)."""
-        df = pd.read_csv(path)
-        self._ingest(df)
-
-    def train_from_sackmann(self, years) -> None:
-        """Download recent ATP+WTA results and train. Needs internet (runs on your host)."""
-        frames = []
-        for y in years:
-            for url in (_SACKMANN_ATP.format(y=y), _SACKMANN_WTA.format(y=y)):
-                try:
-                    frames.append(pd.read_csv(url))
-                except Exception:
-                    pass
-        if frames:
-            self._ingest(pd.concat(frames, ignore_index=True))
-
-    def _ingest(self, df: pd.DataFrame) -> None:
-        df = df.dropna(subset=["surface", "winner_name", "loser_name"])
-        for row in df.itertuples(index=False):
-            self.model.update(row.winner_name, row.loser_name, row.surface)
-        # Build the name-key index (best rating wins on collisions).
-        for name, rating in self.model.overall.items():
-            k = _name_key(name)
-            if k and rating > self._by_key.get(k, 0):
-                self._by_key[k] = rating
-
-    def preset_demo_ratings(self) -> None:
-        """Approximate ratings for the demo players so the MVP shows real spread."""
-        demo = {
-            "Carlos Alcaraz": 2120, "Casper Ruud": 1870, "Jannik Sinner": 2150,
-            "Daniil Medvedev": 1980, "Iga Swiatek": 2100, "Aryna Sabalenka": 2060,
-            "Jakub Mensik": 1750, "Dalibor Svrcina": 1680,
-            "Local Qualifier": 1500, "Wildcard Entry": 1480,
+    def side(p):
+        return None if p is None else {
+            "aces": p.aces, "double_faults": p.double_faults,
+            "first_serve_pct": p.first_serve_pct,
+            "first_serve_won_pct": p.first_serve_won_pct,
+            "second_serve_won_pct": p.second_serve_won_pct,
+            "break_points_won": p.break_points_won,
+            "break_points_faced": p.break_points_faced,
+            "total_points_won": p.total_points_won,
         }
-        for name, rating in demo.items():
-            self.model.overall[name] = float(rating)
-            for surf in ("Hard", "Clay", "Grass"):
-                self.model.surface[surf][name] = float(rating)
 
-    def predict(self, player_a: str, player_b: str, surface: str) -> float:
-        """Model probability that player_a beats player_b."""
-        return self.model.win_probability(player_a, player_b, surface, surface_weight=0.5)
+    return {"player_a": side(st.player_a), "player_b": side(st.player_b)}
 
-    def predict_feed(self, name_a: str, name_b: str) -> tuple[float, bool]:
-        """
-        Probability for feed-supplied (abbreviated) names. Returns
-        (prob_a, confident). `confident` is False when we couldn't match one
-        of the players to our ratings, so the UI can flag it.
-        """
-        ra = self._by_key.get(_name_key(name_a) or "")
-        rb = self._by_key.get(_name_key(name_b) or "")
-        if ra is None or rb is None:
-            return 0.5, False
-        return expected_score(ra, rb), True
+
+class LiveEngine:
+    def __init__(self, provider: TennisProvider):
+        self.provider = provider
+        self._last: dict[int, dict] = {}     # match_id -> last score dict
+        self._tick = 0
+        self.running = False
+
+    async def run(self) -> None:
+        self.running = True
+        while self.running:
+            try:
+                await self._poll_once()
+            except Exception as e:  # never let the loop die silently
+                print(f"[live] poll error: {e}")
+            self._tick += 1
+            await asyncio.sleep(POLL_SECONDS)
+
+    async def _poll_once(self) -> None:
+        # Figure out which matches are not yet finished.
+        with SessionLocal() as db:
+            rows = db.query(Match).filter(Match.status != "finished").all()
+            active = [(m.id, m.provider_match_id, m.player_a, m.player_b, m.tier) for m in rows]
+
+        for match_id, pid, name_a, name_b, tier in active:
+            score = self.provider.get_live_score(pid)
+            score_d = _score_to_dict(score)
+
+            if self._last.get(match_id) == score_d:
+                continue  # nothing changed; skip the write + broadcast
+            self._last[match_id] = score_d
+
+            # Persist score + match status.
+            with SessionLocal() as db:
+                live = db.query(LiveState).filter_by(match_id=match_id).one_or_none()
+                if live is None:
+                    live = LiveState(match_id=match_id)
+                    db.add(live)
+                live.sets_a = ",".join(map(str, score.sets_a))
+                live.sets_b = ",".join(map(str, score.sets_b))
+                live.game_a, live.game_b = score.game_a, score.game_b
+                live.server, live.status, live.winner = score.server, score.status, score.winner
+
+                m = db.get(Match, match_id)
+                m.status = score.status
+                db.commit()
+
+            payload = {
+                "type": "score",
+                "match_id": match_id,
+                "name_a": name_a, "name_b": name_b,
+                "score": score_d,
+            }
+
+            # Periodically attach a stats snapshot (or note it's unavailable).
+            if self._tick % STATS_EVERY_N_TICKS == 0:
+                stats = self.provider.get_match_stats(pid)
+                stats_d = _stats_to_dict(stats)
+                payload["stats"] = stats_d
+                payload["stats_available"] = stats_d is not None
+                with SessionLocal() as db:
+                    db.add(StatSnapshot(match_id=match_id, payload=json.dumps(stats_d)))
+                    db.commit()
+
+            await manager.broadcast(payload)

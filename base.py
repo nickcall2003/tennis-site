@@ -1,132 +1,111 @@
 """
-odds.py
--------
-Everything for turning sportsbook odds into a FAIR probability you can
-honestly compare your model against.
+providers/base.py
+-----------------
+The seam between your site and whatever data feed you buy.
 
-This file is where most beginner prediction sites go wrong. The key idea:
+Every provider (Goalserve, Matchstat, etc.) returns data in its own shape.
+Rather than letting that shape leak into the rest of the app, each provider
+gets an *adapter* that translates the feed into these neutral dataclasses.
+The database, prediction engine, API, and UI only ever see THESE types -- so
+you can swap or add providers later without touching anything else.
 
-  A sportsbook line is NOT a probability. It includes the "vig" (the book's
-  built-in margin). The two sides of a market add up to MORE than 100%. You
-  must strip that margin out before comparing anything to your model, or
-  every game will look like a bet when it isn't.
-
-Example: Celtics -150, opponent +130
-  -150 implies 60.0%
-  +130 implies 43.5%
-  Total = 103.5%   <- that extra 3.5% is the vig
-  Fair Celtics = 60.0 / 103.5 = 58.0%   <- THIS is what you compare to.
+To add a real provider you subclass TennisProvider and implement three
+methods. That's the whole contract.
 """
 
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 
 
-# ---- American odds <-> probability --------------------------------------
+# Tiers we support. Predictions work for all four; live STATS are reliable for
+# ATP/WTA/CHALLENGER and frequently absent at ITF (see notes in the README).
+TIERS = ("ATP", "WTA", "CHALLENGER", "ITF")
 
-def american_to_prob(odds: int) -> float:
-    """Convert American odds to the implied probability (vig still included)."""
-    if odds < 0:
-        return -odds / (-odds + 100.0)
-    return 100.0 / (odds + 100.0)
-
-
-def american_to_decimal(odds: int) -> float:
-    """Convert American odds to decimal odds (total return per $1 staked)."""
-    if odds < 0:
-        return 1.0 + 100.0 / -odds
-    return 1.0 + odds / 100.0
-
-
-# ---- removing the vig ----------------------------------------------------
-
-def devig_two_way(odds_a: int, odds_b: int) -> tuple[float, float]:
-    """
-    Take both sides of a two-way market (e.g. a tennis match) and return the
-    FAIR, no-vig probabilities that sum to exactly 1.0.
-
-    Uses the simple proportional method: divide each implied probability by
-    the total. It's the standard starting point. (Fancier methods exist --
-    Shin, logarithmic, power -- but proportional is fine to begin with.)
-    """
-    p_a = american_to_prob(odds_a)
-    p_b = american_to_prob(odds_b)
-    total = p_a + p_b
-    return p_a / total, p_b / total
-
-
-# ---- comparing model vs market ------------------------------------------
-
-def edge(model_prob: float, fair_prob: float) -> float:
-    """
-    Your edge = how much more likely YOUR model thinks the outcome is, versus
-    the book's fair (no-vig) probability. Positive = potential value.
-    """
-    return model_prob - fair_prob
-
-
-def expected_value(model_prob: float, odds: int) -> float:
-    """
-    Expected profit per $1 staked, using YOUR model's probability against the
-    actual (with-vig) payout the book offers. Positive EV = +EV bet.
-
-        EV = p * (decimal_odds - 1)  -  (1 - p) * 1
-    """
-    profit_if_win = american_to_decimal(odds) - 1.0
-    return model_prob * profit_if_win - (1.0 - model_prob) * 1.0
-
-
-# ---- closing line value tracking ----------------------------------------
-#
-# CLV is the real test of whether your model has signal. Win/loss is noisy
-# over hundreds of games; CLV tells the truth in dozens. The question it
-# answers: did your prediction beat where the line CLOSED (right before the
-# match)? If your model's fair probability is consistently higher than the
-# closing fair probability on the side you flagged, you are "beating the
-# close" -- the strongest evidence a model is real.
 
 @dataclass
-class CLVRecord:
-    match: str
-    side: str                 # which player you flagged
-    model_prob: float         # your model's probability for that side
-    open_fair_prob: float     # fair (no-vig) prob when you made the pick
-    close_fair_prob: float | None = None  # filled in right before the match
-    won: bool | None = None   # filled in after the match settles
+class MatchInfo:
+    """Pre-match facts: who, where, when, what level."""
+    provider_match_id: str
+    tier: str                      # one of TIERS
+    tournament: str
+    surface: str                   # "Hard" | "Clay" | "Grass"
+    player_a: str
+    player_b: str
+    scheduled: datetime
+    best_of: int = 3               # 3 for most, 5 for men's Slams
+    status: str = "scheduled"      # scheduled | live | finished
+
+
+@dataclass
+class LiveScore:
+    """
+    A snapshot of where a match stands right now.
+
+    sets_a / sets_b   -> games won in each completed/in-progress set, e.g.
+                         [6, 3, 2] means 6-x, 3-x, currently 2-x.
+    game_a / game_b   -> current game score as displayed: "0","15","30","40","AD"
+    server            -> "a" or "b": who is serving
+    status            -> scheduled | live | finished
+    winner            -> "a" | "b" | None
+    """
+    sets_a: list[int] = field(default_factory=list)
+    sets_b: list[int] = field(default_factory=list)
+    game_a: str = "0"
+    game_b: str = "0"
+    server: str = "a"
+    status: str = "live"
+    winner: str | None = None
+
+    def scoreline(self, name_a: str, name_b: str) -> str:
+        """Human string like: 'Alcaraz leads 2-0 sets, 3-3, 40-30'."""
+        sets = " ".join(f"{a}-{b}" for a, b in zip(self.sets_a, self.sets_b))
+        return f"{name_a} {sets} | game {self.game_a}-{self.game_b} (serv: {self.server})"
+
+
+@dataclass
+class PlayerStats:
+    """
+    In-match serve/return stats for ONE player. Every field is optional
+    because at ITF level these often simply aren't collected -- a None here
+    means 'not available', which the UI shows gracefully.
+    """
+    aces: int | None = None
+    double_faults: int | None = None
+    first_serve_pct: float | None = None          # 0-1
+    first_serve_won_pct: float | None = None       # 0-1
+    second_serve_won_pct: float | None = None      # 0-1
+    break_points_won: int | None = None
+    break_points_faced: int | None = None
+    total_points_won: int | None = None
+
+
+@dataclass
+class MatchStats:
+    """Both players' stats, or None for either side if unavailable."""
+    player_a: PlayerStats | None = None
+    player_b: PlayerStats | None = None
 
     @property
-    def clv(self) -> float | None:
-        """
-        Positive CLV means the market moved toward your side after you picked
-        it (the closing fair prob rose above where you got in). That's good.
-        """
-        if self.close_fair_prob is None:
-            return None
-        return self.close_fair_prob - self.open_fair_prob
+    def available(self) -> bool:
+        return self.player_a is not None or self.player_b is not None
 
 
-@dataclass
-class CLVTracker:
-    """A tiny in-memory log. In a real site this lives in your database."""
+class TennisProvider(ABC):
+    """Implement these three methods for any real data feed."""
 
-    records: list[CLVRecord] = field(default_factory=list)
+    name: str = "base"
 
-    def log(self, match: str, side: str, model_prob: float, open_fair_prob: float) -> CLVRecord:
-        rec = CLVRecord(match=match, side=side, model_prob=model_prob, open_fair_prob=open_fair_prob)
-        self.records.append(rec)
-        return rec
+    @abstractmethod
+    def get_schedule(self, day: datetime) -> list[MatchInfo]:
+        """All matches scheduled for the given day, across the tiers you cover."""
 
-    def summary(self) -> dict:
-        closed = [r for r in self.records if r.clv is not None]
-        if not closed:
-            return {"picks": len(self.records), "closed": 0}
-        avg_clv = sum(r.clv for r in closed) / len(closed)
-        beat = sum(1 for r in closed if r.clv > 0)
-        return {
-            "picks": len(self.records),
-            "closed": len(closed),
-            "avg_clv": avg_clv,
-            "pct_beat_close": beat / len(closed),
-        }
+    @abstractmethod
+    def get_live_score(self, provider_match_id: str) -> LiveScore:
+        """Current score state for one match."""
+
+    @abstractmethod
+    def get_match_stats(self, provider_match_id: str) -> MatchStats:
+        """Current in-match stats for one match (may be empty at ITF level)."""

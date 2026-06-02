@@ -1,128 +1,82 @@
-"""
-analysis.py
------------
-Auto-generated match writeups. This is the "AI response for each match" piece.
+# Going Live with Real Matches (API-Tennis)
 
-The trick to making LLM writeups reliable (not hallucinated nonsense) is to do
-the thinking in code and let the model only do the *wording*:
+This turns the site from simulated demo data into **real ATP / WTA / Challenger
+matches** with live scores and predictions. ITF is intentionally excluded.
 
-  1. assemble_context() gathers FACTS into a MatchContext: model probability,
-     value edge, surface, recent form, head-to-head, weather (if outdoor).
-  2. generate_writeup() turns those facts into 2-3 sentences.
+## Before you start — your API key is a secret
 
-Two backends, same interface:
-  - the TEMPLATE backend is deterministic, needs no API key, and can NEVER
-    invent a number because it only formats the facts it's given. Great default.
-  - the LLM backend sends the SAME facts to a model with a strict prompt
-    ("use only these facts, no new numbers") for more natural prose. You pass
-    in a `complete` function so this stays provider-agnostic (Anthropic,
-    OpenAI, local model -- analysis.py doesn't care).
+Your key shouldn't appear in any code or get committed to GitHub. It goes in an
+**environment variable** only. If a key has ever been pasted into a chat or
+shared, regenerate it from the API-Tennis admin page once everything works.
 
-So "how hard is it to automate AI writeups?" -> the template version works
-today; swapping in a real model is one function you provide.
-"""
+---
 
-from __future__ import annotations
+## 1. Run it locally first (to confirm it works)
 
-import json
-from dataclasses import asdict, dataclass
-from typing import Callable
+From the `tennis-site` folder:
 
-from .weather import WeatherReport
+```bash
+pip install -r requirements.txt
 
+# tell the app to use the real feed + your key (Mac/Linux)
+export TENNIS_PROVIDER=apitennis
+export TENNIS_API_KEY=PASTE_YOUR_KEY_HERE
+export TENNIS_TZ=America/Chicago      # your timezone (optional)
 
-@dataclass
-class MatchContext:
-    player_a: str
-    player_b: str
-    tier: str
-    surface: str
-    prob_a: float                         # model P(player_a wins)
-    fair_prob_a: float | None = None      # de-vigged book prob
-    edge_a: float | None = None           # model - fair
-    form_a: str | None = None             # e.g. "8-2 in last 10"
-    form_b: str | None = None
-    surface_note: str | None = None       # e.g. "Ruud is a strong clay-courter"
-    h2h: str | None = None                # e.g. "Alcaraz leads H2H 4-2"
-    weather: WeatherReport | None = None
+uvicorn main:app --reload
+```
 
-    def facts_dict(self) -> dict:
-        d = asdict(self)
-        if self.weather is not None:
-            d["weather"] = self.weather.summary()
-        return {k: v for k, v in d.items() if v is not None}
+On Windows PowerShell, use `$env:TENNIS_PROVIDER="apitennis"` etc. instead of `export`.
 
+Open http://127.0.0.1:8000 — you should see today's real matches. On first
+start it downloads ~2 years of free match history to train the prediction
+model (a few seconds). If that download is blocked, matches and scores are
+still real; predictions just show 50/50 and a "low-confidence" tag until the
+model trains.
 
-def generate_writeup_template(ctx: MatchContext) -> str:
-    """Deterministic writeup. Only uses facts present in the context."""
-    fav, dog = (ctx.player_a, ctx.player_b) if ctx.prob_a >= 0.5 else (ctx.player_b, ctx.player_a)
-    fav_prob = ctx.prob_a if ctx.prob_a >= 0.5 else 1 - ctx.prob_a
+## 2. Deploy it (so it has a public address)
 
-    s = [f"The model favors {fav} at {fav_prob:.0%} on {ctx.surface.lower()} "
-         f"({ctx.tier})."]
+Host the **backend** (this Python app), not just a static file — the backend is
+what holds your key safely and calls the feed on a schedule. Render and Railway
+both work and have free/cheap tiers.
 
-    if ctx.h2h:
-        s.append(f"{ctx.h2h}.")
-    forms = []
-    if ctx.form_a:
-        forms.append(f"{ctx.player_a} is {ctx.form_a}")
-    if ctx.form_b:
-        forms.append(f"{ctx.player_b} is {ctx.form_b}")
-    if forms:
-        s.append("Recent form: " + "; ".join(forms) + ".")
-    if ctx.surface_note:
-        s.append(ctx.surface_note + ".")
-    if ctx.weather is not None and ctx.weather.applicable:
-        s.append(f"Conditions: {ctx.weather.summary()}.")
+On the host's dashboard, set these environment variables (NOT in code):
 
-    if ctx.edge_a is not None and abs(ctx.edge_a) >= 0.02:
-        side = ctx.player_a if ctx.edge_a > 0 else ctx.player_b
-        s.append(f"Versus the fair line, the model sees value on {side} "
-                 f"(edge {abs(ctx.edge_a):.1%}).")
-    return " ".join(s)
+| Variable          | Value                         |
+|-------------------|-------------------------------|
+| `TENNIS_PROVIDER` | `apitennis`                   |
+| `TENNIS_API_KEY`  | your key                      |
+| `TENNIS_TZ`       | `America/Chicago` (optional)  |
+| `TRAIN_YEARS`     | `2` (optional)                |
 
+Start command: `uvicorn main:app --host 0.0.0.0 --port $PORT`
 
-# Strict prompt template for the LLM backend. The model gets ONLY these facts.
-_LLM_PROMPT = """You are a tennis analyst writing a short match preview.
-Use ONLY the facts in this JSON. Do not invent any statistic, score, or fact
-not present here. Write 2-3 natural sentences. End with the value angle if one
-is present. Plain text, no markdown.
+For more than a little traffic, also set `DATABASE_URL` to a Postgres database
+(the models are already Postgres-ready) so data survives restarts.
 
-FACTS:
-{facts}
-"""
+## 3. How it behaves
 
+- **Daily, automatic:** open any date in the bar; the app fetches that day's
+  fixtures from the feed, predicts each match, and stores it.
+- **Live:** a background poller refreshes in-play scores every few seconds and
+  pushes them to open browsers — no page refresh.
+- **Grading:** when a match finishes, the actual winner comes from the feed and
+  each pick gets a ✓ or ✗; the day's accuracy bubbles update automatically.
 
-def generate_writeup_llm(ctx: MatchContext, complete: Callable[[str], str] | None) -> str:
-    """
-    LLM-backed writeup. `complete` is a function you supply that takes a prompt
-    string and returns the model's text. If it's None, falls back to template.
+## What's real vs. still approximate
 
-    Example `complete` using the Anthropic API:
+- **Real:** schedules, players, live scores, final results, ✓/✗ grading.
+- **Approximate for now:** predictions use an Elo model trained on free
+  historical data, matched to feed names by last-name + initial; unmatched
+  players fall back to 50/50 (flagged). Surface isn't in the feed's fixture
+  data, so predictions currently use overall (not surface-specific) ratings.
+  Both are straightforward to improve later.
 
-        from anthropic import Anthropic
-        client = Anthropic()
-        def complete(prompt: str) -> str:
-            msg = client.messages.create(
-                model="claude-haiku-4-5",     # cheap + fast for short writeups
-                max_tokens=200,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            return msg.content[0].text
+## Rate limits
 
-    A 2-3 sentence writeup costs a fraction of a cent with a small model, so
-    generating one per match in your daily job is negligible.
-    """
-    if complete is None:
-        return generate_writeup_template(ctx)
-    prompt = _LLM_PROMPT.format(facts=json.dumps(ctx.facts_dict(), indent=2))
-    try:
-        text = complete(prompt).strip()
-        return text or generate_writeup_template(ctx)
-    except Exception:
-        return generate_writeup_template(ctx)   # never break the daily job
+The poller + once-per-day fixture pulls are designed to stay within free-tier
+limits because only the *server* calls the feed — your visitors read from the
+database. If you expand to many tiers or very frequent polling, check your
+plan's limits and add Postgres + caching.
 
-
-def generate_writeup(ctx: MatchContext, complete: Callable[[str], str] | None = None) -> str:
-    """Single entry point. Pass a `complete` fn for LLM prose, or omit for template."""
-    return generate_writeup_llm(ctx, complete)
+Not betting or financial advice.

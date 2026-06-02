@@ -1,53 +1,179 @@
 """
-providers/goalserve.py
+providers/apitennis.py
 ----------------------
-A STUB showing how a real provider adapter is wired. It does not run without a
-real API key and network access -- it exists to show that switching from the
-mock to a paid feed means implementing these same three methods and mapping
-the feed's fields onto our neutral dataclasses.
+A REAL data-feed adapter for API-Tennis (https://api-tennis.com).
 
-Goalserve returns tennis data as XML/JSON with fields like:
-    <player name="..." serve="True" sets_won="2" set1="6" set2="3" game_score="40" .../>
-You'd parse that and fill in LiveScore / MatchStats below. Other providers
-(Matchstat, Data Sports Group, etc.) differ only in field names and transport;
-the contract you expose to the rest of the app stays identical.
+Why API-Tennis: free tier to start, one base URL, the key goes in a query
+param, plain JSON, and it covers ATP / WTA / Challenger (we filter ITF out).
+Endpoints used (from their docs):
+  - get_fixtures&date_start=YYYY-MM-DD&date_stop=YYYY-MM-DD  -> a day's matches
+  - get_livescore                                            -> all live matches
 
-Replace MockTennisProvider with GoalserveProvider in app/main.py once you have
-credentials, and nothing else in the codebase needs to change.
+Your key is read from the TENNIS_API_KEY environment variable. It is NEVER
+sent to the browser -- only this server-side code sees it. To respect the
+free-tier rate limits, live scores are fetched at most once every few seconds
+and cached; one get_livescore call covers every live match at once.
+
+NOTE: this file maps API-Tennis's fields onto our neutral dataclasses. If you
+switch to a different feed later, you write a different adapter and nothing
+else in the app changes.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 
-from .base import LiveScore, MatchInfo, MatchStats, TennisProvider
+from base import LiveScore, MatchInfo, MatchStats, TennisProvider
+
+BASE_URL = "https://api.api-tennis.com/tennis/"
+
+# Map API-Tennis event types -> our tiers. Singles only; ITF/doubles/etc dropped.
+_TIER_MAP = {
+    "Atp Singles": "ATP",
+    "Wta Singles": "WTA",
+    "Challenger Men Singles": "CHALLENGER",
+    "Challenger Women Singles": "CHALLENGER",
+}
+
+_LIVE_TTL = 8.0  # seconds: don't hit the feed more often than this for live
 
 
-class GoalserveProvider(TennisProvider):
-    name = "goalserve"
+def _server(flag) -> str:
+    return "a" if flag == "First Player" else "b" if flag == "Second Player" else "a"
 
-    BASE_URL = "https://www.goalserve.com/getfeed"  # example; see your docs
 
-    def __init__(self, api_key: str | None = None) -> None:
-        self.api_key = api_key or os.environ.get("GOALSERVE_API_KEY")
+def _winner(flag) -> str | None:
+    return "a" if flag == "First Player" else "b" if flag == "Second Player" else None
+
+
+def _sets(scores: list | None) -> tuple[list[int], list[int]]:
+    a, b = [], []
+    for s in scores or []:
+        try:
+            a.append(int(s.get("score_first", 0)))
+            b.append(int(s.get("score_second", 0)))
+        except (ValueError, TypeError):
+            pass
+    return a, b
+
+
+def _game(result: str | None) -> tuple[str, str]:
+    # "40 - 30" -> ("40","30"); "-" or "0 - 0" handled too
+    if not result or result.strip() in ("-", ""):
+        return "0", "0"
+    parts = [p.strip() for p in result.split("-")]
+    return (parts[0], parts[1]) if len(parts) == 2 else ("0", "0")
+
+
+def _status(fix: dict) -> str:
+    st = (fix.get("event_status") or "").strip()
+    if st == "Finished" or fix.get("event_winner"):
+        return "finished"
+    if fix.get("event_live") == "1" or st.startswith("Set"):
+        return "live"
+    return "scheduled"
+
+
+class APITennisProvider(TennisProvider):
+    name = "apitennis"
+
+    def __init__(self, api_key: str | None = None, timezone: str | None = None):
+        self.api_key = api_key or os.environ.get("TENNIS_API_KEY")
         if not self.api_key:
-            raise RuntimeError("Set GOALSERVE_API_KEY to use the live feed.")
-        # import requests/httpx here in the real implementation
+            raise RuntimeError("Set TENNIS_API_KEY to use the live API-Tennis feed.")
+        self.timezone = timezone or os.environ.get("TENNIS_TZ", "America/Chicago")
+        self._fixtures: dict[str, dict] = {}     # event_key -> raw fixture
+        self._live_cache: dict[str, LiveScore] = {}
+        self._live_fetched_at = 0.0
+
+    # ---- low-level HTTP --------------------------------------------------
+
+    def _call(self, method: str, **params) -> list:
+        import httpx  # lazy import so the rest of the app loads without it
+        params = {"method": method, "APIkey": self.api_key, "timezone": self.timezone, **params}
+        r = httpx.get(BASE_URL, params=params, timeout=15.0)
+        r.raise_for_status()
+        data = r.json()
+        if not data or data.get("success") != 1:
+            return []
+        return data.get("result", []) or []
+
+    # ---- TennisProvider contract ----------------------------------------
 
     def get_schedule(self, day: datetime) -> list[MatchInfo]:
-        # 1. GET the day's tennis schedule feed for your covered tiers.
-        # 2. For each match element, build a MatchInfo(...).
-        # 3. Map provider tier labels -> your TIERS ("ATP"/"WTA"/...).
-        raise NotImplementedError("Wire up the real Goalserve schedule feed here.")
+        d = day.strftime("%Y-%m-%d")
+        rows = self._call("get_fixtures", date_start=d, date_stop=d)
+        out: list[MatchInfo] = []
+        for fix in rows:
+            tier = _TIER_MAP.get(fix.get("event_type_type"))
+            if tier is None:
+                continue  # skip ITF, doubles, exhibitions, juniors
+            key = str(fix.get("event_key"))
+            self._fixtures[key] = fix
+            try:
+                when = datetime.strptime(
+                    f"{fix.get('event_date')} {fix.get('event_time','00:00')}", "%Y-%m-%d %H:%M")
+            except ValueError:
+                when = day
+            out.append(MatchInfo(
+                provider_match_id=key,
+                tier=tier,
+                tournament=fix.get("tournament_name", "Tennis"),
+                surface="Unknown",   # API-Tennis fixtures don't carry surface
+                player_a=fix.get("event_first_player", "Player A"),
+                player_b=fix.get("event_second_player", "Player B"),
+                scheduled=when,
+                best_of=3,
+                status=_status(fix),
+            ))
+        return out
+
+    def _refresh_live(self) -> None:
+        if time.time() - self._live_fetched_at < _LIVE_TTL:
+            return
+        self._live_fetched_at = time.time()
+        try:
+            rows = self._call("get_livescore")
+        except Exception:
+            return
+        cache: dict[str, LiveScore] = {}
+        for fix in rows:
+            tier = _TIER_MAP.get(fix.get("event_type_type"))
+            if tier is None:
+                continue
+            key = str(fix.get("event_key"))
+            self._fixtures[key] = fix  # keep latest known state
+            sa, sb = _sets(fix.get("scores"))
+            ga, gb = _game(fix.get("event_game_result"))
+            cache[key] = LiveScore(
+                sets_a=sa, sets_b=sb, game_a=ga, game_b=gb,
+                server=_server(fix.get("event_serve")),
+                status="live", winner=None,
+            )
+        self._live_cache = cache
 
     def get_live_score(self, provider_match_id: str) -> LiveScore:
-        # 1. GET the live feed for this match id.
-        # 2. Read sets_won / set1..set5 / game_score / serve flags.
-        # 3. Return LiveScore(sets_a=..., game_a=..., server=..., status=...).
-        raise NotImplementedError("Map the live score feed onto LiveScore here.")
+        self._refresh_live()
+        key = str(provider_match_id)
+        if key in self._live_cache:
+            return self._live_cache[key]
+        # Not currently live: derive from the last-known fixture.
+        fix = self._fixtures.get(key)
+        if not fix:
+            return LiveScore(status="scheduled")
+        sa, sb = _sets(fix.get("scores"))
+        st = _status(fix)
+        return LiveScore(
+            sets_a=sa, sets_b=sb,
+            game_a="", game_b="",
+            server=_server(fix.get("event_serve")),
+            status=st,
+            winner=_winner(fix.get("event_winner")) if st == "finished" else None,
+        )
 
     def get_match_stats(self, provider_match_id: str) -> MatchStats:
-        # Map serve/return stat fields onto PlayerStats. Remember many ITF
-        # matches will have none -- return MatchStats() (empty) in that case.
-        raise NotImplementedError("Map the stats feed onto MatchStats here.")
+        # API-Tennis carries point-by-point; detailed serve-stat parsing is a
+        # later enhancement. Return empty for now (UI shows none gracefully).
+        return MatchStats()
