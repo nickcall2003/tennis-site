@@ -30,7 +30,7 @@ _NORMAL_CV = {
     "passing_yards": 0.30, "rushing_yards": 0.55, "receiving_yards": 0.55,
     "default": 0.40,
 }
-_POISSON_STATS = {"strikeouts", "made_threes", "home_runs"}
+_POISSON_STATS = {"strikeouts", "made_threes", "home_runs", "hits", "rbis", "total_bases"}
 
 
 def _poisson_sf(line, mean):

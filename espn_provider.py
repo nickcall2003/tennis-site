@@ -193,32 +193,152 @@ def _leaders_from_event(sport, ev):
 
 
 def get_props(sport: str, date: dt.date, game_id: str):
+    """
+    Full-roster player props from the game summary boxscore. One call per game
+    (covers every listed player), so it stays light on a small instance.
+    Each player's season averages drive the projection.
+    """
     from props import project_prop, default_line
-    g = get_game(sport, date, game_id)
-    if not g:
-        return {"error": "not found"}
-    # re-fetch the raw event to read its leaders block
     try:
-        data = _get(SCOREBOARD[sport], {"dates": date.strftime("%Y%m%d")})
+        data = _get(SUMMARY[sport], {"event": game_id})
     except Exception:
         return {"game_id": game_id, "props": []}
-    ev = next((e for e in data.get("events", []) if str(e.get("id")) == str(game_id)), None)
-    if not ev:
-        return {"game_id": game_id, "props": []}
-    leaders = _leaders_from_event(sport, ev)
+
+    # The boxscore.players block lists each team's athletes with stat arrays.
+    # For pregame, ESPN populates season AVERAGES; we read the labeled columns.
+    box = data.get("boxscore", {}) or {}
+    players_block = box.get("players", []) or []
     out = []
-    for L in leaders:
-        if L["rate"] <= 0:
-            continue
-        line = default_line(L["stat"], L["rate"])
-        proj = project_prop(L["stat"], L["rate"], line)
-        if not proj:
-            continue
-        proj["player"] = L["player"]
-        proj["team"] = L["team"]
-        proj["label"] = dict(_PROP_STATS[sport]).get(
-            next((k for k, v in _STAT_KEY.items() if v == L["stat"]), ""), L["stat"])
-        out.append(proj)
-    # strongest edges first
+    seen = set()
+    for team in players_block:
+        tabbr = (team.get("team", {}) or {}).get("abbreviation", "")
+        for grp in team.get("statistics", []) or []:
+            gname = (grp.get("name") or grp.get("type") or "").lower()
+            labels = [l.lower() for l in (grp.get("labels") or [])]
+            names = [n.lower() for n in (grp.get("names") or [])]
+            cols = names or labels
+            for ath in grp.get("athletes", []) or []:
+                person = ath.get("athlete", {}) or {}
+                pname = person.get("displayName")
+                stats = ath.get("stats") or []
+                if not pname or not stats:
+                    continue
+                for stat_key, label in _PROP_STATS[sport]:
+                    # NFL: only read a yard type from its matching stat group
+                    if sport == "nfl":
+                        want_group = _NFL_GROUP.get(stat_key, "")
+                        if want_group and want_group not in gname:
+                            continue
+                    col = _find_col(cols, stat_key, sport)
+                    if col is None or col >= len(stats):
+                        continue
+                    try:
+                        rate = float(str(stats[col]).replace(",", ""))
+                    except (ValueError, TypeError):
+                        continue
+                    if rate <= 0:
+                        continue
+                    dedup = (pname, stat_key)
+                    if dedup in seen:
+                        continue
+                    seen.add(dedup)
+                    line = default_line(stat_key, rate)
+                    proj = project_prop(stat_key, rate, line)
+                    if not proj:
+                        continue
+                    proj["player"] = pname
+                    proj["team"] = tabbr
+                    proj["label"] = label
+                    out.append(proj)
     out.sort(key=lambda p: -p["edge"])
     return {"game_id": game_id, "props": out}
+
+
+# Which boxscore column holds each prop stat. ESPN labels vary by sport/group;
+# we match the column header against these candidates (lowercased).
+_COL_CANDIDATES = {
+    "points": ["pts"], "rebounds": ["reb"], "assists": ["ast"],
+    "passingYards": ["yds"], "rushingYards": ["yds"], "receivingYards": ["yds"],
+}
+# For NFL, the stat group name disambiguates which "yds" we want.
+_NFL_GROUP = {"passingYards": "passing", "rushingYards": "rushing",
+              "receivingYards": "receiving"}
+
+
+def _find_col(cols, stat_key, sport):
+    for cand in _COL_CANDIDATES.get(stat_key, []):
+        if cand in cols:
+            return cols.index(cand)
+    return None
+
+
+# ---- prop game logs (NBA / NFL history charts) --------------------------
+
+GAMELOG = {
+    "nba": "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/{pid}/gamelog",
+    "nfl": "https://site.web.api.espn.com/apis/common/v3/sports/football/nfl/athletes/{pid}/gamelog",
+}
+# Map our stat key -> the label ESPN uses in gamelog stat arrays (varies; we
+# match case-insensitively against the labels list).
+_LOG_LABEL = {
+    "points": "pts", "rebounds": "reb", "assists": "ast",
+    "passing_yards": "yds", "rushing_yards": "yds", "receiving_yards": "yds",
+}
+
+
+def _athlete_id_by_name(sport, name):
+    """Find an ESPN athlete id from a display name via the search endpoint."""
+    try:
+        data = _get("https://site.web.api.espn.com/apis/search/v2", {"query": name, "limit": 5})
+        for grp in data.get("results", []):
+            for item in grp.get("contents", []):
+                if (item.get("type") == "player" and
+                        sport.upper() in (item.get("subtitle", "") or "").upper()):
+                    uid = item.get("uid", "")
+                    # uid like "s:40~l:46~a:3917376" -> athlete id after a:
+                    if "a:" in uid:
+                        return uid.split("a:")[-1]
+    except Exception:
+        pass
+    return None
+
+
+def get_prop_history(sport, date, game_id, player_name, stat, line):
+    """Last-10 game log for a player+stat with hit/miss vs the line."""
+    pid = _athlete_id_by_name(sport, player_name)
+    if not pid:
+        return {"error": "player not found", "history": []}
+    try:
+        data = _get(GAMELOG[sport].format(pid=pid))
+    except Exception:
+        return {"error": "no log", "history": []}
+    # ESPN gamelog: seasonTypes -> categories -> events; labels define columns
+    labels = [l.lower() for l in (data.get("labels") or [])]
+    names = [n.lower() for n in (data.get("names") or [])]
+    col = None
+    want = _LOG_LABEL.get(stat, "")
+    for i, lab in enumerate(names or labels):
+        if lab == want:
+            col = i
+            break
+    games = []
+    events = data.get("events") or {}
+    seasontypes = data.get("seasonTypes") or []
+    rows = []
+    for stp in seasontypes:
+        for cat in stp.get("categories", []):
+            rows.extend(cat.get("events", []))
+    for ev in rows[-10:]:
+        stats = ev.get("stats", [])
+        if col is None or col >= len(stats):
+            continue
+        try:
+            val = float(str(stats[col]).replace(",", ""))
+        except (ValueError, TypeError):
+            continue
+        meta = events.get(ev.get("eventId"), {}) if isinstance(events, dict) else {}
+        opp = ""
+        games.append({"date": "", "opp": opp, "value": val})
+    hits = sum(1 for x in games if x["value"] > line)
+    return {"player": player_name, "label": stat, "line": line,
+            "games": games, "hits": hits, "total": len(games)}

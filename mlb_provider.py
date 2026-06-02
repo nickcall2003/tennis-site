@@ -468,7 +468,7 @@ def _pitcher_k_rate(pid):
 
 
 def get_props(date: dt.date, game_id: int):
-    """Pitcher strikeout props for both starters in a game."""
+    """Pitcher strikeout props + batter hits/HR/RBI props for a game."""
     from props import project_prop, default_line
     g = get_game(date, game_id)
     if not g:
@@ -489,4 +489,173 @@ def get_props(date: dt.date, game_id: int):
             proj["opponent"] = opp
             proj["label"] = "Strikeouts"
             out.append(proj)
+    # batter props (hits / HR / RBI) for both lineups
+    try:
+        batters = get_batter_props(date, game_id).get("props", [])
+        out.extend(batters)
+    except Exception as e:
+        print(f"[mlb] batter props failed: {e}")
+    return {"game_id": game_id, "props": out}
+
+
+# ---- prop game logs (last N games, for the history chart) ---------------
+
+def _pitcher_game_log(pid, stat="strikeOuts", n=10):
+    """Return last n starts as [{date, opp, value}] for a stat."""
+    if not pid:
+        return []
+    try:
+        data = _get(f"{BASE}/people/{pid}/stats",
+                    {"stats": "gameLog", "group": "pitching", "season": SEASON})
+        splits = data["stats"][0]["splits"]
+    except Exception:
+        return []
+    out = []
+    for s in splits[-n:]:
+        st = s.get("stat", {})
+        opp = (s.get("opponent", {}) or {}).get("abbreviation", "")
+        date = s.get("date", "")
+        val = st.get(stat)
+        if val is None:
+            continue
+        try:
+            out.append({"date": date[5:] if date else "", "opp": opp, "value": float(val)})
+        except (ValueError, TypeError):
+            pass
+    return out
+
+
+def _batter_game_log(pid, stat_field, n=10):
+    """Last n games as [{date, opp, value}] for a hitting stat field."""
+    if not pid:
+        return []
+    try:
+        data = _get(f"{BASE}/people/{pid}/stats",
+                    {"stats": "gameLog", "group": "hitting", "season": SEASON})
+        splits = data["stats"][0]["splits"]
+    except Exception:
+        return []
+    out = []
+    for s in splits[-n:]:
+        st = s.get("stat", {})
+        opp = (s.get("opponent", {}) or {}).get("abbreviation", "")
+        date = s.get("date", "")
+        val = st.get(stat_field)
+        if val is None:
+            continue
+        try:
+            out.append({"date": date[5:] if date else "", "opp": opp, "value": float(val)})
+        except (ValueError, TypeError):
+            pass
+    return out
+
+
+_LOG_SPEC = {
+    "strikeouts": ("pitching", "strikeOuts"),
+    "hits": ("hitting", "hits"),
+    "home_runs": ("hitting", "homeRuns"),
+    "rbis": ("hitting", "rbi"),
+}
+
+
+def _player_id_in_game(date, game_id, player_name):
+    """Resolve a player's id from this game's starters + both lineups by name."""
+    g = get_game(date, game_id)
+    if not g:
+        return None
+    target = (player_name or "").strip().lower()
+    # starters
+    for side in ("home", "away"):
+        pid = _starter_id(date, game_id, side)
+        if pid:
+            r, name = _pitcher_k_rate(pid)
+            if name and name.lower() == target:
+                return pid
+    # lineups / rosters
+    for side in ("home", "away"):
+        batters, _ = _lineup_or_roster(game_id, g[side]["team_id"], side)
+        for b in batters:
+            if (b.get("name") or "").lower() == target:
+                return b.get("id")
+    return None
+
+
+def get_prop_history(date: dt.date, game_id: int, player=None, stat=None, line=None):
+    """Last-10 game log for a specific player+stat, with hit/miss vs the line."""
+    spec = _LOG_SPEC.get(stat, ("pitching", "strikeOuts"))
+    group, field = spec
+    pid = _player_id_in_game(date, game_id, player)
+    if not pid:
+        return {"history": [], "games": []}
+    if group == "pitching":
+        log = _pitcher_game_log(pid, field)
+    else:
+        log = _batter_game_log(pid, field)
+    if line is None:
+        line = 0.5
+    hits = sum(1 for x in log if x["value"] > line)
+    return {"player": player, "label": stat, "line": line,
+            "games": log, "hits": hits, "total": len(log)}
+
+
+# ---- batter props (hits / HR / RBI) ------------------------------------
+
+_batter_rate_cache = {}   # batter_id -> (ts, rates)
+
+def _batter_rates(batter_id):
+    """Per-game hits, HR, RBI for a batter from season stats (cached)."""
+    if not batter_id:
+        return None
+    c = _batter_rate_cache.get(batter_id)
+    if c and time.time() - c[0] < _DAY_TTL:
+        return c[1]
+    try:
+        data = _get(f"{BASE}/people/{batter_id}",
+                    {"hydrate": f"stats(group=[hitting],type=[season],season={SEASON})"})
+        person = data["people"][0]
+        st = person["stats"][0]["splits"][0]["stat"]
+        g = float(st.get("gamesPlayed", 0) or 0)
+        if g < 1:
+            _batter_rate_cache[batter_id] = (time.time(), None)
+            return None
+        rates = {
+            "name": person.get("fullName"),
+            "hits": float(st.get("hits", 0) or 0) / g,
+            "home_runs": float(st.get("homeRuns", 0) or 0) / g,
+            "rbis": float(st.get("rbi", 0) or 0) / g,
+        }
+        _batter_rate_cache[batter_id] = (time.time(), rates)
+        return rates
+    except Exception:
+        return None
+
+
+def get_batter_props(date: dt.date, game_id: int, max_batters=9):
+    """Hits/HR/RBI props for each team's lineup (or projected batters)."""
+    from props import project_prop, default_line
+    g = get_game(date, game_id)
+    if not g:
+        return {"error": "not found"}
+    labels = {"hits": "Hits", "home_runs": "Home Runs", "rbis": "RBIs"}
+    out = []
+    for side_key in ("home", "away"):
+        team_id = g[side_key]["team_id"]
+        batters, _ = _lineup_or_roster(game_id, team_id, side_key)
+        for b in batters[:max_batters]:
+            rates = _batter_rates(b["id"])
+            if not rates:
+                continue
+            for stat in ("hits", "home_runs", "rbis"):
+                rate = rates[stat]
+                if rate <= 0:
+                    continue
+                line = default_line(stat, rate)
+                proj = project_prop(stat, rate, line)
+                if not proj:
+                    continue
+                proj["player"] = rates["name"]
+                proj["team"] = g[side_key]["name"]
+                proj["label"] = labels[stat]
+                out.append(proj)
+    out.sort(key=lambda p: -p["edge"])
     return {"game_id": game_id, "props": out}

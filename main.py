@@ -74,8 +74,9 @@ if USE_REAL:
     loaded = engine.load_ratings(os.environ.get("RATINGS_FILE", "ratings.json"))
     if loaded:
         print(f"[predictions] loaded {loaded} precomputed ratings (low-memory mode)")
-    else:
-        # Fallback: train live from Sackmann CSVs (heavier on RAM).
+    elif os.environ.get("TRAIN_AT_RUNTIME", "").lower() in ("1", "true", "yes"):
+        # Heavy fallback: train live from CSVs. Only if explicitly enabled, since
+        # it loads pandas and can exceed small instances' memory.
         try:
             years = int(os.environ.get("TRAIN_YEARS", "2"))
             this_year = dt.date.today().year
@@ -83,6 +84,9 @@ if USE_REAL:
             print(f"[predictions] trained on {n} matches, {len(engine._by_key)} players")
         except Exception as e:
             print(f"[predictions] history training skipped ({e})")
+    else:
+        print("[predictions] no ratings.json found; running lean (ranking-only). "
+              "Generate ratings.json via build_ratings.py for full strength.")
     try:
         ranks = provider.get_rankings()
         engine.load_rankings(ranks)
@@ -112,22 +116,30 @@ def _ensure_day(day: dt.date) -> None:
         print(f"[build] could not build {key}: {e}")
 
 
-def _backfill_recent(days: int = 30) -> None:
-    """Build the past `days` days once at startup so 30-day accuracy is real.
-    Past days are settled, so this is a one-time cost; today keeps refreshing."""
-    if not USE_REAL:
+def _backfill_recent(days: int) -> None:
+    """Build the past `days` days so 30-day accuracy has data. Throttled and
+    fully guarded so it can never take the app down. Opt-in via BACKFILL_DAYS."""
+    if not USE_REAL or days <= 0:
         return
+    import time as _t
     today = dt.date.today()
     for off in range(1, days + 1):
-        _ensure_day(today - dt.timedelta(days=off))
+        try:
+            _ensure_day(today - dt.timedelta(days=off))
+            _t.sleep(1.0)   # breathe between days so a tiny instance isn't pegged
+        except Exception as e:
+            print(f"[backfill] skipped a day: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     if USE_REAL:
         _ensure_day(dt.date.today())
-        # backfill prior days in the background so startup isn't blocked
-        asyncio.get_event_loop().run_in_executor(None, _backfill_recent, 30)
+        # Past-days backfill is OFF by default to keep small instances stable.
+        # Set BACKFILL_DAYS=30 (and ideally upgrade RAM) to enable rolling accuracy.
+        bf = int(os.environ.get("BACKFILL_DAYS", "0") or 0)
+        if bf > 0:
+            asyncio.get_event_loop().run_in_executor(None, _backfill_recent, bf)
     else:
         build_today(provider)
     task = asyncio.create_task(live_engine.run())
@@ -683,6 +695,32 @@ def team_props(sport: str, game_id: str, date: str | None = None):
     except Exception as e:
         print(f"[{sport}] props failed: {e}")
         return {"props": []}
+
+
+@app.get("/api/mlb/prop-history/{game_id}")
+def mlb_prop_history(game_id: int, player: str, stat: str, line: float,
+                     date: str | None = None):
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from mlb_provider import get_prop_history
+        return get_prop_history(target, game_id, player, stat, line)
+    except Exception as e:
+        print(f"[mlb] prop-history failed: {e}")
+        return {"games": []}
+
+
+@app.get("/api/{sport}/prop-history/{game_id}")
+def team_prop_history(sport: str, game_id: str, player: str, stat: str,
+                      line: float, date: str | None = None):
+    if sport not in ("nba", "nfl"):
+        return {"history": []}
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from espn_provider import get_prop_history
+        return get_prop_history(sport, target, game_id, player, stat, line)
+    except Exception as e:
+        print(f"[{sport}] prop-history failed: {e}")
+        return {"history": []}
 
 
 @app.websocket("/ws/live")
