@@ -20,8 +20,6 @@ import math
 import re
 import unicodedata
 
-import pandas as pd
-
 from elo import TennisElo, expected_score
 
 _ATP_TOUR = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_{y}.csv"
@@ -67,6 +65,7 @@ class PredictionEngine:
     # ---- training --------------------------------------------------------
 
     def _ingest_url(self, url):
+        import pandas as pd   # local import: only loaded during training/build, never at runtime
         try:
             df = pd.read_csv(url, usecols=lambda c: c in _USECOLS)
         except Exception:
