@@ -59,6 +59,7 @@ def get_headlines(league: str, limit: int = 20, only_transactions: bool = False)
         body = r.text
     except Exception:
         return []
+    want_section = _SECTION[league]
     items = []
     seen = set()
     for pat in (_LINK, _HREF):
@@ -70,12 +71,19 @@ def get_headlines(league: str, limit: int = 20, only_transactions: bool = False)
             title = _html.unescape(title).strip()
             if not title or link in seen or len(title) < 12:
                 continue
+            # CRITICAL: the section page (e.g. /nba) embeds cross-promoted links
+            # to other sports. Only keep stories whose URL belongs to THIS league,
+            # so MLB stories never show under NBA/NFL.
+            try:
+                seg = link.split("yardbarker.com/")[1].split("/")[0]
+            except IndexError:
+                continue
+            if seg != want_section:
+                continue
             seen.add(link)
             newsy = _looks_newsy(title, link)
             if only_transactions and not newsy:
                 continue
-            # derive a rough tag from the URL section
-            seg = link.split("yardbarker.com/")[1].split("/")[0]
             items.append({"headline": title, "url": link,
                           "transaction": newsy,
                           "section": seg.replace("_", " ").upper()})

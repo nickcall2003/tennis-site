@@ -102,14 +102,35 @@ def get_games(date: dt.date, force_live=False):
     ttl = _LIVE_TTL if force_live else _DAY_TTL
     if c and not force_live and time.time() - c[0] < _DAY_TTL:
         return c[1]
-    try:
-        data = _get(SCOREBOARD, {"dates": date.strftime("%Y%m%d"),
-                                 "groups": "50", "limit": 400})
-    except Exception as e:
-        print(f"[ncaabb] scoreboard failed: {e}")
+    # ESPN's college scoreboard can return nothing for a single date during the
+    # postseason. Querying a 1-day RANGE (and not over-constraining with groups)
+    # reliably returns the day's games. We try a couple of variants and keep the
+    # first that yields events for the target date.
+    ds = date.strftime("%Y%m%d")
+    nxt = (date + dt.timedelta(days=1)).strftime("%Y%m%d")
+    attempts = [
+        {"dates": f"{ds}-{nxt}", "limit": 400},
+        {"dates": ds, "limit": 400},
+        {"dates": ds, "groups": "50", "limit": 400},
+    ]
+    data = None
+    for params in attempts:
+        try:
+            resp = _get(SCOREBOARD, params)
+            if resp.get("events"):
+                data = resp
+                break
+            data = data or resp
+        except Exception as e:
+            print(f"[ncaabb] scoreboard attempt {params} failed: {e}")
+    if data is None:
         return _cache.get(key, (0, []))[1]
     games = []
     for ev in data.get("events", []):
+        # when we query a range, keep only events on the requested calendar day
+        ev_date = (ev.get("date", "") or "")[:10]
+        if ev_date and ev_date != date.isoformat():
+            continue
         comps = ev.get("competitions", [])
         if not comps:
             continue
