@@ -108,10 +108,12 @@ def get_games(date: dt.date, force_live=False):
     # first that yields events for the target date.
     ds = date.strftime("%Y%m%d")
     nxt = (date + dt.timedelta(days=1)).strftime("%Y%m%d")
+    # Confirmed via live debug: a date RANGE returns the full day's games, a
+    # single date works too, but groups=50 returns ZERO for college baseball
+    # (do NOT use it). Range first, single as fallback.
     attempts = [
         {"dates": f"{ds}-{nxt}", "limit": 400},
         {"dates": ds, "limit": 400},
-        {"dates": ds, "groups": "50", "limit": 400},
     ]
     data = None
     for params in attempts:

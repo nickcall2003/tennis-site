@@ -1173,6 +1173,27 @@ def team_games(sport: str, date: str | None = None):
     return games
 
 
+@app.get("/api/ncaabb/hl-debug")
+def ncaabb_hl_debug(team: str = "Texas"):
+    """Diagnostic for the Highlightly key: confirms the host, team lookup, and
+    stats response shape so we can verify the integration once the key is set."""
+    import highlightly as hl
+    out = {"enabled": hl.enabled(), "host": hl.HOST, "platform": hl.PLATFORM}
+    if not hl.enabled():
+        out["note"] = "Set HIGHLIGHTLY_API_KEY in Render to enable."
+        return out
+    try:
+        tid = hl._find_team_id(team)
+        out["team_lookup"] = {"query": team, "team_id": tid}
+        if tid:
+            stats = hl.get_team_stats(team)
+            out["stats"] = stats or "empty (free-tier may hide, or path/shape differs)"
+        out["quota"] = hl.quota()
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
 @app.get("/api/ncaabb/debug")
 def ncaabb_debug(date: str | None = None):
     """Diagnostic: shows exactly what ESPN's college-baseball scoreboard returns

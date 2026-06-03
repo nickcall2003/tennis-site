@@ -22,7 +22,16 @@ import time
 import datetime as dt
 
 API_KEY = os.environ.get("HIGHLIGHTLY_API_KEY", "").strip()
-HOST = os.environ.get("HIGHLIGHTLY_HOST", "baseball-highlights-api.p.rapidapi.com").strip()
+# Two front doors, NOT cross-compatible (per Highlightly docs):
+#   - Direct platform (default here): https://baseball.highlightly.net, auth via x-api-key
+#   - RapidAPI proxy: https://mlb-college-baseball-api.p.rapidapi.com, auth via x-rapidapi-key/host
+# A key from highlightly.net only works against the direct host; a RapidAPI key
+# only works against the RapidAPI host. Set HIGHLIGHTLY_PLATFORM=rapidapi to switch.
+PLATFORM = os.environ.get("HIGHLIGHTLY_PLATFORM", "direct").strip().lower()
+if PLATFORM == "rapidapi":
+    HOST = os.environ.get("HIGHLIGHTLY_HOST", "mlb-college-baseball-api.p.rapidapi.com").strip()
+else:
+    HOST = os.environ.get("HIGHLIGHTLY_HOST", "baseball.highlightly.net").strip()
 BASE = f"https://{HOST}"
 
 _team_cache = {}        # team_name_norm -> (ts, stats dict)
@@ -58,7 +67,11 @@ def _quota_ok():
 
 def _get(path, params=None):
     import httpx
-    headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOST}
+    if PLATFORM == "rapidapi":
+        headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOST}
+    else:
+        # Direct highlightly.net platform: x-api-key only.
+        headers = {"x-api-key": API_KEY}
     r = httpx.get(BASE + path, params=params or {}, headers=headers, timeout=15)
     _spend["count"] = _spend.get("count", 0) + 1
     rem = r.headers.get("x-ratelimit-requests-remaining")
@@ -107,10 +120,15 @@ def get_team_stats(name, season=None):
         return {}
     season = season or dt.date.today().year
     from_date = f"{season}-02-01"
-    try:
-        data = _get(f"/teams/statistics/{tid}", {"fromDate": from_date})
-    except Exception as e:
-        print(f"[highlightly] stats failed for {name}: {e}")
+    data = None
+    for path in (f"/teams/statistics/{tid}", f"/teams/{tid}/statistics"):
+        try:
+            data = _get(path, {"fromDate": from_date})
+            if data:
+                break
+        except Exception as e:
+            print(f"[highlightly] stats {path} failed for {name}: {e}")
+    if data is None:
         return c[1] if c else {}
     stats = _parse_team_stats(data)
     if stats:
@@ -128,11 +146,13 @@ def _num(v):
 def _parse_team_stats(data):
     """Extract the fields the run-expectancy model needs from Highlightly's
     team statistics payload. Defensive: returns {} if shape is unexpected."""
+    # unwrap {data: ...} or [ ... ] wrappers
+    if isinstance(data, dict) and "data" in data:
+        data = data["data"]
+    if isinstance(data, list):
+        data = data[0] if data else {}
     if not isinstance(data, dict):
-        if isinstance(data, list) and data:
-            data = data[0]
-        else:
-            return {}
+        return {}
     bat = data.get("batting") or data.get("hitting") or {}
     pit = data.get("pitching") or {}
     games = _num(data.get("games") or data.get("gamesPlayed")) or 0
