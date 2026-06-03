@@ -193,6 +193,11 @@
   .news-h{font-weight:600;font-size:15px;line-height:1.4}
   .news-d{color:var(--muted);font-size:13px;margin-top:5px;line-height:1.5}
   .news-meta{font-family:"Space Mono",monospace;font-size:10px;color:var(--muted-2);margin-top:6px;text-transform:uppercase;letter-spacing:.05em}
+  .yb-item{display:block;text-decoration:none;border:1px solid var(--line);background:var(--panel-2);border-radius:10px;padding:12px 14px;margin-bottom:9px;transition:border-color .15s}
+  .yb-item:hover{border-color:var(--clay)}
+  .yb-badge{display:inline-block;font-family:"Space Mono",monospace;font-size:9px;font-weight:700;letter-spacing:.08em;color:var(--clay-bright);border:1px solid var(--clay);border-radius:4px;padding:1px 5px;margin-right:8px;vertical-align:middle}
+  .yb-h{color:var(--ink);font-weight:600;font-size:14px;line-height:1.4}
+  .yb-src{display:block;color:var(--muted-2);font-family:"Space Mono",monospace;font-size:10px;margin-top:6px;text-transform:uppercase;letter-spacing:.04em}
   .home{display:none;grid-column:1/-1}
   .home.show{display:block}
   .home-hero{text-align:center;padding:30px 16px 22px}
@@ -488,6 +493,7 @@ function selectMenu(el){
 let loadToken=0;
 function setSport(s){view="sport";if(s===sport&&document.getElementById("main").style.display!=="none"){toggleMenu(false);return;}
   sport=s;tFilter=null;tabMode="all";if(detailId)closeDetail();
+  selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
   document.getElementById("main").style.display="";
   document.getElementById("detail").style.display="none";
@@ -740,6 +746,7 @@ async function togglePropHist(i,el){
 // ===== PICKS VIEWS =====
 let bestFilter={sport:"",min:0};
 function openPicks(which){view=which;if(detailId)closeDetail();
+  selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
   document.getElementById("main").style.display="";
   document.getElementById("detail").style.display="none";
@@ -749,10 +756,17 @@ function openPicks(which){view=which;if(detailId)closeDetail();
   document.getElementById("side").style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
-  document.getElementById("datebar").innerHTML="";
+  renderPicksDatebar();
   renderPicks();}
+function renderPicksDatebar(){const bar=document.getElementById("datebar");bar.innerHTML="";
+  const prev=document.createElement("button");prev.className="arrow";prev.textContent="\u2039";prev.onclick=()=>{selected=addDays(selected,-1);renderPicksDatebar();renderPicks();};bar.appendChild(prev);
+  for(let o=-3;o<=3;o++){const d=addDays(startOfDay(new Date()),o);const b=document.createElement("button");b.className="pill"+(ymd(d)===ymd(selected)?" active":"");
+    const lab=o===0?"Today":o===-1?"Yest.":o===1?"Tom.":DOW[d.getDay()];
+    b.innerHTML=lab+'<span class="d2">'+MON[d.getMonth()]+" "+d.getDate()+'</span>';b.onclick=()=>{selected=d;renderPicksDatebar();renderPicks();};bar.appendChild(b);}
+  const next=document.createElement("button");next.className="arrow";next.textContent="\u203A";next.onclick=()=>{selected=addDays(selected,1);renderPicksDatebar();renderPicks();};bar.appendChild(next);}
 let newsSport="nba";
 function openNews(){view="news";if(detailId)closeDetail();
+  selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
   document.getElementById("main").style.display="";
   document.getElementById("detail").style.display="none";
@@ -790,7 +804,17 @@ async function renderNews(){
   }else{
     body+='<div class="news-sec">\u{1F3E5} Injury report</div><div class="empty">No injuries listed for today\u2019s '+newsSport.toUpperCase()+' games (or no games today).</div>';
   }
-  // News headlines
+  // Transaction/rumor headlines (Yardbarker) — trades, signings, portal
+  if(d.headlines&&d.headlines.length){
+    body+='<div class="news-sec">\u{1F504} Trades, signings &amp; rumors</div>';
+    d.headlines.forEach(h=>{
+      body+='<a class="yb-item" href="'+h.url+'" target="_blank" rel="noopener">'+
+        (h.transaction?'<span class="yb-badge">NEWS</span>':'')+
+        '<span class="yb-h">'+h.headline+'</span>'+
+        '<span class="yb-src">'+(h.section||"")+' \u00b7 Yardbarker \u2197</span></a>';
+    });
+  }
+  // ESPN news headlines
   if(d.news&&d.news.length){
     body+='<div class="news-sec">\u{1F5DE}\ufe0f Latest headlines</div>';
     d.news.forEach(n=>{

@@ -1009,18 +1009,25 @@ def team_prop_history(sport: str, game_id: str, player: str, stat: str,
 
 @app.get("/api/news/{sport}")
 def sport_news(sport: str, date: str | None = None):
-    """News headlines + today's injury report for a sport (ESPN-sourced)."""
+    """News headlines + today's injury report for a sport.
+    Injuries from ESPN (structured); headlines from Yardbarker (trades, signings,
+    free agency, transfer portal) with ESPN headlines as a fallback."""
     if sport not in ("nba", "nfl", "mlb"):
-        return {"news": [], "injuries": []}
+        return {"news": [], "injuries": [], "headlines": []}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
-    news = injuries = []
+    news = injuries = headlines = []
     try:
         from espn_provider import get_news, get_injuries
         news = get_news(sport)
         injuries = get_injuries(sport, target)
     except Exception as e:
-        print(f"[news] {sport} failed: {e}")
-    return {"sport": sport, "news": news, "injuries": injuries}
+        print(f"[news] {sport} espn failed: {e}")
+    try:
+        from yardbarker import get_headlines
+        headlines = get_headlines(sport, limit=20)
+    except Exception as e:
+        print(f"[news] {sport} yardbarker failed: {e}")
+    return {"sport": sport, "news": news, "injuries": injuries, "headlines": headlines}
 
 
 @app.websocket("/ws/live")
