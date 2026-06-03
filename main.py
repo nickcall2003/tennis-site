@@ -523,8 +523,23 @@ def _confidence_rank(conf):
     return {"high": 3, "medium": 2, "low": 1}.get(conf, 0)
 
 
+_plays_cache = {}   # date -> (ts, plays)
+_PLAYS_TTL = 120     # seconds; picks don't need to refetch every click
+
+
 def _gather_plays(target: dt.date):
-    """Collect candidate plays (moneyline picks) across sports for a day."""
+    """Collect candidate plays across sports for a day (cached to stay fast)."""
+    import time as _t
+    key = target.isoformat()
+    c = _plays_cache.get(key)
+    if c and _t.time() - c[0] < _PLAYS_TTL:
+        return [dict(p) for p in c[1]]   # copy so callers can mutate freely
+    plays = _gather_plays_uncached(target)
+    _plays_cache[key] = (_t.time(), [dict(p) for p in plays])
+    return plays
+
+
+def _gather_plays_uncached(target: dt.date):
     plays = []
     # --- tennis (from DB) ---
     with SessionLocal() as db:
