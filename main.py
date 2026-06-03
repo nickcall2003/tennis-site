@@ -103,15 +103,32 @@ live_engine = LiveEngine(provider)
 _built_dates: set[str] = set()
 
 
+_build_attempts = {}   # key -> last attempt timestamp (throttle re-tries)
+
+
 def _ensure_day(day: dt.date) -> None:
     if not USE_REAL:
         return
+    import time as _t
     key = day.isoformat()
     if key in _built_dates:
         return
+    # Throttle: even if a build doesn't fully succeed, don't re-attempt more
+    # than once every 60s. This stops the endless slow rebuild-on-every-click.
+    last = _build_attempts.get(key, 0)
+    if _t.time() - last < 60:
+        return
+    _build_attempts[key] = _t.time()
     try:
         build_day(provider, engine, dt.datetime(day.year, day.month, day.day))
-        _built_dates.add(key)
+        # Mark built once the day has matches stored, so future requests are instant.
+        with SessionLocal() as db:
+            start = dt.datetime.combine(day, dt.time.min)
+            end = dt.datetime.combine(day, dt.time.max)
+            has = db.query(Match.id).filter(Match.scheduled >= start,
+                                            Match.scheduled <= end).first()
+        if has:
+            _built_dates.add(key)
     except Exception as e:
         print(f"[build] could not build {key}: {e}")
 
@@ -356,16 +373,24 @@ def match_detail(match_id: int):
         }
 
 
+_recorded_refs = set()   # in-memory guard: skip results we've already logged this run
+
+
 def _record_result(db, sport, ref, predicted, actual):
     """Upsert a settled pick into the results log (no-op if already recorded)."""
     from models import PickResult
     ref = str(ref)
+    memo = (sport, ref)
+    if memo in _recorded_refs:
+        return
     exists = db.query(PickResult).filter_by(sport=sport, ref=ref).first()
     if exists:
+        _recorded_refs.add(memo)
         return
     db.add(PickResult(sport=sport, ref=ref, settled_date=dt.datetime.now(),
                       predicted=str(predicted), actual=str(actual),
                       correct=(str(predicted) == str(actual))))
+    _recorded_refs.add(memo)
 
 
 _acc_cache = {"ts": 0.0, "data": None}

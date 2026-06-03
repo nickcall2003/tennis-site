@@ -125,65 +125,71 @@ from models import LiveState  # noqa: E402
 
 
 def build_day(provider, engine: PredictionEngine, day) -> int:
-    """Build one calendar day from a real provider. Returns matches added."""
+    """Build one calendar day from a real provider. Returns matches added.
+    Idempotent and resilient: existing matches are skipped, and each match is
+    committed on its own so one failure can't void the whole day (which would
+    otherwise cause endless slow rebuilds)."""
     init_db()
     schedule = provider.get_schedule(day)
     added = 0
     with SessionLocal() as db:
+        # Pre-load which provider ids already exist, in one query, so we don't
+        # re-run live scoring/weather for matches we already have.
+        existing = {row[0] for row in db.query(Match.provider_match_id).all()}
         for info in schedule:
-            if db.query(Match).filter_by(provider_match_id=info.provider_match_id).first():
-                continue  # already stored (idempotent)
-
-            prob_a, confidence = engine.predict_feed(info.player_a, info.player_b)
-            meta = provider.fixture_meta(info.provider_match_id) if hasattr(provider, "fixture_meta") else {}
-
-            # prominence = how "big" the match is, for the home highlights.
-            # Sum of both players' ratings; unknown players score low. Tour
-            # events get a small bump over challengers.
-            ra, _ = engine._rating(info.player_a)
-            rb, _ = engine._rating(info.player_b)
-            prominence = (ra or 1450) + (rb or 1450)
-            if info.tier in ("ATP", "WTA"):
-                prominence += 150
-
-            # weather (outdoor venues only; resolves by tournament/city)
-            wx_summary = wx_effect = None
+            if info.provider_match_id in existing:
+                continue  # already stored (idempotent, no live calls)
             try:
-                from weather import play_style_effect
-                wx = get_match_weather(info.tournament, info.scheduled)
-                if wx.applicable:
-                    wx_summary = wx.summary()
-                    wx_effect = play_style_effect(wx)
-            except Exception:
-                pass
+                prob_a, confidence = engine.predict_feed(info.player_a, info.player_b)
+                meta = provider.fixture_meta(info.provider_match_id) if hasattr(provider, "fixture_meta") else {}
 
-            match = Match(
-                provider_match_id=info.provider_match_id, tier=info.tier,
-                tournament=info.tournament, surface=info.surface,
-                player_a=info.player_a, player_b=info.player_b,
-                scheduled=info.scheduled, best_of=info.best_of, status=info.status,
-                event_time=meta.get("event_time"),
-                tournament_key=meta.get("tournament_key"),
-                round=meta.get("round"),
-                player_a_key=meta.get("player_a_key"),
-                player_b_key=meta.get("player_b_key"),
-                prominence=prominence,
-                weather=wx_summary, weather_effect=wx_effect,
-            )
-            db.add(match)
-            db.flush()
-            db.add(Prediction(match_id=match.id, prob_a=prob_a,
-                              confident=(confidence != "low"), confidence=confidence))
+                ra, _ = engine._rating(info.player_a)
+                rb, _ = engine._rating(info.player_b)
+                prominence = (ra or 1450) + (rb or 1450)
+                if info.tier in ("ATP", "WTA"):
+                    prominence += 150
 
-            score = provider.get_live_score(info.provider_match_id)
-            db.add(LiveState(
-                match_id=match.id,
-                sets_a=",".join(map(str, score.sets_a)),
-                sets_b=",".join(map(str, score.sets_b)),
-                game_a=score.game_a, game_b=score.game_b,
-                server=score.server, status=score.status, winner=score.winner,
-            ))
-            match.status = score.status
-            added += 1
-        db.commit()
+                wx_summary = wx_effect = None
+                try:
+                    from weather import play_style_effect
+                    wx = get_match_weather(info.tournament, info.scheduled)
+                    if wx.applicable:
+                        wx_summary = wx.summary()
+                        wx_effect = play_style_effect(wx)
+                except Exception:
+                    pass
+
+                match = Match(
+                    provider_match_id=info.provider_match_id, tier=info.tier,
+                    tournament=info.tournament, surface=info.surface,
+                    player_a=info.player_a, player_b=info.player_b,
+                    scheduled=info.scheduled, best_of=info.best_of, status=info.status,
+                    event_time=meta.get("event_time"),
+                    tournament_key=meta.get("tournament_key"),
+                    round=meta.get("round"),
+                    player_a_key=meta.get("player_a_key"),
+                    player_b_key=meta.get("player_b_key"),
+                    prominence=prominence,
+                    weather=wx_summary, weather_effect=wx_effect,
+                )
+                db.add(match)
+                db.flush()
+                db.add(Prediction(match_id=match.id, prob_a=prob_a,
+                                  confident=(confidence != "low"), confidence=confidence))
+
+                score = provider.get_live_score(info.provider_match_id)
+                db.add(LiveState(
+                    match_id=match.id,
+                    sets_a=",".join(map(str, score.sets_a)),
+                    sets_b=",".join(map(str, score.sets_b)),
+                    game_a=score.game_a, game_b=score.game_b,
+                    server=score.server, status=score.status, winner=score.winner,
+                ))
+                match.status = score.status
+                db.commit()                 # commit per match: one failure can't void the day
+                existing.add(info.provider_match_id)
+                added += 1
+            except Exception as e:
+                db.rollback()
+                print(f"[build] skipped match {info.provider_match_id}: {e}")
     return added
