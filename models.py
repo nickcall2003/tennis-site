@@ -121,3 +121,21 @@ class PickResult(Base):
     correct: Mapped[bool] = mapped_column()
 
     __table_args__ = (UniqueConstraint("sport", "ref", name="uq_sport_ref"),)
+
+
+class PickLog(Base):
+    """
+    Records which picks were SHOWN in each view (free / best) on a given day,
+    so we can report each view's own W/L and rolling accuracy honestly —
+    only counting picks that view actually surfaced.
+    """
+    __tablename__ = "pick_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    view: Mapped[str] = mapped_column(String(8), index=True)     # free | best
+    sport: Mapped[str] = mapped_column(String(10))
+    ref: Mapped[str] = mapped_column(String(40))
+    shown_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+    __table_args__ = (UniqueConstraint("view", "sport", "ref", "shown_date",
+                                       name="uq_view_pick_day"),)

@@ -32,6 +32,14 @@ _NORMAL_CV = {
 }
 _POISSON_STATS = {"strikeouts", "made_threes", "home_runs", "hits", "rbis", "total_bases"}
 
+# Minimum season average for a prop to be worth showing as a real line.
+# Filters out e.g. a center projected for 0.5 assists or a benchwarmer's points.
+_MIN_RATE = {
+    "points": 6.0, "rebounds": 3.0, "assists": 2.0,
+    "passing_yards": 80.0, "rushing_yards": 20.0, "receiving_yards": 20.0,
+    "strikeouts": 2.0, "hits": 0.6, "rbis": 0.4, "home_runs": 0.10,
+}
+
 
 def _poisson_sf(line, mean):
     """P(X > line) for X ~ Poisson(mean). Over a half-line, > floor(line)."""
@@ -63,6 +71,9 @@ def project_prop(stat, base_rate, line, matchup_factor=1.0, minutes_factor=1.0):
       minutes_factor - playing-time adjustment (e.g. expected role change)
     """
     if base_rate is None or base_rate <= 0:
+        return None
+    # Skip players whose volume is too low to be a real, bettable prop line.
+    if base_rate < _MIN_RATE.get(stat, 0):
         return None
     proj = base_rate * matchup_factor * minutes_factor
     if stat in _POISSON_STATS:

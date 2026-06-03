@@ -429,27 +429,56 @@ def accuracy(days: int = 30):
 
 
 @app.get("/api/picks/record")
-def picks_record(date: str | None = None):
-    """Settled picks W/L for a given day (for the Free/Best Bets transparency header)."""
-    from models import PickResult
+def picks_record(view: str = "free", date: str | None = None):
+    """
+    W/L for a specific view (free|best): today's settled picks AND a rolling
+    30-day figure, counting only games that view actually surfaced.
+    """
+    from models import PickResult, PickLog
     target = dt.date.fromisoformat(date) if date else dt.date.today()
-    start = dt.datetime.combine(target, dt.time.min)
-    end = dt.datetime.combine(target, dt.time.max)
-    wins = losses = 0
-    items = []
-    with SessionLocal() as db:
-        rows = db.query(PickResult).filter(PickResult.settled_date >= start,
-                                           PickResult.settled_date <= end).all()
-        for r in rows:
-            if r.correct:
-                wins += 1
-            else:
-                losses += 1
-            items.append({"sport": r.sport, "ref": r.ref, "won": bool(r.correct)})
-    total = wins + losses
-    return {"date": target.isoformat(), "wins": wins, "losses": losses,
-            "total": total, "hit_rate": round(100 * wins / total) if total else None,
-            "items": items}
+
+    def tally(since_dt, until_dt):
+        wins = losses = 0
+        items = []
+        with SessionLocal() as db:
+            logged = db.query(PickLog).filter(PickLog.view == view,
+                                              PickLog.shown_date >= since_dt,
+                                              PickLog.shown_date <= until_dt).all()
+            keys = {(l.sport, l.ref) for l in logged}
+            if not keys:
+                return 0, 0, []
+            results = {(r.sport, r.ref): r for r in
+                       db.query(PickResult).filter(PickResult.settled_date >= since_dt,
+                                                   PickResult.settled_date <= until_dt + dt.timedelta(days=2)).all()}
+            for k in keys:
+                r = results.get(k)
+                if not r:
+                    continue
+                if r.correct:
+                    wins += 1
+                else:
+                    losses += 1
+                items.append({"sport": k[0], "ref": k[1], "won": bool(r.correct)})
+        return wins, losses, items
+
+    # today (the picks shown for `target`)
+    d0 = dt.datetime.combine(target, dt.time.min)
+    d1 = dt.datetime.combine(target, dt.time.max)
+    tw, tl, items = tally(d0, d1)
+    tt = tw + tl
+
+    # rolling 30 days
+    m0 = dt.datetime.combine(target - dt.timedelta(days=30), dt.time.min)
+    mw, ml, _ = tally(m0, d1)
+    mt = mw + ml
+
+    return {
+        "view": view, "date": target.isoformat(),
+        "today": {"wins": tw, "losses": tl, "total": tt,
+                  "hit_rate": round(100 * tw / tt) if tt else None, "items": items},
+        "month": {"wins": mw, "losses": ml, "total": mt,
+                  "hit_rate": round(100 * mw / mt) if mt else None},
+    }
 
 
 @app.get("/api/mlb/games")
@@ -611,14 +640,24 @@ def _gather_plays_uncached(target: dt.date):
             prob = max(pred.prob_a, 1 - pred.prob_a)
             pick = m.player_a if pred.prob_a >= 0.5 else m.player_b
             other = m.player_b if pred.prob_a >= 0.5 else m.player_a
+            tctx = {"opponent": other, "round": m.round, "surface": m.surface,
+                    "tournament": m.tournament, "weather": getattr(m, "weather", None),
+                    "weather_effect": getattr(m, "weather_effect", None)}
+            try:
+                if engine is not None:
+                    facts = engine.analysis_facts(m.player_a, m.player_b, m.surface or "Unknown")
+                    tctx["rating_gap"] = facts.get("rating_gap")
+                    tctx["edge_size"] = facts.get("edge_size")
+                    tctx["surface_note"] = facts.get("surface_note")
+            except Exception:
+                pass
             plays.append({
                 "sport": "tennis", "id": m.id, "kind": "moneyline",
                 "match": f"{m.player_a} vs {m.player_b}", "tournament": m.tournament,
                 "pick": f"{pick} to win", "prob": round(prob, 3),
                 "confidence": getattr(pred, "confidence", "high"),
                 "event_time": m.event_time, "surface": m.surface,
-                "ctx": {"opponent": other, "round": m.round,
-                        "weather": getattr(m, "weather", None)},
+                "ctx": tctx,
                 "score_key": prob + 0.05 * _confidence_rank(getattr(pred, "confidence", "high")),
             })
     # --- MLB (live from provider) ---
@@ -682,42 +721,86 @@ def _short_reason(p):
 
 
 def _long_reason(p):
-    """A richer, multi-sentence rationale for Best Bets, from data already gathered."""
+    """In-depth, premium-grade rationale for Best Bets, from gathered context."""
     pct = round(p["prob"] * 100)
     name = p["pick"].replace(" to win", "")
     ctx = p.get("ctx") or {}
     s = []
     if p["sport"] == "tennis":
         opp = ctx.get("opponent", "the field")
-        line = f"The model makes {name} a {pct}% favorite over {opp}"
-        if p.get("surface") and p["surface"] != "Unknown":
-            line += f" on {p['surface'].lower()}"
-        s.append(line + ".")
+        surf = (ctx.get("surface") or "").lower()
+        lead = f"The model rates {name} a {pct}% favorite over {opp}"
+        if surf and surf != "unknown":
+            lead += f" on {surf}"
+        s.append(lead + ".")
+        gap = ctx.get("rating_gap")
+        edge = ctx.get("edge_size")
+        if gap is not None and edge:
+            s.append(f"That stems from a {edge} rating edge of about {gap} Elo points, "
+                     f"the model's core measure of head-to-head strength.")
+        if ctx.get("surface_note"):
+            s.append(ctx["surface_note"].capitalize() + ".")
         if ctx.get("round"):
-            s.append(f"This is a {ctx['round']} match.")
+            s.append(f"Round: {ctx['round']}. The projection also folds in each player's "
+                     f"recent form, days of rest, and prior meetings.")
+        else:
+            s.append("The projection folds in recent form, rest, and prior meetings.")
         if ctx.get("weather"):
-            s.append(f"Conditions: {ctx['weather']}, which factors into the projection.")
-        s.append(f"Confidence is {p['confidence']} based on the rating gap and surface fit.")
+            wx = f"Conditions at the venue: {ctx['weather']}."
+            if ctx.get("weather_effect"):
+                wx += f" {ctx['weather_effect']}"
+            s.append(wx)
+        s.append(f"Overall confidence: {p['confidence']}.")
     elif p["sport"] == "mlb":
-        s.append(f"The model favors {name} at {pct}% to win.")
+        s.append(f"The model makes {name} a {pct}% favorite on the moneyline.")
         eh, ea = ctx.get("exp_runs_home"), ctx.get("exp_runs_away")
         if eh is not None and ea is not None:
-            s.append(f"Projected runs: {ea} (away) to {eh} (home).")
+            s.append(f"Run projection: {ea} for the away side and {eh} for the home side, "
+                     f"from each lineup's offense against the opposing staff.")
         if ctx.get("fav_starter") and ctx.get("fav_era") is not None:
-            s.append(f"{name}'s starter {ctx['fav_starter']} carries a {ctx['fav_era']:.2f} ERA.")
+            s.append(f"{name}'s probable starter {ctx['fav_starter']} carries a "
+                     f"{ctx['fav_era']:.2f} ERA, weighted with recent bullpen workload.")
+        extras = []
         if ctx.get("venue"):
-            extra = f" with {ctx['weather']}" if ctx.get("weather") else ""
-            s.append(f"Played at {ctx['venue']}{extra}.")
+            extras.append(f"park factor at {ctx['venue']}")
+        if ctx.get("weather"):
+            extras.append(f"weather ({ctx['weather']})")
+        if extras:
+            s.append("The run environment is adjusted for " + " and ".join(extras) + ".")
+        s.append("Recent form over each team's last 10 games is blended into the offense estimate. "
+                 f"Confidence: {p['confidence']}.")
     else:  # nba / nfl
-        s.append(f"The model favors {name} at {pct}% to win.")
+        league = p["sport"].upper()
+        s.append(f"The model makes {name} a {pct}% {league} favorite.")
         if ctx.get("fav_record") and ctx.get("dog_record"):
-            s.append(f"Records: {ctx.get('fav_name','favorite')} {ctx['fav_record']} vs "
-                     f"{ctx.get('dog_name','opponent')} {ctx['dog_record']}.")
+            s.append(f"Season records: {ctx.get('fav_name','the favorite')} at {ctx['fav_record']} "
+                     f"versus {ctx.get('dog_name','the opponent')} at {ctx['dog_record']}.")
         if ctx.get("exp_margin") is not None:
-            m = abs(ctx["exp_margin"])
-            s.append(f"Projected margin is about {m:.0f} point{'s' if m != 1 else ''}.")
-        s.append(f"Confidence is {p['confidence']}.")
+            mg = abs(ctx["exp_margin"])
+            s.append(f"The projected scoring margin is roughly {mg:.0f} point{'s' if mg != 1 else ''}, "
+                     f"derived from an Elo rating seeded by record and adjusted for home advantage.")
+        s.append(f"Confidence: {p['confidence']}. (This v1 model does not yet include injuries "
+                 f"or rest; treat those as your own final check.)")
     return " ".join(s)
+
+
+def _log_shown_picks(view, target, picks):
+    """Record which picks a view surfaced today, so its W/L can be attributed."""
+    if not picks:
+        return
+    from models import PickLog
+    try:
+        with SessionLocal() as db:
+            for p in picks:
+                exists = db.query(PickLog).filter_by(view=view, sport=p["sport"],
+                                                     ref=str(p["id"]),
+                                                     shown_date=dt.datetime.combine(target, dt.time.min)).first()
+                if not exists:
+                    db.add(PickLog(view=view, sport=p["sport"], ref=str(p["id"]),
+                                   shown_date=dt.datetime.combine(target, dt.time.min)))
+            db.commit()
+    except Exception as e:
+        print(f"[picklog] {view} skipped: {e}")
 
 
 @app.get("/api/picks/free")
@@ -733,6 +816,7 @@ def free_picks(date: str | None = None):
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
+    _log_shown_picks("free", target, out)
     return {"date": target.isoformat(), "picks": out}
 
 
@@ -752,6 +836,9 @@ def best_bets(date: str | None = None, sport: str | None = None, min_prob: float
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
+    # log the unfiltered top board (so the record reflects the view's real picks)
+    if not sport and min_prob == 0.0:
+        _log_shown_picks("best", target, out)
     return {"date": target.isoformat(), "count": len(out), "picks": out}
 
 
@@ -761,14 +848,37 @@ def _team_writeup(g, sport):
     dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
     favp = round((g["prob_home"] if g["prob_home"] >= 0.5 else 1 - g["prob_home"]) * 100)
     margin = abs(g["exp_margin"])
-    s = [f"The model makes {fav['name']} the {league} pick at {favp}%"
-         + (f" at home." if g['prob_home'] >= 0.5 else " on the road.")]
+    home_side = "at home" if g["prob_home"] >= 0.5 else "on the road"
+    paras = []
+
+    # Paragraph 1: the pick and the edge
+    p1 = [f"The model makes {fav['name']} the {league} pick at {favp}% to win, playing {home_side}."]
     if fav["record"] and dog["record"]:
-        s.append(f"Records: {fav['name']} {fav['record']} vs {dog['name']} {dog['record']}.")
-    s.append(f"Projected margin is about {margin:.0f} point{'s' if margin != 1 else ''} in "
-             f"{fav['name']}'s favor.")
-    s.append(f"Confidence is {g['confidence']}.")
-    return " ".join(s)
+        p1.append(f"On the season, {fav['name']} sit at {fav['record']} against "
+                  f"{dog['name']}'s {dog['record']}, and the rating model weighs that body of "
+                  f"work along with the quality of opponents each has faced.")
+    paras.append(" ".join(p1))
+
+    # Paragraph 2: the margin and what drives it
+    p2 = [f"Projected scoring margin is about {margin:.0f} point{'s' if margin != 1 else ''} in "
+          f"{fav['name']}'s favor."]
+    p2.append("That number comes from an Elo rating seeded by each team's record and adjusted "
+              "for home-court advantage — " + ("a meaningful edge in the NBA, worth roughly "
+              "two to three points a night." if sport == "nba" else
+              "worth roughly two to three points for the home side in the NFL."))
+    if favp >= 65:
+        p2.append("The gap here is wide enough that the model treats it as a clear lean rather "
+                  "than a coin-flip.")
+    elif favp <= 56:
+        p2.append("This is a close matchup, so the edge is slim and the pick is low-conviction.")
+    paras.append(" ".join(p2))
+
+    # Paragraph 3: honest limitations
+    paras.append("One caveat worth your own check: this model is built on team strength, record, "
+                 "and home advantage. It does not yet account for injuries, rest, back-to-backs, "
+                 "or late lineup news — so confirm availability of key players before relying on it. "
+                 f"Model confidence on this game: {g['confidence']}.")
+    return "\n\n".join(paras)
 
 
 _TEAM_AI_PROMPT = """You are a {league} analyst writing a short game preview.
@@ -895,6 +1005,22 @@ def team_prop_history(sport: str, game_id: str, player: str, stat: str,
     except Exception as e:
         print(f"[{sport}] prop-history failed: {e}")
         return {"history": []}
+
+
+@app.get("/api/news/{sport}")
+def sport_news(sport: str, date: str | None = None):
+    """News headlines + today's injury report for a sport (ESPN-sourced)."""
+    if sport not in ("nba", "nfl", "mlb"):
+        return {"news": [], "injuries": []}
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    news = injuries = []
+    try:
+        from espn_provider import get_news, get_injuries
+        news = get_news(sport)
+        injuries = get_injuries(sport, target)
+    except Exception as e:
+        print(f"[news] {sport} failed: {e}")
+    return {"sport": sport, "news": news, "injuries": injuries}
 
 
 @app.websocket("/ws/live")

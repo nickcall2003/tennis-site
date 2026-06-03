@@ -31,6 +31,36 @@ _TIER_MAP = {
     "Challenger Women Singles": "CHALLENGER",
 }
 
+
+def _classify_tier(fix):
+    """
+    Decide the tier from an API fixture, robustly. The feed's exact
+    'event_type_type' strings vary (case, spacing, naming), and WTA events were
+    being dropped by exact-string matching. We normalize and match by keyword,
+    and also fall back to the tournament name (e.g. 'WTA 1000 Rome').
+    Singles only; doubles/ITF excluded.
+    """
+    et = (fix.get("event_type_type") or "").strip().lower()
+    name = (fix.get("tournament_name") or "").lower()
+    hay = et + " " + name
+
+    # exclude doubles explicitly (singles product only)
+    if "doubles" in hay or "/" in (fix.get("event_first_player") or ""):
+        return None
+
+    is_chall = "challenger" in hay or "atp challenger" in hay
+    # WTA: event type or tournament name mentions wta (covers 'Wta Singles',
+    # 'WTA', 'WTA 1000', etc.)
+    if "wta" in hay:
+        return "CHALLENGER" if is_chall and "challenger" in et else "WTA"
+    if "atp" in hay:
+        return "CHALLENGER" if is_chall else "ATP"
+    if is_chall:
+        return "CHALLENGER"
+    # fall back to the original exact map if present; otherwise exclude rather
+    # than guess gender/tour wrong.
+    return _TIER_MAP.get(fix.get("event_type_type"))
+
 _LIVE_TTL = 8.0          # seconds between live-score pulls
 _FIXTURE_TTL = 20.0      # seconds to cache a single match's detail pull
 
@@ -102,7 +132,7 @@ class APITennisProvider(TennisProvider):
         rows = self._call("get_fixtures", date_start=d, date_stop=d)
         out = []
         for fix in rows:
-            tier = _TIER_MAP.get(fix.get("event_type_type"))
+            tier = _classify_tier(fix)
             if tier is None:
                 continue
             key = str(fix.get("event_key"))
@@ -147,7 +177,7 @@ class APITennisProvider(TennisProvider):
             return
         cache = {}
         for fix in rows:
-            if _TIER_MAP.get(fix.get("event_type_type")) is None:
+            if _classify_tier(fix) is None:
                 continue
             key = str(fix.get("event_key"))
             self._fixtures[key] = fix

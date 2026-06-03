@@ -192,65 +192,92 @@ def _leaders_from_event(sport, ev):
     return out
 
 
+_ATHLETE_STATS = {
+    "nba": "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/teams/{team}/athletes/statistics",
+    "nfl": "https://site.web.api.espn.com/apis/site/v2/sports/football/nfl/teams/{team}/athletes/statistics",
+}
+# ESPN's per-athlete statistics group stats by category with display names.
+# We match the season-average stat we want by its ESPN stat "name".
+_AVG_STAT_NAME = {
+    "points": ["avgPoints"], "rebounds": ["avgRebounds", "avgTotalRebounds"],
+    "assists": ["avgAssists"],
+    "passingYards": ["passingYardsPerGame", "avgPassingYards"],
+    "rushingYards": ["rushingYardsPerGame", "avgRushingYards"],
+    "receivingYards": ["receivingYardsPerGame", "avgReceivingYards"],
+}
+
+_props_cache = {}   # (sport, game_id) -> (ts, props)
+
+
+def _team_athlete_avgs(sport, team_id):
+    """Return {athlete_name: {stat_key: season_avg}} for a team."""
+    out = {}
+    if not team_id:
+        return out
+    try:
+        data = _get(_ATHLETE_STATS[sport].format(team=team_id), {"region": "us"})
+    except Exception:
+        return out
+    # structure: athletes[] -> {athlete:{displayName}, categories[]:{name, stats[]:{name,value}}}
+    athletes = data.get("athletes") or []
+    wanted = {name: key for key, names in _AVG_STAT_NAME.items() for name in names}
+    for entry in athletes:
+        ath = entry.get("athlete", {}) or {}
+        nm = ath.get("displayName")
+        if not nm:
+            continue
+        vals = {}
+        for cat in entry.get("categories", []) or []:
+            for st in cat.get("stats", []) or []:
+                sname = st.get("name", "")
+                if sname in wanted:
+                    try:
+                        vals[wanted[sname]] = float(st.get("value"))
+                    except (ValueError, TypeError):
+                        pass
+        if vals:
+            out[nm] = vals
+    return out
+
+
 def get_props(sport: str, date: dt.date, game_id: str):
     """
-    Full-roster player props from the game summary boxscore. One call per game
-    (covers every listed player), so it stays light on a small instance.
-    Each player's season averages drive the projection.
+    Full-roster player props using each team's real season averages.
+    Two calls per game (one per team's athlete statistics), cached.
     """
+    import time as _t
     from props import project_prop, default_line
-    try:
-        data = _get(SUMMARY[sport], {"event": game_id})
-    except Exception:
-        return {"game_id": game_id, "props": []}
+    ck = (sport, str(game_id))
+    c = _props_cache.get(ck)
+    if c and _t.time() - c[0] < _DAY_TTL:
+        return {"game_id": game_id, "props": c[1]}
 
-    # The boxscore.players block lists each team's athletes with stat arrays.
-    # For pregame, ESPN populates season AVERAGES; we read the labeled columns.
-    box = data.get("boxscore", {}) or {}
-    players_block = box.get("players", []) or []
+    g = get_game(sport, date, game_id)
+    if not g:
+        return {"game_id": game_id, "props": []}
     out = []
-    seen = set()
-    for team in players_block:
-        tabbr = (team.get("team", {}) or {}).get("abbreviation", "")
-        for grp in team.get("statistics", []) or []:
-            gname = (grp.get("name") or grp.get("type") or "").lower()
-            labels = [l.lower() for l in (grp.get("labels") or [])]
-            names = [n.lower() for n in (grp.get("names") or [])]
-            cols = names or labels
-            for ath in grp.get("athletes", []) or []:
-                person = ath.get("athlete", {}) or {}
-                pname = person.get("displayName")
-                stats = ath.get("stats") or []
-                if not pname or not stats:
+    for side in ("home", "away"):
+        team_id = g[side].get("team_id")
+        tabbr = g[side].get("abbr", "")
+        avgs = _team_athlete_avgs(sport, team_id)
+        for pname, vals in avgs.items():
+            for stat_key, label in _PROP_STATS[sport]:
+                rate = vals.get(stat_key)
+                if not rate or rate <= 0:
                     continue
-                for stat_key, label in _PROP_STATS[sport]:
-                    # NFL: only read a yard type from its matching stat group
-                    if sport == "nfl":
-                        want_group = _NFL_GROUP.get(stat_key, "")
-                        if want_group and want_group not in gname:
-                            continue
-                    col = _find_col(cols, stat_key, sport)
-                    if col is None or col >= len(stats):
-                        continue
-                    try:
-                        rate = float(str(stats[col]).replace(",", ""))
-                    except (ValueError, TypeError):
-                        continue
-                    if rate <= 0:
-                        continue
-                    dedup = (pname, stat_key)
-                    if dedup in seen:
-                        continue
-                    seen.add(dedup)
-                    line = default_line(stat_key, rate)
-                    proj = project_prop(stat_key, rate, line)
-                    if not proj:
-                        continue
-                    proj["player"] = pname
-                    proj["team"] = tabbr
-                    proj["label"] = label
-                    out.append(proj)
+                # skip implausible/no-volume lines (e.g. a center with 0.3 assists)
+                line = default_line(stat_key, rate)
+                if line is None or line <= 0:
+                    continue
+                proj = project_prop(stat_key, rate, line)
+                if not proj:
+                    continue
+                proj["player"] = pname
+                proj["team"] = tabbr
+                proj["label"] = label
+                out.append(proj)
     out.sort(key=lambda p: -p["edge"])
+    _props_cache[ck] = (_t.time(), out)
     return {"game_id": game_id, "props": out}
 
 
@@ -282,7 +309,14 @@ GAMELOG = {
 # match case-insensitively against the labels list).
 _LOG_LABEL = {
     "points": "pts", "rebounds": "reb", "assists": "ast",
+    # accept both the camelCase prop keys and underscore variants
+    "passingYards": "yds", "rushingYards": "yds", "receivingYards": "yds",
     "passing_yards": "yds", "rushing_yards": "yds", "receiving_yards": "yds",
+}
+# For NFL gamelogs, the right "yds" lives in a category matching this word.
+_LOG_NFL_CAT = {
+    "passingYards": "passing", "rushingYards": "rushing", "receivingYards": "receiving",
+    "passing_yards": "passing", "rushing_yards": "rushing", "receiving_yards": "receiving",
 }
 
 
@@ -325,8 +359,12 @@ def get_prop_history(sport, date, game_id, player_name, stat, line):
     events = data.get("events") or {}
     seasontypes = data.get("seasonTypes") or []
     rows = []
+    nfl_cat = _LOG_NFL_CAT.get(stat)
     for stp in seasontypes:
         for cat in stp.get("categories", []):
+            # For NFL yards, only read events from the matching category
+            if nfl_cat and nfl_cat not in (cat.get("name", "") or "").lower():
+                continue
             rows.extend(cat.get("events", []))
     for ev in rows[-10:]:
         stats = ev.get("stats", [])
@@ -336,9 +374,110 @@ def get_prop_history(sport, date, game_id, player_name, stat, line):
             val = float(str(stats[col]).replace(",", ""))
         except (ValueError, TypeError):
             continue
-        meta = events.get(ev.get("eventId"), {}) if isinstance(events, dict) else {}
+        ev_meta = events.get(ev.get("eventId"), {}) if isinstance(events, dict) else {}
         opp = ""
+        try:
+            opp = (ev_meta.get("opponent", {}) or {}).get("abbreviation", "") or ""
+        except Exception:
+            opp = ""
         games.append({"date": "", "opp": opp, "value": val})
     hits = sum(1 for x in games if x["value"] > line)
     return {"player": player_name, "label": stat, "line": line,
             "games": games, "hits": hits, "total": len(games)}
+
+
+# ---- news & injuries (for the News/Injury tab) -------------------------
+# Two real, free ESPN feeds:
+#   News:     site.api.espn.com/apis/site/v2/sports/{sport}/{league}/news
+#   Injuries: sports.core.api.espn.com/v2/sports/{sport}/leagues/{league}/teams/{id}/injuries
+# Trades / free agency / transfer portal are NOT available as a structured free
+# feed; ESPN's news headlines naturally surface many of those stories, which is
+# the honest closest version.
+
+_SPORT_LEAGUE = {
+    "nfl": ("football", "nfl"), "nba": ("basketball", "nba"),
+    "mlb": ("baseball", "mlb"),
+}
+_news_cache = {}      # league -> (ts, items)
+_inj_cache = {}       # league -> (ts, items)
+_NEWS_TTL = 1800      # 30 min
+_INJ_TTL = 1800
+
+
+def get_news(league: str, limit: int = 25):
+    import time as _t
+    if league not in _SPORT_LEAGUE:
+        return []
+    c = _news_cache.get(league)
+    if c and _t.time() - c[0] < _NEWS_TTL:
+        return c[1]
+    sport, lg = _SPORT_LEAGUE[league]
+    url = f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{lg}/news"
+    try:
+        data = _get(url, {"limit": limit})
+    except Exception:
+        return []
+    items = []
+    for art in data.get("articles", []) or []:
+        cats = art.get("categories", []) or []
+        # try to surface a player/team the story is about
+        tag = ""
+        for c2 in cats:
+            if c2.get("type") == "athlete" and c2.get("description"):
+                tag = c2["description"]
+                break
+        items.append({
+            "headline": art.get("headline", ""),
+            "description": art.get("description", ""),
+            "published": (art.get("published", "") or "")[:10],
+            "tag": tag,
+            "type": (art.get("type", "") or "Story").title(),
+        })
+    _news_cache[league] = (_t.time(), items)
+    return items
+
+
+def get_injuries(league: str, date=None):
+    """Injury report for teams playing on `date` (relevant + light). Grouped by team."""
+    import time as _t
+    import datetime as _dt
+    if league not in _SPORT_LEAGUE:
+        return []
+    date = date or _dt.date.today()
+    ckey = (league, date.isoformat())
+    c = _inj_cache.get(ckey)
+    if c and _t.time() - c[0] < _INJ_TTL:
+        return c[1]
+    sport, lg = _SPORT_LEAGUE[league]
+    # only the teams in today's games (far fewer calls than all 30)
+    games = get_games(league, date)
+    team_ids = []
+    for g in games:
+        for side in ("home", "away"):
+            tid = g[side].get("team_id")
+            if tid and tid not in team_ids:
+                team_ids.append(tid)
+    out = []
+    for tid in team_ids:
+        try:
+            inj = _get(f"https://site.api.espn.com/apis/site/v2/sports/{sport}/{lg}/teams/{tid}",
+                       {"enable": "injuries"})
+            team_obj = inj.get("team", {}) or {}
+            tname = team_obj.get("displayName", "")
+            injuries = team_obj.get("injuries", []) or []
+        except Exception:
+            continue
+        players = []
+        for it in injuries:
+            ath = it.get("athlete", {}) or {}
+            players.append({
+                "player": ath.get("displayName", "Player"),
+                "position": (ath.get("position", {}) or {}).get("abbreviation", ""),
+                "status": it.get("status", "") or (it.get("type", {}) or {}).get("description", ""),
+                "detail": (it.get("details", {}) or {}).get("type", "")
+                          or it.get("shortComment", "") or it.get("longComment", ""),
+            })
+        if players:
+            out.append({"team": tname, "players": players})
+    _inj_cache[ckey] = (_t.time(), out)
+    return out
