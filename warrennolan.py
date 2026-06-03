@@ -39,9 +39,12 @@ def _norm(name):
     return n
 
 
+_breaker = {"open_until": 0.0}
+
+
 def _fetch(url):
     import httpx
-    r = httpx.get(url, timeout=15,
+    r = httpx.get(url, timeout=6,
                   headers={"User-Agent": "LineLogic/1.0 (personal sports model; contact via site)"})
     r.raise_for_status()
     return r.text
@@ -78,6 +81,8 @@ def _parse_rpi(html_text):
 def _load():
     if time.time() - _cache["ts"] < _TTL and _cache["rpi"]:
         return
+    if time.time() < _breaker["open_until"]:
+        return   # cooling down after a failure; skip the fetch
     try:
         rpi = _parse_rpi(_fetch(RPI_URL))
         if rpi:
@@ -85,6 +90,7 @@ def _load():
             _cache["ts"] = time.time()
     except Exception as e:
         print(f"[warrennolan] rpi load failed: {e}")
+        _breaker["open_until"] = time.time() + 600   # 10 min cooldown
 
 
 def get_rating(team_name):

@@ -40,10 +40,14 @@ _TTL = 12 * 3600
 _DAILY_MAX = int(os.environ.get("HIGHLIGHTLY_DAILY_MAX", "60"))   # under 100 cap
 _spend = {"day": None, "count": 0}
 _remaining = {"value": None}
+# Circuit breaker: if a call fails/times out, stop calling for a cooldown so a
+# slow external API can NEVER hang the per-game prediction loop.
+_breaker = {"open_until": 0.0, "fails": 0}
 
 
 def enabled():
-    return bool(API_KEY)
+    import time as _t
+    return bool(API_KEY) and _t.time() >= _breaker["open_until"]
 
 
 def _norm(name):
@@ -67,17 +71,24 @@ def _quota_ok():
 
 def _get(path, params=None):
     import httpx
+    import time as _t
     if PLATFORM == "rapidapi":
         headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOST}
     else:
-        # Direct highlightly.net platform: x-api-key only.
         headers = {"x-api-key": API_KEY}
-    r = httpx.get(BASE + path, params=params or {}, headers=headers, timeout=15)
+    try:
+        r = httpx.get(BASE + path, params=params or {}, headers=headers, timeout=6.0)
+    except Exception:
+        # network error/timeout: trip the breaker so we stop hammering it
+        _breaker["fails"] += 1
+        _breaker["open_until"] = _t.time() + 600   # 10 min cooldown
+        raise
     _spend["count"] = _spend.get("count", 0) + 1
     rem = r.headers.get("x-ratelimit-requests-remaining")
     if rem is not None:
         _remaining["value"] = rem
     r.raise_for_status()
+    _breaker["fails"] = 0
     return r.json()
 
 
@@ -171,6 +182,12 @@ def _parse_team_stats(data):
     if bb is not None and h is not None and ip:
         out["whip"] = (bb + h) / ip
     return {k: v for k, v in out.items() if v is not None}
+
+
+def get_team_stats_cached(name):
+    """Return cached stats only (no network). For use inside hot request paths."""
+    c = _team_cache.get(_norm(name))
+    return c[1] if c else {}
 
 
 def quota():

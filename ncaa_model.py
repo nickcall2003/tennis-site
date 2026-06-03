@@ -56,32 +56,36 @@ def _team_elo(side, rpi):
     return elo
 
 
-def predict_baseball(home, away):
+def predict_baseball(home, away, allow_fetch=False):
     """home/away are the ESPN _side dicts. Returns prob_home, exp_margin, etc.
 
     Two paths, picked automatically by data availability:
-      1. RUN-EXPECTANCY (preferred): if Highlightly team batting/pitching stats
-         are present, use the SAME engine as MLB (expected runs from offense vs
-         opposing pitching, independent-Poisson win prob). This is what makes
-         college baseball "share the MLB algorithm" as originally wanted.
-      2. STRENGTH (fallback): ESPN records + Warren Nolan RPI Elo. Used when the
-         richer stats aren't available (no key, quota, or team not found).
+      1. RUN-EXPECTANCY: used only when Highlightly team stats are ALREADY
+         cached (or allow_fetch=True in a background warm-up). We never make
+         live Highlightly calls during a normal games request, because chaining
+         per-game network calls would hang the whole board.
+      2. STRENGTH (default/fallback): ESPN records + Warren Nolan RPI Elo. Always
+         fast; this is what drives the live board.
     """
-    # --- try the run-expectancy path first ---
-    hl = _runexp_baseball(home, away)
+    hl = _runexp_baseball(home, away, allow_fetch=allow_fetch)
     if hl is not None:
         return hl
     return _strength_baseball(home, away)
 
 
-def _runexp_baseball(home, away):
-    """Use Highlightly team stats + the MLB run-expectancy engine, or None."""
+def _runexp_baseball(home, away, allow_fetch=False):
+    """Use Highlightly team stats + the MLB run-expectancy engine, or None.
+    By default only uses already-cached stats (no network) so it can't hang."""
     try:
         import highlightly
         if not highlightly.enabled():
             return None
-        hs = highlightly.get_team_stats(home.get("name", ""))
-        as_ = highlightly.get_team_stats(away.get("name", ""))
+        if allow_fetch:
+            hs = highlightly.get_team_stats(home.get("name", ""))
+            as_ = highlightly.get_team_stats(away.get("name", ""))
+        else:
+            hs = highlightly.get_team_stats_cached(home.get("name", ""))
+            as_ = highlightly.get_team_stats_cached(away.get("name", ""))
         # need at least offense + some pitching signal on both sides
         if not (hs.get("rpg") and as_.get("rpg")):
             return None

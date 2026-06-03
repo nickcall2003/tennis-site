@@ -30,7 +30,7 @@ _LIVE_TTL = 30
 
 def _get(url, params=None):
     import httpx
-    r = httpx.get(url, params=params or {}, timeout=20.0)
+    r = httpx.get(url, params=params or {}, timeout=8.0)
     r.raise_for_status()
     return r.json()
 
