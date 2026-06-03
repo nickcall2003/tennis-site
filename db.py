@@ -30,9 +30,25 @@ if DATABASE_URL.startswith("postgresql+psycopg://") and "sslmode=" not in DATABA
 
 # check_same_thread is only needed for SQLite + the background poller thread.
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+if DATABASE_URL.startswith("sqlite"):
+    # Let writers wait for a lock instead of instantly erroring ("database is locked").
+    connect_args["timeout"] = 30
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True,
                        pool_pre_ping=True)
+
+# For SQLite, turn on WAL mode so reads don't block writes (much better
+# concurrency for our web-requests + background-poller setup).
+if DATABASE_URL.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _rec):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA busy_timeout=30000")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.close()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 

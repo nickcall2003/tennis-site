@@ -194,14 +194,18 @@ def list_matches(date: str | None = None):
                           Match.scheduled <= dt.datetime.combine(target, dt.time.max))
                   .order_by(Match.scheduled).all())
         result = [_match_row(db, m) for m in rows]
-        # log settled tennis picks for the accuracy tracker (no extra API calls)
+        # log settled tennis picks for the accuracy tracker (best-effort)
         try:
+            wrote = False
             for r in result:
                 sc = r.get("score") or {}
                 if r["status"] == "finished" and r.get("predicted_winner") and sc.get("winner") in ("a", "b"):
                     _record_result(db, "tennis", r["id"], r["predicted_winner"], sc["winner"])
-            db.commit()
+                    wrote = True
+            if wrote:
+                db.commit()
         except Exception as e:
+            db.rollback()
             print(f"[accuracy] tennis log skipped: {e}")
         return result
 
@@ -410,11 +414,14 @@ def mlb_games(date: str | None = None):
         return []
     try:
         with SessionLocal() as db:
+            wrote = False
             for g in games:
                 if g.get("status") == "finished" and g.get("winner") in ("home", "away"):
                     predicted = "home" if g["prob_home"] >= 0.5 else "away"
                     _record_result(db, "mlb", g["id"], predicted, g["winner"])
-            db.commit()
+                    wrote = True
+            if wrote:
+                db.commit()
     except Exception as e:
         print(f"[accuracy] mlb log skipped: {e}")
     return games
@@ -755,11 +762,14 @@ def team_games(sport: str, date: str | None = None):
         return []
     try:
         with SessionLocal() as db:
+            wrote = False
             for g in games:
                 if g.get("status") == "finished" and g.get("winner") in ("home", "away"):
                     predicted = "home" if g["prob_home"] >= 0.5 else "away"
                     _record_result(db, sport, g["id"], predicted, g["winner"])
-            db.commit()
+                    wrote = True
+            if wrote:
+                db.commit()
     except Exception as e:
         print(f"[accuracy] {sport} log skipped: {e}")
     return games
