@@ -376,9 +376,61 @@ def match_detail(match_id: int):
 _recorded_refs = set()   # in-memory guard: skip results we've already logged this run
 
 
+def _attach_odds(sport, games):
+    """Attach real market odds to each game and snapshot the pick's line.
+    No-op (returns games unchanged) when no odds key is configured."""
+    try:
+        import odds_api
+        if not odds_api.enabled():
+            return games
+        book = odds_api.get_odds(sport)
+        if not book:
+            return games
+        from odds_api import _norm
+        from clv import american_to_prob
+        for g in games:
+            hk = _norm(g["home"]["name"]) + "|" + _norm(g["away"]["name"])
+            o = book.get(hk)
+            if not o:
+                continue
+            g["odds"] = {"ml_home": o["ml_home"], "ml_away": o["ml_away"],
+                         "spread_home": o["spread_home"], "total": o["total"],
+                         "books": o["books"]}
+            # snapshot the line on the side we pick
+            side = "home" if g["prob_home"] >= 0.5 else "away"
+            taken = o["ml_home"] if side == "home" else o["ml_away"]
+            if taken is not None:
+                _snapshot_odds(sport, str(g["id"]), side, int(round(taken)))
+    except Exception as e:
+        print(f"[odds] attach {sport} skipped: {e}")
+    return games
+
+
+def _snapshot_odds(sport, ref, side, odds):
+    """Record/refresh the market line for a pick (open = first seen, last = now)."""
+    from models import OddsSnapshot
+    now = dt.datetime.utcnow()
+    try:
+        with SessionLocal() as db:
+            row = db.query(OddsSnapshot).filter_by(sport=sport, ref=ref).first()
+            if row is None:
+                db.add(OddsSnapshot(sport=sport, ref=ref, side=side,
+                                    open_odds=odds, last_odds=odds,
+                                    first_seen=now, last_seen=now))
+            else:
+                row.last_odds = odds
+                row.last_seen = now
+                row.side = side
+            db.commit()
+    except Exception:
+        pass
+
+
 def _record_result(db, sport, ref, predicted, actual):
-    """Upsert a settled pick into the results log (no-op if already recorded)."""
-    from models import PickResult
+    """Upsert a settled pick into the results log (no-op if already recorded).
+    If we captured a market line for this pick, store taken (open) and close
+    (last-seen) odds so the performance metrics can compute units/ROI/CLV."""
+    from models import PickResult, OddsSnapshot
     ref = str(ref)
     memo = (sport, ref)
     if memo in _recorded_refs:
@@ -387,9 +439,18 @@ def _record_result(db, sport, ref, predicted, actual):
     if exists:
         _recorded_refs.add(memo)
         return
+    taken = close = None
+    try:
+        snap = db.query(OddsSnapshot).filter_by(sport=sport, ref=ref).first()
+        if snap:
+            taken = snap.open_odds
+            close = snap.last_odds
+    except Exception:
+        pass
     db.add(PickResult(sport=sport, ref=ref, settled_date=dt.datetime.now(),
                       predicted=str(predicted), actual=str(actual),
-                      correct=(str(predicted) == str(actual))))
+                      correct=(str(predicted) == str(actual)),
+                      taken_odds=taken, close_odds=close))
     _recorded_refs.add(memo)
 
 
@@ -490,6 +551,7 @@ def mlb_games(date: str | None = None):
     except Exception as e:
         print(f"[mlb] games failed: {e}")
         return []
+    games = _attach_odds("mlb", games)
     try:
         with SessionLocal() as db:
             wrote = False
@@ -714,6 +776,42 @@ def _gather_plays_uncached(target: dt.date):
     return plays
 
 
+def _enrich_odds(p):
+    """Attach the model's fair odds (always) and, if available, the market line
+    and CLV for this pick. Honest: fair odds are derived from the model's own
+    probability; market odds come from the configured odds source if any."""
+    from clv import american_to_prob
+    prob = p.get("prob")
+    if prob:
+        # fair American odds from model probability (no vig)
+        if prob >= 0.5:
+            fair = -round(100 * prob / (1 - prob))
+        else:
+            fair = round(100 * (1 - prob) / prob)
+        p["fair_odds"] = fair
+    # market odds for team sports (tennis market lines not pulled on free tier)
+    try:
+        import odds_api
+        if odds_api.enabled() and p["sport"] in ("mlb", "nba", "nfl"):
+            book = odds_api.get_odds(p["sport"])
+            from odds_api import _norm
+            # p["match"] is "Home vs Away" style for team sports? gather builds
+            # match as "A vs B"; we resolve via the snapshot side instead.
+            from models import OddsSnapshot
+            with SessionLocal() as db:
+                snap = db.query(OddsSnapshot).filter_by(sport=p["sport"], ref=str(p["id"])).first()
+            if snap and snap.last_odds is not None:
+                p["market_odds"] = snap.last_odds
+                if p.get("fair_odds") is not None:
+                    fp = american_to_prob(p["fair_odds"])
+                    mp = american_to_prob(snap.last_odds)
+                    if fp is not None and mp is not None:
+                        # positive edge => model thinks pick is likelier than market implies
+                        p["edge_pct"] = round((fp - mp) * 100, 1)
+    except Exception:
+        pass
+
+
 def _short_reason(p):
     pct = round(p["prob"] * 100)
     name = p["pick"].replace(" to win", "")
@@ -813,6 +911,7 @@ def free_picks(date: str | None = None):
     out = []
     for p in strong:
         p["reason"] = _short_reason(p)
+        _enrich_odds(p)
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
@@ -833,6 +932,7 @@ def best_bets(date: str | None = None, sport: str | None = None, min_prob: float
         if p["prob"] < min_prob:
             continue
         p["reason"] = _long_reason(p)       # in-depth for Best Bets
+        _enrich_odds(p)
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
@@ -919,6 +1019,7 @@ def team_games(sport: str, date: str | None = None):
     except Exception as e:
         print(f"[{sport}] games failed: {e}")
         return []
+    games = _attach_odds(sport, games)
     try:
         with SessionLocal() as db:
             wrote = False
@@ -1028,6 +1129,42 @@ def sport_news(sport: str, date: str | None = None):
     except Exception as e:
         print(f"[news] {sport} yardbarker failed: {e}")
     return {"sport": sport, "news": news, "injuries": injuries, "headlines": headlines}
+
+
+@app.get("/api/performance")
+def performance(days: int = 30, sport: str | None = None):
+    """
+    Units won/lost, ROI, and CLV over the last N days, from settled picks that
+    have captured odds. Honest about coverage: only picks with a recorded line
+    count toward units/ROI/CLV; everything else still counts toward W/L.
+    """
+    from models import PickResult
+    from clv import summarize
+    import odds_api
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    bets = []
+    wins = losses = 0
+    with SessionLocal() as db:
+        q = db.query(PickResult).filter(PickResult.settled_date >= since)
+        if sport:
+            q = q.filter(PickResult.sport == sport)
+        for r in q.all():
+            if r.correct:
+                wins += 1
+            else:
+                losses += 1
+            if r.taken_odds is not None:
+                bets.append({"odds": r.taken_odds, "won": bool(r.correct),
+                             "close_odds": r.close_odds})
+    s = summarize(bets)
+    # overall record includes picks without odds; betting metrics only the priced ones
+    s["record_wins"] = wins
+    s["record_losses"] = losses
+    s["record_total"] = wins + losses
+    s["odds_enabled"] = odds_api.enabled()
+    s["odds_quota"] = odds_api.quota() if odds_api.enabled() else None
+    s["days"] = days
+    return s
 
 
 @app.websocket("/ws/live")

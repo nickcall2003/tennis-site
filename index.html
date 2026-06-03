@@ -61,6 +61,11 @@
   .card-top{display:flex;align-items:center;gap:8px;margin-bottom:10px}
   .tier{font-family:"Space Mono",monospace;font-size:9.5px;font-weight:700;letter-spacing:.1em;padding:3px 6px;border-radius:5px;color:#0e1014;background:var(--clay)}
   .tier.WTA{background:#d56fa0}.tier.CHALLENGER{background:var(--grass)}
+  .tier.slam{background:linear-gradient(135deg,#e9b949,#d4881f);color:#1a1205}
+  .tier.masters,.tier.wta1000{background:#c8612f}
+  .tier.atp500,.tier.wta500{background:#3f7fc4}
+  .tier.atp250,.tier.wta250{background:#4f9d6a}
+  .tier.wta125{background:#9d6bb3}
   .tourn{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .status{margin-left:auto;display:flex;align-items:center;gap:7px;font-family:"Space Mono",monospace;font-size:11px}
   .live-tag{color:var(--live);text-transform:uppercase;display:flex;align-items:center;gap:6px}
@@ -178,6 +183,22 @@
   .month-badge.ok{color:var(--clay-bright);border-color:rgba(200,97,47,.4)}
   .month-badge.bad{color:var(--loss);border-color:rgba(193,75,60,.4)}
   .month-badge.pending{color:var(--muted-2)}
+  .perf-strip{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:0 0 16px}
+  .perf-strip.disabled{background:transparent;border-style:dashed}
+  .perf-title{font-size:12px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
+  .perf-title small{text-transform:none;letter-spacing:0;color:var(--muted-2);margin-left:6px}
+  .perf-note{font-size:12px;color:var(--muted);line-height:1.5}
+  .perf-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .perf-cell{text-align:center}
+  .perf-val{font-family:"Fraunces",serif;font-weight:900;font-size:22px;color:var(--ink)}
+  .perf-val.pos{color:var(--win)}.perf-val.neg{color:var(--loss)}
+  .perf-lab{font-family:"Space Mono",monospace;font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+  .pick-odds{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 4px;align-items:center}
+  .odd-fair,.odd-mkt{font-family:"Space Mono",monospace;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px;background:var(--panel-3);color:var(--ink)}
+  .odd-mkt{background:transparent;border:1px solid var(--line);color:var(--muted)}
+  .odd-edge{font-family:"Space Mono",monospace;font-size:11px;font-weight:700;padding:2px 8px;border-radius:5px}
+  .odd-edge.pos{background:rgba(95,200,138,.16);color:var(--win)}
+  .odd-edge.neg{background:rgba(226,104,95,.16);color:var(--loss)}
   .news-sec{font-family:"Fraunces",serif;font-weight:800;font-size:18px;margin:22px 0 12px}
   .inj-team{background:var(--panel-2);border:1px solid var(--line);border-radius:11px;padding:13px 15px;margin-bottom:10px}
   .inj-team-name{font-weight:700;font-size:14px;margin-bottom:9px;color:var(--clay-bright)}
@@ -319,6 +340,30 @@ function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
 function startOfDay(d){const x=new Date(d);x.setHours(0,0,0,0);return x;}
 function lastName(n){return (n||"").split(" ").pop();}
+// Derive a precise tournament badge {label, cls} from tier + tournament name.
+// Grand Slams, Masters/1000, 500, 250, 125, Challenger, etc.
+function tierBadge(tier,tournament){
+  const t=(tournament||"").toLowerCase();
+  const slams=["french open","roland garros","wimbledon","us open","australian open"];
+  const isSlam=slams.some(s=>t.indexOf(s)>=0);
+  if(tier==="WTA"){
+    if(isSlam)return{label:"GRAND SLAM",cls:"slam"};
+    if(t.indexOf("1000")>=0||t.indexOf("finals")>=0)return{label:"WTA 1000",cls:"wta1000"};
+    if(t.indexOf("500")>=0)return{label:"WTA 500",cls:"wta500"};
+    if(t.indexOf("250")>=0)return{label:"WTA 250",cls:"wta250"};
+    if(t.indexOf("125")>=0)return{label:"WTA 125",cls:"wta125"};
+    return{label:"WTA",cls:"WTA"};
+  }
+  if(tier==="ATP"){
+    if(isSlam)return{label:"GRAND SLAM",cls:"slam"};
+    if(t.indexOf("masters")>=0||t.indexOf("1000")>=0||t.indexOf("finals")>=0)return{label:"ATP MASTERS",cls:"masters"};
+    if(t.indexOf("500")>=0)return{label:"ATP 500",cls:"atp500"};
+    if(t.indexOf("250")>=0)return{label:"ATP 250",cls:"atp250"};
+    return{label:"ATP",cls:"ATP"};
+  }
+  if(tier==="CHALLENGER")return{label:"CHALLENGER",cls:"CHALLENGER"};
+  return{label:tier,cls:tier};
+}
 function wxIcon(txt){const t=(txt||"").toLowerCase();
   if(t.indexOf("thunder")>=0)return "\u26c8\ufe0f";
   if(t.indexOf("rain")>=0||t.indexOf("drizzle")>=0||t.indexOf("shower")>=0)return "\u{1f327}\ufe0f";
@@ -384,7 +429,8 @@ function matchCardHTML(m){const sc=m.score||{},fin=m.status==="finished",live=m.
   const pickA=m.predicted_winner==="a",pickB=m.predicted_winner==="b",servA=live&&sc.server==="a",servB=live&&sc.server==="b",wonA=fin&&sc.winner==="a",wonB=fin&&sc.winner==="b";
   const lc=(p.confidence==="low")?'<span class="lowconf">low-confidence</span>':"";const rnd=m.round?" \u00b7 "+m.round:"";
   function nm(nme,pk,sv,wn){return '<span class="pname'+(sv?' serving':'')+(wn?' winner':'')+'">'+nme+(pk?'<span class="pick">PICK</span>':'')+'</span>';}
-  return '<div class="card-top"><span class="tier '+m.tier+'">'+m.tier+'</span><span class="tourn">'+m.tournament+rnd+'</span>'+(m.weather?'<span class="wx-chip" title="'+m.weather+'">'+wxIcon(m.weather)+'</span>':"")+lc+'<span class="status">'+st+'</span></div>'+
+  const tb=tierBadge(m.tier,m.tournament);
+  return '<div class="card-top"><span class="tier '+tb.cls+'">'+tb.label+'</span><span class="tourn">'+m.tournament+rnd+'</span>'+(m.weather?'<span class="wx-chip" title="'+m.weather+'">'+wxIcon(m.weather)+'</span>':"")+lc+'<span class="status">'+st+'</span></div>'+
     '<div class="row">'+nm(m.player_a,pickA,servA,wonA)+'<span class="sets">'+(sc.sets_a||[]).join(" ")+'</span><span class="game">'+(live?sc.game_a:"")+'</span></div>'+
     '<div class="row">'+nm(m.player_b,pickB,servB,wonB)+'<span class="sets">'+(sc.sets_b||[]).join(" ")+'</span><span class="game">'+(live?sc.game_b:"")+'</span></div>'+
     (live?'<div style="margin-top:10px">'+predBarHTML(favN,favP,dogN,100-favP,"live")+'</div>':'<div class="pred"><div class="bar a" style="width:'+(pa>=0.5?pa:pb)*100+'%">'+favN+' '+favP+'%</div><div class="bar b" style="width:'+(pa>=0.5?pb:pa)*100+'%">'+(100-favP)+'% '+dogN+'</div></div>');}
@@ -434,7 +480,8 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
   const confLabel={high:"High confidence",medium:"Medium confidence",low:"Low confidence"}[conf];
   const rnd=m.round?" \u00b7 "+m.round:"",surf=(m.surface&&m.surface!=="Unknown")?" \u00b7 "+m.surface:"";
   let stat=live?'<span class="live-tag"><span class="pulse"></span>Live</span>':fin?"Final":(m.event_time||"");
-  const head='<div class="d-head"><div class="d-meta"><span class="tier '+m.tier+'">'+m.tier+'</span><span class="tourn">'+m.tournament+rnd+surf+'</span><span class="status" style="margin-left:auto">'+stat+'</span></div>'+
+  const tb=tierBadge(m.tier,m.tournament);
+  const head='<div class="d-head"><div class="d-meta"><span class="tier '+tb.cls+'">'+tb.label+'</span><span class="tourn">'+m.tournament+rnd+surf+'</span><span class="status" style="margin-left:auto">'+stat+'</span></div>'+
     '<div class="d-score"><span class="d-pname '+(fin&&sc.winner==="a"?"winner":"")+'">'+m.player_a+'</span><span class="d-sets">'+(sc.sets_a||[]).join(" ")+" "+(live?"<b>"+sc.game_a+"</b>":"")+'</span></div>'+
     '<div class="d-score"><span class="d-pname '+(fin&&sc.winner==="b"?"winner":"")+'">'+m.player_b+'</span><span class="d-sets">'+(sc.sets_b||[]).join(" ")+" "+(live?"<b>"+sc.game_b+"</b>":"")+'</span></div>'+
     (live?'<div class="d-pred">'+predBarHTML(lastName(m.player_a),Math.round(pa*100),lastName(m.player_b),Math.round((1-pa)*100),"live")+'</div></div>':'<div class="d-pred"><div class="bar a" style="width:'+pa*100+'%">'+lastName(m.player_a)+" "+Math.round(pa*100)+'%</div><div class="bar b" style="width:'+(1-pa)*100+'%">'+Math.round((1-pa)*100)+"% "+lastName(m.player_b)+'</div></div></div>');
@@ -860,19 +907,21 @@ function renderHome(){
 async function renderPicks(){
   const list=document.getElementById("list");list.innerHTML='<div class="empty">Loading picks&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   let rec=null;try{rec=await getJSON("/api/picks/record?view="+(view==="free"?"free":"best")+"&date="+ymd(selected));}catch(e){}
+  let perf=null;try{perf=await getJSON("/api/performance?days=30");}catch(e){}
   const recBanner=recordBannerHTML(rec);
   const head30=monthBadgeHTML(rec);
+  const perfStrip=perfStripHTML(perf);
   if(view==="free"){
     let d;try{d=await getJSON("/api/picks/free?date="+ymd(selected));}catch(e){d={picks:[]};}
     if(view!=="free")return;
-    let html='<div class="picks-head">\u2b50 Free Picks'+head30+'</div><div class="picks-sub">The highest-confidence plays of the day, across every sport. A free sample of the model\u2019s best looks.</div>'+recBanner;
+    let html='<div class="picks-head">\u2b50 Free Picks'+head30+'</div><div class="picks-sub">The highest-confidence plays of the day, across every sport. A free sample of the model\u2019s best looks.</div>'+recBanner+perfStrip;
     if(!d.picks||!d.picks.length)html+='<div class="empty">No high-confidence plays today \u2014 check back when more games are posted.</div>';
     else html+=d.picks.map(pickCardHTML).join("");
     list.innerHTML=html;bindPickCards();
   }else{
     let d;try{d=await getJSON("/api/picks/best?date="+ymd(selected)+(bestFilter.sport?"&sport="+bestFilter.sport:"")+"&min_prob="+bestFilter.min);}catch(e){d={picks:[]};}
     if(view!=="best")return;
-    let html='<div class="picks-head">\u{1F451} Best Bets'+head30+'</div><div class="picks-sub">The model\u2019s full board, ranked by win probability. Filter by sport and confidence. Not betting advice.</div>'+recBanner;
+    let html='<div class="picks-head">\u{1F451} Best Bets'+head30+'</div><div class="picks-sub">The model\u2019s full board, ranked by win probability. Filter by sport and confidence. Not betting advice.</div>'+recBanner+perfStrip;
     html+='<div class="filters">'+
       filterBtn("All sports",!bestFilter.sport,"sport","")+
       filterBtn("Tennis",bestFilter.sport==="tennis","sport","tennis")+
@@ -886,6 +935,25 @@ async function renderPicks(){
     else html+=d.picks.map(pickCardHTML).join("");
     list.innerHTML=html;bindPickCards();
   }}
+function perfStripHTML(perf){
+  if(!perf)return "";
+  if(!perf.odds_enabled){
+    return '<div class="perf-strip disabled"><div class="perf-note">\u26a1 Units, ROI &amp; CLV activate once an odds source is connected. Win/loss tracking is live now.</div></div>';
+  }
+  if(!perf.bets){
+    return '<div class="perf-strip"><div class="perf-note">Units, ROI &amp; CLV will populate as priced picks settle (30-day window).</div></div>';
+  }
+  const uw=perf.units_won, roi=perf.roi, clv=perf.avg_clv;
+  const uwc=uw>0?"pos":(uw<0?"neg":"");
+  const roic=roi>0?"pos":(roi<0?"neg":"");
+  const clvc=clv>0?"pos":(clv<0?"neg":"");
+  let s='<div class="perf-strip"><div class="perf-title">30-day betting performance <small>'+perf.record_wins+'\u2013'+perf.record_losses+' on '+perf.bets+' priced picks</small></div><div class="perf-grid">';
+  s+='<div class="perf-cell"><div class="perf-val '+uwc+'">'+(uw>0?"+":"")+uw+'u</div><div class="perf-lab">Units</div></div>';
+  s+='<div class="perf-cell"><div class="perf-val '+roic+'">'+(roi>0?"+":"")+roi+'%</div><div class="perf-lab">ROI</div></div>';
+  s+='<div class="perf-cell"><div class="perf-val '+clvc+'">'+(clv==null?"\u2014":(clv>0?"+":"")+clv+"%")+'</div><div class="perf-lab">Avg CLV</div></div>';
+  s+='<div class="perf-cell"><div class="perf-val">'+(perf.beat_close_pct==null?"\u2014":perf.beat_close_pct+"%")+'</div><div class="perf-lab">Beat close</div></div>';
+  s+='</div></div>';
+  return s;}
 function monthBadgeHTML(rec){
   if(!rec||!rec.month||rec.month.hit_rate==null)return '<span class="month-badge pending">30d: building&hellip;</span>';
   const hr=rec.month.hit_rate;const cls=hr>=60?"good":(hr>=50?"ok":"bad");
@@ -898,13 +966,22 @@ function recordBannerHTML(rec){
     '<b>'+t.wins+'\u2013'+t.losses+'</b><span class="rec-pct">'+(t.hit_rate!=null?t.hit_rate+'% hit rate':'')+'</span></div>';}
 function filterBtn(label,active,key,val){return '<button class="pill'+(active?" active":"")+'" onclick="setBestFilter(\''+key+'\',\''+val+'\')">'+label+'</button>';}
 function setBestFilter(key,val){bestFilter[key]=(key==="min")?parseFloat(val):val;renderPicks();}
+function fmtOdds(o){return o==null?"":(o>0?"+"+o:""+o);}
 function pickCardHTML(p){const pct=Math.round(p.prob*100);const slabel=(SPORT_LABEL[p.sport]||p.sport).toUpperCase();
+  let oddsLine="";
+  if(p.fair_odds!=null){
+    oddsLine='<div class="pick-odds"><span class="odd-fair">Fair '+fmtOdds(p.fair_odds)+'</span>';
+    if(p.market_odds!=null)oddsLine+='<span class="odd-mkt">Market '+fmtOdds(p.market_odds)+'</span>';
+    if(p.edge_pct!=null){const ec=p.edge_pct>=0?"pos":"neg";oddsLine+='<span class="odd-edge '+ec+'">'+(p.edge_pct>=0?"+":"")+p.edge_pct+'% edge</span>';}
+    oddsLine+='</div>';
+  }
   return '<div class="pick-card" data-sport="'+p.sport+'" data-id="'+p.id+'">'+
     '<div class="pick-top"><span class="pick-sport '+p.sport+'">'+slabel+'</span>'+
     '<span class="pick-conf '+p.confidence+'">'+p.confidence+'</span>'+
     '<span class="pick-prob">'+pct+'%</span></div>'+
     '<div class="pick-name">'+p.pick+'</div>'+
     '<div class="pick-match">'+p.match+(p.tournament?" \u00b7 "+p.tournament:"")+(p.event_time?" \u00b7 "+p.event_time:"")+'</div>'+
+    oddsLine+
     '<div class="pick-reason">'+(p.reason||"")+'</div></div>';}
 function bindPickCards(){document.querySelectorAll(".pick-card").forEach(c=>{
   c.onclick=()=>{const s=c.dataset.sport,id=c.dataset.id;

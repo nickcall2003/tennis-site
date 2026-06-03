@@ -35,10 +35,10 @@ _TIER_MAP = {
 def _classify_tier(fix):
     """
     Decide the tier from an API fixture, robustly. The feed's exact
-    'event_type_type' strings vary (case, spacing, naming), and WTA events were
-    being dropped by exact-string matching. We normalize and match by keyword,
-    and also fall back to the tournament name (e.g. 'WTA 1000 Rome').
-    Singles only; doubles/ITF excluded.
+    'event_type_type' strings vary, so we classify by keyword and, crucially,
+    by gender. The key fix: women's events (incl. WTA 125 "challenger"-style
+    events like Birmingham/Makarska/Foggia) must map to WTA, not CHALLENGER.
+    Singles only; doubles excluded. ITF/futures excluded as below tour level.
     """
     et = (fix.get("event_type_type") or "").strip().lower()
     name = (fix.get("tournament_name") or "").lower()
@@ -48,17 +48,32 @@ def _classify_tier(fix):
     if "doubles" in hay or "/" in (fix.get("event_first_player") or ""):
         return None
 
-    is_chall = "challenger" in hay or "atp challenger" in hay
-    # WTA: event type or tournament name mentions wta (covers 'Wta Singles',
-    # 'WTA', 'WTA 1000', etc.)
-    if "wta" in hay:
-        return "CHALLENGER" if is_chall and "challenger" in et else "WTA"
+    is_women = ("women" in hay or "wta" in hay or "ladies" in hay
+                or "girls" in hay)
+    is_men = ("men" in hay or "atp" in hay or "boys" in hay) and not is_women
+    is_chall = "challenger" in hay
+    is_itf = "itf" in hay or "futures" in hay or "m15" in hay or "m25" in hay \
+             or "w15" in hay or "w25" in hay or "w35" in hay or "w50" in hay \
+             or "w75" in hay or "w100" in hay
+
+    # Women first: any women's tour event is WTA (including 125/"challenger" tier).
+    # Genuine ITF women's futures (w15..w100) stay excluded.
+    if is_women:
+        if is_itf:
+            return None
+        return "WTA"
+    # Men's challenger
+    if is_chall and not is_itf:
+        return "CHALLENGER"
+    # Men's tour
+    if is_men:
+        if is_itf:
+            return None
+        return "ATP"
+    # ATP/WTA explicit but gender not otherwise flagged
     if "atp" in hay:
         return "CHALLENGER" if is_chall else "ATP"
-    if is_chall:
-        return "CHALLENGER"
-    # fall back to the original exact map if present; otherwise exclude rather
-    # than guess gender/tour wrong.
+    # fall back to the original exact map if present; otherwise exclude.
     return _TIER_MAP.get(fix.get("event_type_type"))
 
 _LIVE_TTL = 8.0          # seconds between live-score pulls

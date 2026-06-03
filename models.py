@@ -119,6 +119,11 @@ class PickResult(Base):
     predicted: Mapped[str] = mapped_column(String(8))            # who we picked
     actual: Mapped[str] = mapped_column(String(8))               # who won
     correct: Mapped[bool] = mapped_column()
+    # Betting metrics (populated when an odds source is configured).
+    # taken_odds: American odds for our pick when first seen (line we'd have bet).
+    # close_odds: best near-close American odds for our pick (CLV reference).
+    taken_odds: Mapped[int | None] = mapped_column(nullable=True)
+    close_odds: Mapped[int | None] = mapped_column(nullable=True)
 
     __table_args__ = (UniqueConstraint("sport", "ref", name="uq_sport_ref"),)
 
@@ -139,3 +144,24 @@ class PickLog(Base):
 
     __table_args__ = (UniqueConstraint("view", "sport", "ref", "shown_date",
                                        name="uq_view_pick_day"),)
+
+
+class OddsSnapshot(Base):
+    """
+    Captures the market line for a pick over time so we can record the odds we
+    'took' (first sighting) and the closing line (last sighting before start).
+    One row per (sport, ref); updated as the line moves. When the game settles,
+    these feed taken_odds/close_odds on PickResult.
+    """
+    __tablename__ = "odds_snapshot"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[str] = mapped_column(String(10), index=True)
+    ref: Mapped[str] = mapped_column(String(40), index=True)
+    side: Mapped[str] = mapped_column(String(8))          # 'home'/'away' the pick is on
+    open_odds: Mapped[int | None] = mapped_column(nullable=True)   # first seen
+    last_odds: Mapped[int | None] = mapped_column(nullable=True)   # most recent
+    first_seen: Mapped[datetime] = mapped_column(DateTime)
+    last_seen: Mapped[datetime] = mapped_column(DateTime)
+
+    __table_args__ = (UniqueConstraint("sport", "ref", name="uq_odds_sport_ref"),)

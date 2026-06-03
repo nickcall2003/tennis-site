@@ -80,3 +80,35 @@ database. If you expand to many tiers or very frequent polling, check your
 plan's limits and add Postgres + caching.
 
 Not betting or financial advice.
+
+---
+
+## Betting metrics: Odds, CLV, ROI, Units (The Odds API)
+
+The performance metrics (units won/lost, ROI, CLV, and market odds on each pick)
+need a real sportsbook-odds source. We use **The Odds API** (the-odds-api.com).
+
+### Get a key (free tier)
+1. Go to the-odds-api.com and sign up for the free plan (about 500 requests/month).
+2. Copy your API key.
+
+### Add it to Render
+1. Render dashboard -> your service -> Environment.
+2. Add a variable: key = `ODDS_API_KEY`, value = your key.
+3. Save. The service redeploys and odds/CLV/ROI/units turn on automatically.
+
+### What works on the free tier (honest scope)
+- **Live/upcoming odds** for MLB, NBA, NFL moneylines, spreads, totals — shown on
+  picks and used to record the line we "took".
+- **Units & ROI**: computed from settled picks at flat 1-unit stakes.
+- **CLV**: we capture the opening line when a pick first appears and the latest
+  line near game time as a CLOSING PROXY. True official closing lines require
+  The Odds API's *historical* endpoint, which is PAID. Until then, CLV is labeled
+  as measured against our best near-close line, not a verified official close.
+- Quota is protected by 15-minute caching. Each refresh pulls one combined
+  request per league.
+
+### Without a key
+Everything still runs. Picks show the model's own **fair odds** (derived from its
+probability), and the performance strip says metrics activate once odds are
+connected. Win/loss and accuracy tracking work regardless.
