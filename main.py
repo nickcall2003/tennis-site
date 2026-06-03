@@ -1175,22 +1175,32 @@ def team_games(sport: str, date: str | None = None):
 
 @app.get("/api/ncaabb/hl-debug")
 def ncaabb_hl_debug(team: str = "Texas"):
-    """Diagnostic for the Highlightly key: confirms the host, team lookup, and
-    stats response shape so we can verify the integration once the key is set."""
+    """Deep diagnostic: hits several plausible Highlightly endpoints and shows the
+    RAW response shape so we can see exactly what the direct platform returns."""
     import highlightly as hl
     out = {"enabled": hl.enabled(), "host": hl.HOST, "platform": hl.PLATFORM}
     if not hl.enabled():
         out["note"] = "Set HIGHLIGHTLY_API_KEY in Render to enable."
         return out
-    try:
-        tid = hl._find_team_id(team)
-        out["team_lookup"] = {"query": team, "team_id": tid}
-        if tid:
-            stats = hl.get_team_stats(team)
-            out["stats"] = stats or "empty (free-tier may hide, or path/shape differs)"
-        out["quota"] = hl.quota()
-    except Exception as e:
-        out["error"] = str(e)
+    import httpx
+    headers = ({"x-rapidapi-key": hl.API_KEY, "x-rapidapi-host": hl.HOST}
+               if hl.PLATFORM == "rapidapi" else {"x-api-key": hl.API_KEY})
+    # try a range of likely endpoints/params and capture status + a small sample
+    probes = [
+        ("/teams?name=Texas&limit=3", "/teams", {"name": "Texas", "limit": 3}),
+        ("/teams?league=NCAA&limit=3", "/teams", {"league": "NCAA", "limit": 3}),
+        ("/teams?limit=3", "/teams", {"limit": 3}),
+        ("/leagues?limit=10", "/leagues", {"limit": 10}),
+        ("/baseball/teams?name=Texas", "/baseball/teams", {"name": "Texas", "limit": 3}),
+    ]
+    out["probes"] = {}
+    for label, path, params in probes:
+        try:
+            r = httpx.get(hl.BASE + path, params=params, headers=headers, timeout=15)
+            body = r.text[:600]
+            out["probes"][label] = {"status": r.status_code, "body": body}
+        except Exception as e:
+            out["probes"][label] = {"error": str(e)}
     return out
 
 

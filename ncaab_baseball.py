@@ -108,12 +108,13 @@ def get_games(date: dt.date, force_live=False):
     # first that yields events for the target date.
     ds = date.strftime("%Y%m%d")
     nxt = (date + dt.timedelta(days=1)).strftime("%Y%m%d")
-    # Confirmed via live debug: a date RANGE returns the full day's games, a
-    # single date works too, but groups=50 returns ZERO for college baseball
-    # (do NOT use it). Range first, single as fallback.
+    prv = (date - dt.timedelta(days=1)).strftime("%Y%m%d")
+    # Confirmed via live debug: single-date returns the day's games; groups=50
+    # returns ZERO (never use it). Use single date first; a small range is the
+    # fallback to catch UTC-shifted night games.
     attempts = [
-        {"dates": f"{ds}-{nxt}", "limit": 400},
         {"dates": ds, "limit": 400},
+        {"dates": f"{prv}-{nxt}", "limit": 400},
     ]
     data = None
     for params in attempts:
@@ -128,10 +129,15 @@ def get_games(date: dt.date, force_live=False):
     if data is None:
         return _cache.get(key, (0, []))[1]
     games = []
+    want = date.isoformat()
+    want_next = (date + dt.timedelta(days=1)).isoformat()
+    want_prev = (date - dt.timedelta(days=1)).isoformat()
     for ev in data.get("events", []):
-        # when we query a range, keep only events on the requested calendar day
+        # ESPN event dates are UTC timestamps; a night game on the requested
+        # local day can read as the NEXT day in UTC. Accept the requested day
+        # and its immediate UTC neighbors so we don't silently drop games.
         ev_date = (ev.get("date", "") or "")[:10]
-        if ev_date and ev_date != date.isoformat():
+        if ev_date and ev_date not in (want, want_next, want_prev):
             continue
         comps = ev.get("competitions", [])
         if not comps:
@@ -146,9 +152,15 @@ def get_games(date: dt.date, force_live=False):
         status = _status(comp)
         venue = (comp.get("venue", {}) or {}).get("fullName", "")
         st = ((comp.get("status") or {}).get("type") or {})
-        # prediction blends record-Elo with Warren Nolan RPI/ELO when available
-        from ncaa_model import predict_baseball
-        pred = predict_baseball(h, a)
+        # prediction blends record-Elo with RPI/run-expectancy when available;
+        # never let a model error drop the game from the board.
+        try:
+            from ncaa_model import predict_baseball
+            pred = predict_baseball(h, a)
+        except Exception as e:
+            print(f"[ncaabb] predict failed for {h.get('name')} vs {a.get('name')}: {e}")
+            pred = {"prob_home": 0.5, "exp_margin": 0.0, "confidence": "low",
+                    "avg_total": None, "factors": []}
         prominence = (h["win_pct"] or 0.5) + (a["win_pct"] or 0.5)
         if h["rank"]:
             prominence += 0.5
