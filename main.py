@@ -1206,35 +1206,45 @@ def ncaabb_hl_debug(team: str = "Texas"):
 
 @app.get("/api/ncaabb/debug")
 def ncaabb_debug(date: str | None = None):
-    """Diagnostic: shows exactly what ESPN's college-baseball scoreboard returns
-    for each query variant, so we can see why games may be missing. Safe to expose."""
+    """Diagnostic: shows raw ESPN counts per query variant AND what the real
+    provider returns after processing, so we can see exactly where games drop."""
     import httpx
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     ds = target.strftime("%Y%m%d")
     nxt = (target + dt.timedelta(days=1)).strftime("%Y%m%d")
+    prv = (target - dt.timedelta(days=1)).strftime("%Y%m%d")
     SB = "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseball/scoreboard"
     variants = {
-        "range": {"dates": f"{ds}-{nxt}", "limit": 400},
         "single": {"dates": ds, "limit": 400},
-        "single_groups50": {"dates": ds, "groups": "50", "limit": 400},
-        "no_date": {"limit": 400},
+        "range": {"dates": f"{prv}-{nxt}", "limit": 400},
     }
-    out = {"date": target.isoformat(), "results": {}}
+    out = {"date": target.isoformat(), "raw_espn": {}}
     for label, params in variants.items():
         try:
             r = httpx.get(SB, params=params, timeout=15)
             j = r.json()
             evs = j.get("events", []) or []
             sample = []
-            for e in evs[:4]:
+            for e in evs[:6]:
                 comp = (e.get("competitions") or [{}])[0]
                 cs = comp.get("competitors", [])
                 names = [c.get("team", {}).get("displayName", "?") for c in cs]
-                sample.append({"date": e.get("date", "")[:10], "teams": names})
-            out["results"][label] = {"status": r.status_code, "event_count": len(evs),
-                                     "sample": sample}
+                sample.append({"raw_date": e.get("date", ""), "teams": names})
+            out["raw_espn"][label] = {"status": r.status_code, "event_count": len(evs),
+                                      "sample": sample}
         except Exception as e:
-            out["results"][label] = {"error": str(e)}
+            out["raw_espn"][label] = {"error": str(e)}
+    # now the REAL provider output (post-processing)
+    try:
+        from ncaab_baseball import get_games, _cache
+        _cache.clear()   # bypass cache so we see a fresh result
+        g = get_games(target)
+        out["provider_games"] = {"count": len(g),
+                                 "sample": [{"teams": x["away"]["name"] + " @ " + x["home"]["name"],
+                                             "status": x["status"]} for x in g[:6]]}
+    except Exception as e:
+        import traceback
+        out["provider_games"] = {"error": str(e), "trace": traceback.format_exc()[-800:]}
     return out
 
 
