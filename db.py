@@ -17,10 +17,22 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./tennis.db")
 
+# Neon/Heroku/Render often hand you a URL starting with "postgres://" or
+# "postgresql://". SQLAlchemy needs an explicit driver, and Neon needs SSL.
+# Normalize automatically so you can paste the raw connection string as-is.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgres://"):]
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgresql://"):]
+
+if DATABASE_URL.startswith("postgresql+psycopg://") and "sslmode=" not in DATABASE_URL:
+    DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "sslmode=require"
+
 # check_same_thread is only needed for SQLite + the background poller thread.
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True,
+                       pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 

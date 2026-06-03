@@ -171,6 +171,7 @@ def _match_row(db, m):
         "surface": m.surface, "player_a": m.player_a, "player_b": m.player_b,
         "scheduled": m.scheduled.isoformat(), "event_time": m.event_time,
         "status": m.status, "prominence": m.prominence or 0,
+        "weather": getattr(m, "weather", None),
         "predicted_winner": predicted, "correct": correct,
         "prediction": None if not pred else {
             "prob_a": pred.prob_a, "confidence": confidence,
@@ -192,7 +193,17 @@ def list_matches(date: str | None = None):
                   .filter(Match.scheduled >= dt.datetime.combine(target, dt.time.min),
                           Match.scheduled <= dt.datetime.combine(target, dt.time.max))
                   .order_by(Match.scheduled).all())
-        return [_match_row(db, m) for m in rows]
+        result = [_match_row(db, m) for m in rows]
+        # log settled tennis picks for the accuracy tracker (no extra API calls)
+        try:
+            for r in result:
+                sc = r.get("score") or {}
+                if r["status"] == "finished" and r.get("predicted_winner") and sc.get("winner") in ("a", "b"):
+                    _record_result(db, "tennis", r["id"], r["predicted_winner"], sc["winner"])
+            db.commit()
+        except Exception as e:
+            print(f"[accuracy] tennis log skipped: {e}")
+        return result
 
 
 @app.get("/api/tournaments")
@@ -341,33 +352,48 @@ def match_detail(match_id: int):
         }
 
 
+def _record_result(db, sport, ref, predicted, actual):
+    """Upsert a settled pick into the results log (no-op if already recorded)."""
+    from models import PickResult
+    ref = str(ref)
+    exists = db.query(PickResult).filter_by(sport=sport, ref=ref).first()
+    if exists:
+        return
+    db.add(PickResult(sport=sport, ref=ref, settled_date=dt.datetime.now(),
+                      predicted=str(predicted), actual=str(actual),
+                      correct=(str(predicted) == str(actual))))
+
+
 _acc_cache = {"ts": 0.0, "data": None}
 
 
 @app.get("/api/accuracy")
 def accuracy(days: int = 30):
-    """Rolling accuracy over finished matches in the last N days (cached 5 min)."""
+    """Per-sport rolling accuracy from the settled-results log (cached 2 min)."""
     import time as _t
-    if _acc_cache["data"] and _t.time() - _acc_cache["ts"] < 300 and _acc_cache["data"]["days"] == days:
+    from models import PickResult
+    if _acc_cache["data"] and _t.time() - _acc_cache["ts"] < 120 and _acc_cache["data"]["days"] == days:
         return _acc_cache["data"]
     since = dt.datetime.now() - dt.timedelta(days=days)
-    picks = correct = 0
+    by_sport = {}
+    tot_p = tot_c = 0
     with SessionLocal() as db:
-        rows = (db.query(Match, Prediction, LiveState)
-                  .join(Prediction, Prediction.match_id == Match.id)
-                  .join(LiveState, LiveState.match_id == Match.id)
-                  .filter(Match.scheduled >= since,
-                          LiveState.status == "finished")
-                  .all())
-        for m, pred, live in rows:
-            if live.winner not in ("a", "b"):
-                continue
-            predicted = "a" if pred.prob_a >= 0.5 else "b"
-            picks += 1
-            if predicted == live.winner:
-                correct += 1
-    pct = round(100 * correct / picks) if picks else None
-    data = {"days": days, "picks": picks, "correct": correct, "accuracy": pct}
+        rows = db.query(PickResult).filter(PickResult.settled_date >= since).all()
+        for r in rows:
+            s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0})
+            s["picks"] += 1
+            tot_p += 1
+            if r.correct:
+                s["correct"] += 1
+                tot_c += 1
+    for s, v in by_sport.items():
+        v["accuracy"] = round(100 * v["correct"] / v["picks"]) if v["picks"] else None
+    data = {
+        "days": days,
+        "overall": {"picks": tot_p, "correct": tot_c,
+                    "accuracy": round(100 * tot_c / tot_p) if tot_p else None},
+        "by_sport": by_sport,
+    }
     _acc_cache["ts"] = _t.time()
     _acc_cache["data"] = data
     return data
@@ -378,10 +404,20 @@ def mlb_games(date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     try:
         from mlb_provider import get_games
-        return get_games(target)
+        games = get_games(target)
     except Exception as e:
         print(f"[mlb] games failed: {e}")
         return []
+    try:
+        with SessionLocal() as db:
+            for g in games:
+                if g.get("status") == "finished" and g.get("winner") in ("home", "away"):
+                    predicted = "home" if g["prob_home"] >= 0.5 else "away"
+                    _record_result(db, "mlb", g["id"], predicted, g["winner"])
+            db.commit()
+    except Exception as e:
+        print(f"[accuracy] mlb log skipped: {e}")
+    return games
 
 
 def _mlb_writeup(g):
@@ -503,12 +539,15 @@ def _gather_plays(target: dt.date):
                 continue
             prob = max(pred.prob_a, 1 - pred.prob_a)
             pick = m.player_a if pred.prob_a >= 0.5 else m.player_b
+            other = m.player_b if pred.prob_a >= 0.5 else m.player_a
             plays.append({
                 "sport": "tennis", "id": m.id, "kind": "moneyline",
                 "match": f"{m.player_a} vs {m.player_b}", "tournament": m.tournament,
                 "pick": f"{pick} to win", "prob": round(prob, 3),
                 "confidence": getattr(pred, "confidence", "high"),
                 "event_time": m.event_time, "surface": m.surface,
+                "ctx": {"opponent": other, "round": m.round,
+                        "weather": getattr(m, "weather", None)},
                 "score_key": prob + 0.05 * _confidence_rank(getattr(pred, "confidence", "high")),
             })
     # --- MLB (live from provider) ---
@@ -520,12 +559,19 @@ def _gather_plays(target: dt.date):
                     continue
                 prob = max(g["prob_home"], 1 - g["prob_home"])
                 pick = g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"]
+                fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
+                dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
                 plays.append({
                     "sport": "mlb", "id": g["id"], "kind": "moneyline",
                     "match": f"{g['away']['name']} @ {g['home']['name']}",
                     "tournament": g.get("venue", ""),
                     "pick": f"{pick} to win", "prob": round(prob, 3),
                     "confidence": g["confidence"], "event_time": g.get("event_time"),
+                    "ctx": {"exp_runs_fav": fav.get("exp_runs") if isinstance(fav, dict) else None,
+                            "fav_starter": (fav.get("starter") or {}).get("name"),
+                            "fav_era": (fav.get("starter") or {}).get("era"),
+                            "exp_runs_home": g.get("exp_runs_home"), "exp_runs_away": g.get("exp_runs_away"),
+                            "venue": g.get("venue"), "weather": g.get("weather")},
                     "score_key": prob + 0.05 * _confidence_rank(g["confidence"]),
                 })
         except Exception as e:
@@ -539,12 +585,17 @@ def _gather_plays(target: dt.date):
                     continue
                 prob = max(g["prob_home"], 1 - g["prob_home"])
                 pick = g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"]
+                fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
+                dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
                 plays.append({
                     "sport": sp, "id": g["id"], "kind": "moneyline",
                     "match": f"{g['away']['name']} @ {g['home']['name']}",
                     "tournament": g.get("venue", ""),
                     "pick": f"{pick} to win", "prob": round(prob, 3),
                     "confidence": g["confidence"], "event_time": g.get("event_time"),
+                    "ctx": {"fav_record": fav.get("record"), "dog_record": dog.get("record"),
+                            "exp_margin": g.get("exp_margin"), "fav_name": fav.get("name"),
+                            "dog_name": dog.get("name")},
                     "score_key": prob + 0.05 * _confidence_rank(g["confidence"]),
                 })
         except Exception as e:
@@ -555,30 +606,68 @@ def _gather_plays(target: dt.date):
 
 def _short_reason(p):
     pct = round(p["prob"] * 100)
+    name = p["pick"].replace(" to win", "")
+    return f"{name} \u2014 {pct}% to win, {p['confidence']} confidence."
+
+
+def _long_reason(p):
+    """A richer, multi-sentence rationale for Best Bets, from data already gathered."""
+    pct = round(p["prob"] * 100)
+    name = p["pick"].replace(" to win", "")
+    ctx = p.get("ctx") or {}
+    s = []
     if p["sport"] == "tennis":
-        base = f"Model favors {p['pick'].replace(' to win','')} at {pct}%"
+        opp = ctx.get("opponent", "the field")
+        line = f"The model makes {name} a {pct}% favorite over {opp}"
         if p.get("surface") and p["surface"] != "Unknown":
-            base += f" on {p['surface'].lower()}"
-        return base + f" \u2014 {p['confidence']} confidence."
-    return f"Model favors {p['pick'].replace(' to win','')} at {pct}% \u2014 {p['confidence']} confidence."
+            line += f" on {p['surface'].lower()}"
+        s.append(line + ".")
+        if ctx.get("round"):
+            s.append(f"This is a {ctx['round']} match.")
+        if ctx.get("weather"):
+            s.append(f"Conditions: {ctx['weather']}, which factors into the projection.")
+        s.append(f"Confidence is {p['confidence']} based on the rating gap and surface fit.")
+    elif p["sport"] == "mlb":
+        s.append(f"The model favors {name} at {pct}% to win.")
+        eh, ea = ctx.get("exp_runs_home"), ctx.get("exp_runs_away")
+        if eh is not None and ea is not None:
+            s.append(f"Projected runs: {ea} (away) to {eh} (home).")
+        if ctx.get("fav_starter") and ctx.get("fav_era") is not None:
+            s.append(f"{name}'s starter {ctx['fav_starter']} carries a {ctx['fav_era']:.2f} ERA.")
+        if ctx.get("venue"):
+            extra = f" with {ctx['weather']}" if ctx.get("weather") else ""
+            s.append(f"Played at {ctx['venue']}{extra}.")
+    else:  # nba / nfl
+        s.append(f"The model favors {name} at {pct}% to win.")
+        if ctx.get("fav_record") and ctx.get("dog_record"):
+            s.append(f"Records: {ctx.get('fav_name','favorite')} {ctx['fav_record']} vs "
+                     f"{ctx.get('dog_name','opponent')} {ctx['dog_record']}.")
+        if ctx.get("exp_margin") is not None:
+            m = abs(ctx["exp_margin"])
+            s.append(f"Projected margin is about {m:.0f} point{'s' if m != 1 else ''}.")
+        s.append(f"Confidence is {p['confidence']}.")
+    return " ".join(s)
+
 
 @app.get("/api/picks/free")
 def free_picks(date: str | None = None):
-    """3-4 highest-confidence plays of the day across sports (the free tier)."""
+    """3-4 highest-confidence plays of the day across sports (short rationale)."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
     plays = _gather_plays(target)
-    # only show genuinely confident plays
     strong = [p for p in plays if p["confidence"] != "low" and p["prob"] >= 0.62][:4]
+    out = []
     for p in strong:
         p["reason"] = _short_reason(p)
         p.pop("score_key", None)
-    return {"date": target.isoformat(), "picks": strong}
+        p.pop("ctx", None)
+        out.append(p)
+    return {"date": target.isoformat(), "picks": out}
 
 
 @app.get("/api/picks/best")
 def best_bets(date: str | None = None, sport: str | None = None, min_prob: float = 0.0):
-    """Larger, filterable set of model plays with deeper detail (premium-style)."""
+    """Larger, filterable board with in-depth rationale (premium-style)."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
     plays = _gather_plays(target)
@@ -588,8 +677,9 @@ def best_bets(date: str | None = None, sport: str | None = None, min_prob: float
             continue
         if p["prob"] < min_prob:
             continue
-        p["reason"] = _short_reason(p)
+        p["reason"] = _long_reason(p)       # in-depth for Best Bets
         p.pop("score_key", None)
+        p.pop("ctx", None)
         out.append(p)
     return {"date": target.isoformat(), "count": len(out), "picks": out}
 
@@ -644,10 +734,20 @@ def team_games(sport: str, date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     try:
         from espn_provider import get_games
-        return get_games(sport, target)
+        games = get_games(sport, target)
     except Exception as e:
         print(f"[{sport}] games failed: {e}")
         return []
+    try:
+        with SessionLocal() as db:
+            for g in games:
+                if g.get("status") == "finished" and g.get("winner") in ("home", "away"):
+                    predicted = "home" if g["prob_home"] >= 0.5 else "away"
+                    _record_result(db, sport, g["id"], predicted, g["winner"])
+            db.commit()
+    except Exception as e:
+        print(f"[accuracy] {sport} log skipped: {e}")
+    return games
 
 
 @app.get("/api/{sport}/game/{game_id}")

@@ -150,18 +150,66 @@ CITY_HINTS: dict[str, tuple[float, float, bool]] = {
     "doha": (25.29, 51.53, False), "marseille": (43.30, 5.37, True),
     "rotterdam": (51.92, 4.48, True), "metz": (49.12, 6.18, True),
     "antwerp": (51.22, 4.40, True),
+    "roland garros": (48.85, 2.25, False), "french open": (48.85, 2.25, False),
+    "flushing": (40.75, -73.85, False), "arthur ashe": (40.75, -73.85, False),
+    "indian": (33.72, -116.31, False), "wells": (33.72, -116.31, False),
+    "cincinnati": (39.10, -84.51, False), "winston-salem": (36.10, -80.24, False),
+    "s-hertogenbosch": (51.69, 5.30, False), "hertogenbosch": (51.69, 5.30, False),
+    "newport": (41.49, -71.31, False), "gstaad": (46.47, 7.29, False),
+    "kitzbuhel": (47.45, 12.39, False), "umag": (45.43, 13.52, False),
+    "bastad": (56.43, 12.85, False), "los cabos": (22.89, -109.91, False),
+    "chengdu": (30.57, 104.07, False), "zhuhai": (22.27, 113.58, False),
+    "astana": (51.13, 71.43, True), "nur-sultan": (51.13, 71.43, True),
 }
 
 
+_geo_cache: dict[str, tuple[float, float, bool] | None] = {}
+
+
+def _geocode_tournament(tournament: str):
+    """Last-resort: pull a likely city from the tournament name and geocode it
+    via Open-Meteo's free geocoding API (no key). Cached so we ask once."""
+    name = (tournament or "").strip()
+    if not name:
+        return None
+    if name in _geo_cache:
+        return _geo_cache[name]
+    # strip common tour prefixes/suffixes to leave a place-like token
+    import re as _re
+    cleaned = _re.sub(r"\b(ATP|WTA|ITF|Challenger|Masters|Open|Cup|M15|M25|W15|W25|W35|W50|W75|W100|"
+                      r"250|500|1000|Qualifying|Quali|Round|Final|Finals|Mens|Womens|Singles)\b",
+                      " ", name, flags=_re.I)
+    cleaned = _re.sub(r"[^A-Za-z\s\-]", " ", cleaned).strip()
+    query = cleaned or name
+    try:
+        import httpx
+        r = httpx.get("https://geocoding-api.open-meteo.com/v1/search",
+                      params={"name": query.split()[0] if query.split() else query,
+                              "count": 1, "language": "en", "format": "json"},
+                      timeout=8.0)
+        r.raise_for_status()
+        results = (r.json() or {}).get("results") or []
+        if results:
+            res = results[0]
+            loc = (float(res["latitude"]), float(res["longitude"]), False)
+            _geo_cache[name] = loc
+            return loc
+    except Exception:
+        pass
+    _geo_cache[name] = None
+    return None
+
+
 def resolve_venue(tournament: str):
-    """Find (lat, lon, indoor) for a tournament by exact match then city hint."""
+    """Find (lat, lon, indoor) for a tournament: exact table, then city hint,
+    then a free geocoding lookup so arbitrary tour stops still resolve."""
     if tournament in VENUES:
         return VENUES[tournament]
     name = (tournament or "").lower()
     for key, loc in CITY_HINTS.items():
         if key in name:
             return loc
-    return None
+    return _geocode_tournament(tournament)
 
 
 def play_style_effect(report: "WeatherReport") -> str | None:

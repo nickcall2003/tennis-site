@@ -101,3 +101,23 @@ class MatchAnalysis(Base):
     writeup: Mapped[str] = mapped_column(Text)
     weather: Mapped[str | None] = mapped_column(String(160), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class PickResult(Base):
+    """
+    A settled prediction, logged once per game so accuracy is stable and
+    per-sport. Survives as long as the database does — for a true rolling
+    30-day number across restarts, point DATABASE_URL at a persistent
+    Postgres (e.g. Neon/Supabase free tier); on ephemeral disk it resets.
+    """
+    __tablename__ = "pick_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[str] = mapped_column(String(10), index=True)   # tennis|mlb|nba|nfl
+    ref: Mapped[str] = mapped_column(String(40), index=True)     # match/game id
+    settled_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    predicted: Mapped[str] = mapped_column(String(8))            # who we picked
+    actual: Mapped[str] = mapped_column(String(8))               # who won
+    correct: Mapped[bool] = mapped_column()
+
+    __table_args__ = (UniqueConstraint("sport", "ref", name="uq_sport_ref"),)
