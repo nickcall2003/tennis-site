@@ -112,3 +112,58 @@ need a real sportsbook-odds source. We use **The Odds API** (the-odds-api.com).
 Everything still runs. Picks show the model's own **fair odds** (derived from its
 probability), and the performance strip says metrics activate once odds are
 connected. Win/loss and accuracy tracking work regardless.
+
+### Tennis odds + quota protection (important)
+
+The Odds API splits tennis into one sport key PER TOURNAMENT (e.g.
+tennis_atp_french_open), so "tennis" is several keys at once — it's the heaviest
+consumer of the free 500/month quota.
+
+To stay safe, the app enforces a HARD DAILY CEILING across ALL sports:
+- Env var `ODDS_DAILY_MAX` (default 14). Once that many requests are used in a
+  day, the app stops calling the API and serves cached/fair odds until tomorrow.
+- This caps usage at about 14 x 30 = 420 requests/month — under the 500 limit
+  with margin.
+- Tennis odds per tournament are cached 6 hours; the active-tournament list is
+  cached 12 hours (and listing sports is free per the API docs).
+- The app also reads the API's `x-requests-remaining` header and pauses if the
+  month is nearly exhausted.
+
+Monitor usage anytime at `/api/performance` — it returns `odds_spend_today`
+(count vs cap) and `odds_quota` (remaining this month from the API).
+
+If you later find you're comfortably under budget, raise `ODDS_DAILY_MAX` for
+fresher lines. If you ever want to throttle harder, lower it.
+
+---
+
+## NCAA College Baseball (D1)
+
+Added as a team sport. Data sources and honest scope:
+
+**ESPN (backbone, no key):** college baseball scoreboard for the date — both
+teams, season records, AP/curated rank, live score, status, venue. Same free
+hidden-API pattern as NBA/NFL. ESPN's college coverage is strongest for major
+conferences; some mid-major games may not appear. That's a free-data limit.
+
+**Warren Nolan (enrichment, optional):** RPI / strength-of-schedule ratings for
+all ~304 D1 teams, which ESPN does not expose. Warren Nolan has NO API, so this
+is read from their public ratings page, **cached 12 hours**, low-volume, with a
+descriptive User-Agent, and **attributed to Warren Nolan in the UI**. It is
+enrichment only: if the fetch/parse fails, college baseball still works on ESPN
+records alone (confidence simply drops). RPI matters a lot here because schedule
+strength varies enormously between college programs.
+
+**Model:** a team-strength Elo seeded from win% and corrected by RPI rank
+(strength of schedule) plus a small AP-rank prestige nudge, with home-field edge.
+It outputs win probability and an expected run margin.
+
+**Honest limitation:** this is a STRENGTH model, not a full run-expectancy model.
+ESPN's free college feed doesn't reliably expose probable starters, bullpen
+usage, OBP/SLG, or park/weather — so we don't fabricate them. The detail page and
+pick reasons say so plainly and tell the user to confirm the weekend rotation.
+If a richer (likely paid) college stats feed is added later, the MLB
+run-expectancy engine can be layered on top.
+
+If Warren Nolan's page markup changes and RPI stops parsing, only the RPI
+enrichment is affected; the sport keeps working on ESPN data.

@@ -772,6 +772,29 @@ def _gather_plays_uncached(target: dt.date):
                 })
         except Exception as e:
             print(f"[picks] {sp} gather failed: {e}")
+    # --- College baseball (ESPN + Warren Nolan RPI) ---
+    try:
+        from ncaab_baseball import get_games as _cbb_games
+        for g in _cbb_games(target):
+            if g["status"] == "finished":
+                continue
+            prob = max(g["prob_home"], 1 - g["prob_home"])
+            pick = g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"]
+            fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
+            dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
+            plays.append({
+                "sport": "ncaabb", "id": g["id"], "kind": "moneyline",
+                "match": f"{g['away']['name']} @ {g['home']['name']}",
+                "tournament": g.get("venue", ""),
+                "pick": f"{pick} to win", "prob": round(prob, 3),
+                "confidence": g["confidence"], "event_time": g.get("event_time"),
+                "ctx": {"fav_record": fav.get("record"), "dog_record": dog.get("record"),
+                        "exp_margin": g.get("exp_margin"), "fav_name": fav.get("name"),
+                        "dog_name": dog.get("name"), "factors": g.get("factors")},
+                "score_key": prob + 0.05 * _confidence_rank(g["confidence"]),
+            })
+    except Exception as e:
+        print(f"[picks] ncaabb gather failed: {e}")
     plays.sort(key=lambda p: -p["score_key"])
     return plays
 
@@ -789,14 +812,10 @@ def _enrich_odds(p):
         else:
             fair = round(100 * (1 - prob) / prob)
         p["fair_odds"] = fair
-    # market odds for team sports (tennis market lines not pulled on free tier)
+    # market odds: team sports via snapshot, tennis via per-tournament feed
     try:
         import odds_api
         if odds_api.enabled() and p["sport"] in ("mlb", "nba", "nfl"):
-            book = odds_api.get_odds(p["sport"])
-            from odds_api import _norm
-            # p["match"] is "Home vs Away" style for team sports? gather builds
-            # match as "A vs B"; we resolve via the snapshot side instead.
             from models import OddsSnapshot
             with SessionLocal() as db:
                 snap = db.query(OddsSnapshot).filter_by(sport=p["sport"], ref=str(p["id"])).first()
@@ -806,8 +825,27 @@ def _enrich_odds(p):
                     fp = american_to_prob(p["fair_odds"])
                     mp = american_to_prob(snap.last_odds)
                     if fp is not None and mp is not None:
-                        # positive edge => model thinks pick is likelier than market implies
                         p["edge_pct"] = round((fp - mp) * 100, 1)
+        elif odds_api.enabled() and p["sport"] == "tennis":
+            book = odds_api.get_tennis_odds()
+            if book:
+                from odds_api import _norm
+                pick_name = p.get("pick", "").replace(" to win", "").strip()
+                names = [n.strip() for n in p.get("match", "").split(" vs ")]
+                if len(names) == 2:
+                    rec = book.get(_norm(names[0]) + "|" + _norm(names[1]))
+                    if rec:
+                        mo = rec["odds_a"] if _norm(rec["a"]) == _norm(pick_name) else rec["odds_b"]
+                        am = odds_api.american_from_decimal(mo) if mo else None
+                        if am is not None:
+                            p["market_odds"] = am
+                            if p.get("fair_odds") is not None:
+                                fp = american_to_prob(p["fair_odds"])
+                                mp = american_to_prob(am)
+                                if fp is not None and mp is not None:
+                                    p["edge_pct"] = round((fp - mp) * 100, 1)
+                            _snapshot_odds("tennis", str(p["id"]),
+                                           "a" if _norm(rec["a"]) == _norm(pick_name) else "b", am)
     except Exception:
         pass
 
@@ -867,6 +905,24 @@ def _long_reason(p):
             s.append("The run environment is adjusted for " + " and ".join(extras) + ".")
         s.append("Recent form over each team's last 10 games is blended into the offense estimate. "
                  f"Confidence: {p['confidence']}.")
+    elif p["sport"] == "ncaabb":
+        s.append(f"The model makes {name} a {pct}% college baseball pick.")
+        if ctx.get("fav_record") and ctx.get("dog_record"):
+            s.append(f"Records: {ctx.get('fav_name','favorite')} at {ctx['fav_record']} "
+                     f"versus {ctx.get('dog_name','opponent')} at {ctx['dog_record']}.")
+        facts = ctx.get("factors") or []
+        rpi = next((f for f in facts if "RPI" in f), None)
+        if rpi:
+            s.append(rpi + " — strength of schedule is decisive in college baseball, "
+                     "so the model leans on RPI to correct raw records.")
+        else:
+            s.append("Live RPI wasn't available here, so this rests on records alone "
+                     "— lower confidence.")
+        if ctx.get("exp_margin") is not None:
+            mg = abs(ctx["exp_margin"])
+            s.append(f"Projected margin about {mg:.0f} run{'s' if mg != 1 else ''}.")
+        s.append(f"Confidence: {p['confidence']}. Confirm the weekend rotation yourself — "
+                 f"probable starters aren't in the free college feed.")
     else:  # nba / nfl
         league = p["sport"].upper()
         s.append(f"The model makes {name} a {pct}% {league} favorite.")
@@ -990,6 +1046,40 @@ FACTS:
 """
 
 
+def _ncaabb_writeup(g):
+    """Multi-paragraph analysis for a college baseball game, honest about scope."""
+    fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
+    dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
+    favp = round((g["prob_home"] if g["prob_home"] >= 0.5 else 1 - g["prob_home"]) * 100)
+    margin = abs(g["exp_margin"])
+    home_side = "at home" if g["prob_home"] >= 0.5 else "on the road"
+    paras = []
+    p1 = [f"The model makes {fav['name']} the pick at {favp}% to win, playing {home_side}."]
+    if fav["record"] and dog["record"]:
+        p1.append(f"Season records: {fav['name']} at {fav['record']} versus "
+                  f"{dog['name']} at {dog['record']}.")
+    paras.append(" ".join(p1))
+
+    facts = g.get("factors") or []
+    rpi_facts = [f for f in facts if "RPI" in f]
+    if rpi_facts:
+        paras.append("Strength of schedule matters enormously in college baseball, "
+                     "where a team can pad its record against weak opponents. "
+                     + rpi_facts[0] + " — RPI rank weighs who they've actually played, "
+                     "and the model leans on it to correct raw win-loss records.")
+    else:
+        paras.append("Note: live RPI/strength-of-schedule data wasn't available for "
+                     "this matchup, so the projection rests on win-loss records and "
+                     "ranking alone — treat the edge as lower-confidence.")
+
+    paras.append(f"Projected margin is about {margin:.0f} run{'s' if margin != 1 else ''} "
+                 f"in {fav['name']}'s favor. Model confidence: {g['confidence']}. "
+                 f"Honest caveat: this is a team-strength model — ESPN's free college "
+                 f"feed doesn't reliably expose probable starters, bullpen usage, or "
+                 f"park/weather, so confirm the weekend rotation yourself before relying on it.")
+    return "\n\n".join(paras)
+
+
 def _team_analysis(g, sport):
     base = _team_writeup(g, sport)
     if LLM_COMPLETE is None:
@@ -1033,6 +1123,48 @@ def team_games(sport: str, date: str | None = None):
     except Exception as e:
         print(f"[accuracy] {sport} log skipped: {e}")
     return games
+
+
+@app.get("/api/ncaabb/games")
+def ncaabb_games(date: str | None = None):
+    """College baseball games for a date (ESPN backbone + Warren Nolan RPI)."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from ncaab_baseball import get_games
+        games = get_games(target)
+    except Exception as e:
+        print(f"[ncaabb] games failed: {e}")
+        return []
+    try:
+        with SessionLocal() as db:
+            wrote = False
+            for g in games:
+                if g.get("status") == "finished" and g.get("winner") in ("home", "away"):
+                    predicted = "home" if g["prob_home"] >= 0.5 else "away"
+                    _record_result(db, "ncaabb", g["id"], predicted, g["winner"])
+                    wrote = True
+            if wrote:
+                db.commit()
+    except Exception as e:
+        print(f"[accuracy] ncaabb log skipped: {e}")
+    return games
+
+
+@app.get("/api/ncaabb/game/{game_id}")
+def ncaabb_game(game_id: str, date: str | None = None):
+    """One college baseball game with analysis writeup."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from ncaab_baseball import get_games
+        games = get_games(target)
+    except Exception:
+        games = []
+    g = next((x for x in games if str(x["id"]) == str(game_id)), None)
+    if not g:
+        return {"error": "not found"}
+    g = dict(g)
+    g["analysis"] = _ncaabb_writeup(g)
+    return g
 
 
 @app.get("/api/{sport}/game/{game_id}")
@@ -1163,6 +1295,7 @@ def performance(days: int = 30, sport: str | None = None):
     s["record_total"] = wins + losses
     s["odds_enabled"] = odds_api.enabled()
     s["odds_quota"] = odds_api.quota() if odds_api.enabled() else None
+    s["odds_spend_today"] = odds_api.spend_today() if odds_api.enabled() else None
     s["days"] = days
     return s
 
