@@ -57,6 +57,63 @@ def _team_elo(side, rpi):
 
 
 def predict_baseball(home, away):
+    """home/away are the ESPN _side dicts. Returns prob_home, exp_margin, etc.
+
+    Two paths, picked automatically by data availability:
+      1. RUN-EXPECTANCY (preferred): if Highlightly team batting/pitching stats
+         are present, use the SAME engine as MLB (expected runs from offense vs
+         opposing pitching, independent-Poisson win prob). This is what makes
+         college baseball "share the MLB algorithm" as originally wanted.
+      2. STRENGTH (fallback): ESPN records + Warren Nolan RPI Elo. Used when the
+         richer stats aren't available (no key, quota, or team not found).
+    """
+    # --- try the run-expectancy path first ---
+    hl = _runexp_baseball(home, away)
+    if hl is not None:
+        return hl
+    return _strength_baseball(home, away)
+
+
+def _runexp_baseball(home, away):
+    """Use Highlightly team stats + the MLB run-expectancy engine, or None."""
+    try:
+        import highlightly
+        if not highlightly.enabled():
+            return None
+        hs = highlightly.get_team_stats(home.get("name", ""))
+        as_ = highlightly.get_team_stats(away.get("name", ""))
+        # need at least offense + some pitching signal on both sides
+        if not (hs.get("rpg") and as_.get("rpg")):
+            return None
+        from mlb_model import TeamInput, GameFactors, predict_game
+        # college run environment differs from MLB; set a college league baseline
+        gf = GameFactors(lg_runs=5.4, lg_era=5.4)   # D1 scoring is higher than MLB
+        h = TeamInput(name=home.get("name"), runs_per_game=hs.get("rpg"),
+                      starter_era=hs.get("era"), bullpen_era=hs.get("era"))
+        a = TeamInput(name=away.get("name"), runs_per_game=as_.get("rpg"),
+                      starter_era=as_.get("era"), bullpen_era=as_.get("era"))
+        r = predict_game(h, a, gf)
+        factors = [f"Run model: {home.get('name')} {hs.get('rpg',0):.1f} R/G "
+                   f"(ERA {hs.get('era','?')}) vs {away.get('name')} "
+                   f"{as_.get('rpg',0):.1f} R/G (ERA {as_.get('era','?')}) — Highlightly"]
+        if home.get("record") and away.get("record"):
+            factors.append(f"Records: {home['record']} vs {away['record']}")
+        edge = abs(r["prob_home"] - 0.5)
+        conf = "high" if edge > 0.12 else ("medium" if edge > 0.05 else "low")
+        return {
+            "prob_home": round(r["prob_home"], 4),
+            "exp_margin": round(r["exp_runs_home"] - r["exp_runs_away"], 1),
+            "confidence": conf,
+            "avg_total": round(r["exp_runs_home"] + r["exp_runs_away"], 1),
+            "factors": factors,
+            "model": "run-expectancy",
+        }
+    except Exception as e:
+        print(f"[ncaa_model] run-exp path failed: {e}")
+        return None
+
+
+def _strength_baseball(home, away):
     """home/away are the ESPN _side dicts. Returns prob_home, exp_margin, etc."""
     factors = []
     rpi_home = rpi_away = {}
@@ -72,11 +129,9 @@ def predict_baseball(home, away):
     ea = _team_elo(away, rpi_away)
     prob_home = _expected(eh, ea)
 
-    # expected run margin: map Elo gap to runs (college games swing more than MLB)
     gap = eh - ea
-    exp_margin = round(gap / 95.0, 1)   # ~ +1 run per 95 Elo
+    exp_margin = round(gap / 95.0, 1)
 
-    # confidence: how much real signal we have
     have_rpi = bool(rpi_home or rpi_away)
     have_rec = home.get("win_pct") is not None and away.get("win_pct") is not None
     edge = abs(prob_home - 0.5)
@@ -87,7 +142,6 @@ def predict_baseball(home, away):
     else:
         confidence = "low"
 
-    # human-readable factors for the analysis card
     if have_rec:
         factors.append(f"Records: {home.get('record','?')} vs {away.get('record','?')}")
     if rpi_home.get("rpi_rank") or rpi_away.get("rpi_rank"):
@@ -101,8 +155,9 @@ def predict_baseball(home, away):
         "prob_home": round(prob_home, 4),
         "exp_margin": exp_margin,
         "confidence": confidence,
-        "avg_total": None,        # no reliable scoring model on free college data
+        "avg_total": None,
         "factors": factors,
         "rpi_home": rpi_home.get("rpi_rank"),
         "rpi_away": rpi_away.get("rpi_rank"),
+        "model": "strength",
     }

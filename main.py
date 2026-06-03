@@ -467,6 +467,8 @@ def accuracy(days: int = 30):
     since = dt.datetime.now() - dt.timedelta(days=days)
     by_sport = {}
     tot_p = tot_c = 0
+    alltime = {}
+    at_p = at_c = 0
     with SessionLocal() as db:
         rows = db.query(PickResult).filter(PickResult.settled_date >= since).all()
         for r in rows:
@@ -476,12 +478,29 @@ def accuracy(days: int = 30):
             if r.correct:
                 s["correct"] += 1
                 tot_c += 1
+        # all-time record (no date filter), per sport and overall
+        allrows = db.query(PickResult).all()
+        for r in allrows:
+            a = alltime.setdefault(r.sport, {"wins": 0, "losses": 0})
+            at_p += 1
+            if r.correct:
+                a["wins"] += 1
+                at_c += 1
+            else:
+                a["losses"] += 1
     for s, v in by_sport.items():
         v["accuracy"] = round(100 * v["correct"] / v["picks"]) if v["picks"] else None
+        at = alltime.get(s, {"wins": 0, "losses": 0})
+        v["alltime_wins"] = at["wins"]
+        v["alltime_losses"] = at["losses"]
+        tot = at["wins"] + at["losses"]
+        v["alltime_pct"] = round(100 * at["wins"] / tot) if tot else None
     data = {
         "days": days,
         "overall": {"picks": tot_p, "correct": tot_c,
-                    "accuracy": round(100 * tot_c / tot_p) if tot_p else None},
+                    "accuracy": round(100 * tot_c / tot_p) if tot_p else None,
+                    "alltime_wins": at_c, "alltime_losses": at_p - at_c,
+                    "alltime_pct": round(100 * at_c / at_p) if at_p else None},
         "by_sport": by_sport,
     }
     _acc_cache["ts"] = _t.time()
@@ -959,20 +978,37 @@ def _log_shown_picks(view, target, picks):
 
 @app.get("/api/picks/free")
 def free_picks(date: str | None = None):
-    """3-4 highest-confidence plays of the day across sports (short rationale)."""
+    """The FOUR best (highest-confidence) plays of the day. Always 4 when
+    available, each showing its settled win/loss result once the game finishes."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
     plays = _gather_plays(target)
-    strong = [p for p in plays if p["confidence"] != "low" and p["prob"] >= 0.62][:4]
+    # rank by confidence then probability; take the top 4 regardless of threshold
+    ranked = sorted(plays, key=lambda p: -(p.get("score_key", p["prob"])))
+    strong = ranked[:4]
     out = []
     for p in strong:
         p["reason"] = _short_reason(p)
         _enrich_odds(p)
+        p["result"] = _pick_result_status(p["sport"], str(p["id"]))
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
     _log_shown_picks("free", target, out)
     return {"date": target.isoformat(), "picks": out}
+
+
+def _pick_result_status(sport, ref):
+    """Return 'win'/'loss'/None for a pick that has settled (for Free Picks)."""
+    from models import PickResult
+    try:
+        with SessionLocal() as db:
+            r = db.query(PickResult).filter_by(sport=sport, ref=str(ref)).first()
+            if r is None:
+                return None
+            return "win" if r.correct else "loss"
+    except Exception:
+        return None
 
 
 @app.get("/api/picks/best")
@@ -1053,6 +1089,8 @@ def _ncaabb_writeup(g):
     favp = round((g["prob_home"] if g["prob_home"] >= 0.5 else 1 - g["prob_home"]) * 100)
     margin = abs(g["exp_margin"])
     home_side = "at home" if g["prob_home"] >= 0.5 else "on the road"
+    factors = g.get("factors") or []
+    model = g.get("model", "")
     paras = []
     p1 = [f"The model makes {fav['name']} the pick at {favp}% to win, playing {home_side}."]
     if fav["record"] and dog["record"]:
@@ -1060,23 +1098,33 @@ def _ncaabb_writeup(g):
                   f"{dog['name']} at {dog['record']}.")
     paras.append(" ".join(p1))
 
-    facts = g.get("factors") or []
-    rpi_facts = [f for f in facts if "RPI" in f]
-    if rpi_facts:
-        paras.append("Strength of schedule matters enormously in college baseball, "
-                     "where a team can pad its record against weak opponents. "
-                     + rpi_facts[0] + " — RPI rank weighs who they've actually played, "
-                     "and the model leans on it to correct raw win-loss records.")
+    run_fact = next((f for f in factors if "Run model" in f), None)
+    rpi_fact = next((f for f in factors if "RPI" in f), None)
+    if run_fact:
+        tot = g.get("avg_total")
+        paras.append("This projection uses the full run-expectancy engine — the same "
+                     "model as MLB — driven by each team's actual offense and pitching. "
+                     + run_fact + (f" Projected total: about {tot} runs." if tot else ""))
+    elif rpi_fact:
+        paras.append("Strength of schedule matters enormously in college baseball, where "
+                     "a team can pad its record against weak opponents. " + rpi_fact +
+                     " — RPI weighs who they've actually played, and the model leans on it "
+                     "to correct raw win-loss records.")
     else:
-        paras.append("Note: live RPI/strength-of-schedule data wasn't available for "
-                     "this matchup, so the projection rests on win-loss records and "
-                     "ranking alone — treat the edge as lower-confidence.")
+        paras.append("Note: detailed team stats and RPI weren't available for this matchup, "
+                     "so the projection rests on win-loss records and ranking alone — treat "
+                     "the edge as lower-confidence.")
 
-    paras.append(f"Projected margin is about {margin:.0f} run{'s' if margin != 1 else ''} "
-                 f"in {fav['name']}'s favor. Model confidence: {g['confidence']}. "
-                 f"Honest caveat: this is a team-strength model — ESPN's free college "
-                 f"feed doesn't reliably expose probable starters, bullpen usage, or "
-                 f"park/weather, so confirm the weekend rotation yourself before relying on it.")
+    tail = (f"Projected margin is about {margin:.0f} run{'s' if margin != 1 else ''} "
+            f"in {fav['name']}'s favor. Model confidence: {g['confidence']}.")
+    if model != "run-expectancy":
+        tail += (" Honest caveat: this is a team-strength model — ESPN's free college feed "
+                 "doesn't expose probable starters or bullpen usage, so confirm the weekend "
+                 "rotation yourself.")
+    else:
+        tail += (" Caveat: team-level offense and pitching drive this; it does not yet model "
+                 "the specific weekend starter, so confirm the probable pitcher yourself.")
+    paras.append(tail)
     return "\n\n".join(paras)
 
 

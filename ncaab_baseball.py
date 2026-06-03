@@ -103,7 +103,8 @@ def get_games(date: dt.date, force_live=False):
     if c and not force_live and time.time() - c[0] < _DAY_TTL:
         return c[1]
     try:
-        data = _get(SCOREBOARD, {"dates": date.strftime("%Y%m%d"), "limit": 400})
+        data = _get(SCOREBOARD, {"dates": date.strftime("%Y%m%d"),
+                                 "groups": "50", "limit": 400})
     except Exception as e:
         print(f"[ncaabb] scoreboard failed: {e}")
         return _cache.get(key, (0, []))[1]
