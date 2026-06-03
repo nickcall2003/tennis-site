@@ -140,8 +140,21 @@ def build_day(provider, engine: PredictionEngine, day) -> int:
             if info.provider_match_id in existing:
                 continue  # already stored (idempotent, no live calls)
             try:
-                prob_a, confidence = engine.predict_feed(info.player_a, info.player_b)
                 meta = provider.fixture_meta(info.provider_match_id) if hasattr(provider, "fixture_meta") else {}
+
+                # Context-aware prediction: pull recent form / fatigue / H2H when
+                # we have both player keys and the provider supports it.
+                prob_a = confidence = None
+                ka, kb = meta.get("player_a_key"), meta.get("player_b_key")
+                if ka and kb and hasattr(provider, "get_match_context"):
+                    try:
+                        cx = provider.get_match_context(ka, kb, info.scheduled)
+                    except Exception:
+                        cx = None
+                    if cx:
+                        prob_a, confidence = engine.predict_feed_ctx(info.player_a, info.player_b, cx)
+                if prob_a is None:
+                    prob_a, confidence = engine.predict_feed(info.player_a, info.player_b)
 
                 ra, _ = engine._rating(info.player_a)
                 rb, _ = engine._rating(info.player_b)

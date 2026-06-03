@@ -176,6 +176,48 @@ class PredictionEngine:
         conf = "high" if (sa == "history" and sb == "history") else "medium"
         return prob, conf
 
+    def predict_feed_ctx(self, name_a, name_b, ctx=None):
+        """
+        Like predict_feed, but applies small, data-backed adjustments when
+        context is supplied. ctx (all optional):
+          form_a / form_b      : recent win rate over last ~10 (0..1)
+          fatigue_a / fatigue_b: recent load score (higher = more tired), 0..1
+          h2h_a / h2h_b        : prior meetings won by each player (ints)
+        Adjustments are deliberately conservative so the proven Elo base stays
+        dominant; these refine the edge, they don't override it.
+        """
+        base, conf = self.predict_feed(name_a, name_b)
+        if conf == "low" or not ctx:
+            return base, conf
+        # Work in Elo-point space: convert nudges to a rating delta, then re-expand.
+        import math
+        delta = 0.0  # positive favors A
+
+        # Recent form: each 10% of win-rate edge -> up to ~25 Elo pts (capped).
+        fa, fb = ctx.get("form_a"), ctx.get("form_b")
+        if fa is not None and fb is not None:
+            delta += max(-40, min(40, (fa - fb) * 80))
+
+        # Fatigue: a more tired player loses a little; scale ~ up to 20 Elo pts.
+        ta, tb = ctx.get("fatigue_a"), ctx.get("fatigue_b")
+        if ta is not None and tb is not None:
+            delta += max(-25, min(25, (tb - ta) * 50))  # if B more tired, favor A
+
+        # Head-to-head: small Bayesian nudge from prior meetings (caps quickly).
+        ha, hb = ctx.get("h2h_a"), ctx.get("h2h_b")
+        if ha is not None and hb is not None and (ha + hb) > 0:
+            edge = (ha - hb) / (ha + hb)          # -1..1
+            weight = min(1.0, (ha + hb) / 5.0)     # more meetings -> more weight
+            delta += edge * weight * 30
+
+        # Convert base prob back to an implied rating gap, apply delta, re-expand.
+        base = min(0.999, max(0.001, base))
+        implied_gap = -400 * math.log10(1 / base - 1)   # inverse of expected_score
+        adj_prob = 1.0 / (1.0 + 10 ** (-(implied_gap + delta) / 400))
+        # never let adjustments flip more than ~12 percentage points
+        adj_prob = max(base - 0.12, min(base + 0.12, adj_prob))
+        return adj_prob, conf
+
     def predict(self, player_a, player_b, surface):
         return self.model.win_probability(player_a, player_b, surface, surface_weight=0.5)
 

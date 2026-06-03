@@ -45,7 +45,7 @@ def _team_stats(team_id):
     c = _team_cache.get(team_id)
     if c and time.time() - c[0] < _DAY_TTL:
         return c[1]
-    out = {"rpg": None, "bullpen_era": None}
+    out = {"rpg": None, "bullpen_era": None, "recent_rpg": None}
     try:
         hit = _get(f"{BASE}/teams/{team_id}/stats",
                    {"stats": "season", "group": "hitting", "season": SEASON})
@@ -60,6 +60,16 @@ def _team_stats(team_id):
                    {"stats": "season", "group": "pitching", "season": SEASON})
         stat = pit["stats"][0]["splits"][0]["stat"]
         out["bullpen_era"] = float(stat.get("era")) if stat.get("era") else None
+    except Exception:
+        pass
+    # recent form: runs/game over the last ~10 games (gameLog)
+    try:
+        log = _get(f"{BASE}/teams/{team_id}/stats",
+                   {"stats": "gameLog", "group": "hitting", "season": SEASON})
+        splits = log["stats"][0]["splits"][-10:]
+        rs = [float(s["stat"].get("runs", 0)) for s in splits if s.get("stat")]
+        if rs:
+            out["recent_rpg"] = sum(rs) / len(rs)
     except Exception:
         pass
     _team_cache[team_id] = (time.time(), out)
@@ -165,12 +175,12 @@ def get_games(date: dt.date, force_live=False):
         wfactor, wnote = _weather_factor(hmeta.get("lat"), hmeta.get("lon"), hmeta.get("dome", False))
 
         home = TeamInput(name=home_t["team"].get("name", "Home"), abbr=hmeta.get("abbr", ""),
-                         team_id=home_id, runs_per_game=hs["rpg"],
+                         team_id=home_id, runs_per_game=hs["rpg"], recent_rpg=hs.get("recent_rpg"),
                          starter_name=hp["name"] or (home_t.get("probablePitcher") or {}).get("fullName"),
                          starter_era=hp["era"], starter_ip=hp["ip"], bullpen_era=hs["bullpen_era"],
                          logo=MD.logo_url(home_id))
         away = TeamInput(name=away_t["team"].get("name", "Away"), abbr=ameta.get("abbr", ""),
-                         team_id=away_id, runs_per_game=as_["rpg"],
+                         team_id=away_id, runs_per_game=as_["rpg"], recent_rpg=as_.get("recent_rpg"),
                          starter_name=ap["name"] or (away_t.get("probablePitcher") or {}).get("fullName"),
                          starter_era=ap["era"], starter_ip=ap["ip"], bullpen_era=as_["bullpen_era"],
                          logo=MD.logo_url(away_id))

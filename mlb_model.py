@@ -46,12 +46,20 @@ class TeamInput:
     name: str
     abbr: str = ""
     team_id: int | None = None
-    runs_per_game: float | None = None      # team offense (scored)
+    runs_per_game: float | None = None      # team offense (scored), season
+    recent_rpg: float | None = None         # runs/game over last ~10 (form)
     starter_name: str | None = None
     starter_era: float | None = None        # announced starter, season ERA
     starter_ip: float | None = None         # innings (confidence signal)
     bullpen_era: float | None = None        # relievers' aggregate ERA
+    bullpen_fatigue: float | None = None     # 0..1, recent reliever workload
     logo: str | None = None
+
+    def blended_rpg(self):
+        """Offense estimate blending season (70%) with recent form (30%)."""
+        if self.runs_per_game and self.recent_rpg:
+            return 0.70 * self.runs_per_game + 0.30 * self.recent_rpg
+        return self.runs_per_game or self.recent_rpg
 
 
 @dataclass
@@ -70,21 +78,26 @@ def _mult(value, league, lo=0.6, hi=1.6):
     return max(lo, min(hi, value / league))
 
 
-def pitching_multiplier(starter_era, bullpen_era, lg_era):
+def pitching_multiplier(starter_era, bullpen_era, lg_era, bullpen_fatigue=None):
     """
     Runs the opponent is expected to score against this staff, vs league.
     >1 means worse-than-average pitching (gives up more runs).
+    A tired bullpen (fatigue 0..1) is penalized slightly (up to ~8% worse).
     """
     s = _mult(starter_era, lg_era)
     b = _mult(bullpen_era, lg_era)
+    if bullpen_fatigue:
+        b *= 1.0 + 0.08 * max(0.0, min(1.0, bullpen_fatigue))
     if starter_era and bullpen_era:
         return STARTER_WEIGHT * s + BULLPEN_WEIGHT * b
     return s if starter_era else (b if bullpen_era else 1.0)
 
 
-def expected_runs(off_rpg, opp_starter_era, opp_bullpen_era, gf: GameFactors):
+def expected_runs(off_rpg, opp_starter_era, opp_bullpen_era, gf: GameFactors,
+                  opp_bullpen_fatigue=None):
     off = _mult(off_rpg, gf.lg_runs)
-    prevent = pitching_multiplier(opp_starter_era, opp_bullpen_era, gf.lg_era)
+    prevent = pitching_multiplier(opp_starter_era, opp_bullpen_era, gf.lg_era,
+                                  opp_bullpen_fatigue)
     return gf.lg_runs * off * prevent * gf.park_factor * gf.weather_factor
 
 
@@ -120,8 +133,10 @@ def confidence(home: TeamInput, away: TeamInput):
 def predict_game(home: TeamInput, away: TeamInput, gf: GameFactors | None = None):
     """Returns dict: prob_home, expected runs, confidence, and a factor breakdown."""
     gf = gf or GameFactors()
-    er_home = expected_runs(home.runs_per_game, away.starter_era, away.bullpen_era, gf) * HOME_RUN_BUMP
-    er_away = expected_runs(away.runs_per_game, home.starter_era, home.bullpen_era, gf) * AWAY_RUN_DAMP
+    er_home = expected_runs(home.blended_rpg(), away.starter_era, away.bullpen_era, gf,
+                            away.bullpen_fatigue) * HOME_RUN_BUMP
+    er_away = expected_runs(away.blended_rpg(), home.starter_era, home.bullpen_era, gf,
+                            home.bullpen_fatigue) * AWAY_RUN_DAMP
     prob_home = win_probability(er_home, er_away)
     return {
         "prob_home": round(prob_home, 4),

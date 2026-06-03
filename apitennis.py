@@ -231,3 +231,67 @@ class APITennisProvider(TennisProvider):
             return {}
         # get_H2H returns a dict (not a list) under result; _call already unwrapped.
         return res if isinstance(res, dict) else {}
+
+    def get_match_context(self, key_a, key_b, match_dt=None):
+        """
+        Derive form / fatigue / H2H from one get_H2H call (it returns both the
+        head-to-head and each player's recent results). Returns a dict ready for
+        PredictionEngine.predict_feed_ctx, or {} if unavailable.
+
+          form_x    : win rate over the player's last ~10 results (0..1)
+          fatigue_x : share of those recent matches played in the last 7 days
+          h2h_x     : meetings won by each player
+        """
+        import datetime as _dt
+        data = self.get_h2h(key_a, key_b)
+        if not data:
+            return {}
+        ctx = {}
+
+        # --- head to head ---
+        h2h = data.get("H2H") or data.get("firstPlayer_VS_secondPlayer") or []
+        if isinstance(h2h, list) and h2h:
+            wa = wb = 0
+            for m in h2h:
+                w = (m.get("event_winner") or "").lower()
+                # event_winner is "First Player" / "Second Player"
+                if "first" in w:
+                    wa += 1
+                elif "second" in w:
+                    wb += 1
+            if wa or wb:
+                ctx["h2h_a"], ctx["h2h_b"] = wa, wb
+
+        # --- recent form + fatigue, per player ---
+        def _player_stats(results_key):
+            results = data.get(results_key) or []
+            if not isinstance(results, list) or not results:
+                return None, None
+            recent = results[:10]
+            wins = 0
+            recent_count = 0
+            now = match_dt or _dt.datetime.now()
+            for m in recent:
+                ew = (m.get("event_winner") or "").lower()
+                # the player whose list this is appears as "First Player" in their own list
+                if "first" in ew:
+                    wins += 1
+                # fatigue: did this match happen within 7 days before the match?
+                ds = m.get("event_date") or ""
+                try:
+                    d = _dt.datetime.strptime(ds, "%Y-%m-%d")
+                    if 0 <= (now - d).days <= 7:
+                        recent_count += 1
+                except (ValueError, TypeError):
+                    pass
+            form = wins / len(recent) if recent else None
+            fatigue = min(1.0, recent_count / 3.0)   # 3+ matches in a week = maxed
+            return form, fatigue
+
+        fa, fata = _player_stats("firstPlayerResults")
+        fb, fatb = _player_stats("secondPlayerResults")
+        if fa is not None and fb is not None:
+            ctx["form_a"], ctx["form_b"] = fa, fb
+        if fata is not None and fatb is not None:
+            ctx["fatigue_a"], ctx["fatigue_b"] = fata, fatb
+        return ctx

@@ -164,6 +164,13 @@
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
   .wx-chip{font-size:13px;margin-left:6px;cursor:help}
+  .rec-banner{display:flex;align-items:center;gap:12px;border-radius:12px;padding:11px 16px;margin:0 0 16px;font-size:13px;border:1px solid var(--line);background:var(--panel-2)}
+  .rec-banner b{font-family:"Fraunces",serif;font-size:22px;font-weight:900}
+  .rec-banner .rec-pct,.rec-banner .rec-note{color:var(--muted);font-size:12px;margin-left:auto}
+  .rec-banner.good{border-color:rgba(91,140,78,.45)}.rec-banner.good b{color:var(--win)}
+  .rec-banner.ok{border-color:rgba(200,97,47,.4)}.rec-banner.ok b{color:var(--clay-bright)}
+  .rec-banner.bad{border-color:rgba(193,75,60,.4)}.rec-banner.bad b{color:var(--loss)}
+  .rec-banner.pending b{color:var(--muted)}
   .home{display:none;grid-column:1/-1}
   .home.show{display:block}
   .home-hero{text-align:center;padding:30px 16px 22px}
@@ -751,21 +758,25 @@ function renderHome(){
     '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';}
 async function renderPicks(){
   const list=document.getElementById("list");list.innerHTML='<div class="empty">Loading picks&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
+  let rec=null;try{rec=await getJSON("/api/picks/record?date="+ymd(selected));}catch(e){}
+  const recBanner=recordBannerHTML(rec);
   if(view==="free"){
     let d;try{d=await getJSON("/api/picks/free?date="+ymd(selected));}catch(e){d={picks:[]};}
     if(view!=="free")return;
-    let html='<div class="picks-head">\u2b50 Free Picks</div><div class="picks-sub">The highest-confidence plays of the day, across every sport. A free sample of the model\u2019s best looks.</div>';
+    let html='<div class="picks-head">\u2b50 Free Picks</div><div class="picks-sub">The highest-confidence plays of the day, across every sport. A free sample of the model\u2019s best looks.</div>'+recBanner;
     if(!d.picks||!d.picks.length)html+='<div class="empty">No high-confidence plays today \u2014 check back when more games are posted.</div>';
     else html+=d.picks.map(pickCardHTML).join("");
     list.innerHTML=html;bindPickCards();
   }else{
     let d;try{d=await getJSON("/api/picks/best?date="+ymd(selected)+(bestFilter.sport?"&sport="+bestFilter.sport:"")+"&min_prob="+bestFilter.min);}catch(e){d={picks:[]};}
     if(view!=="best")return;
-    let html='<div class="picks-head">\u{1F451} Best Bets</div><div class="picks-sub">The model\u2019s full board, ranked by win probability. Filter by sport and confidence. Not betting advice.</div>';
+    let html='<div class="picks-head">\u{1F451} Best Bets</div><div class="picks-sub">The model\u2019s full board, ranked by win probability. Filter by sport and confidence. Not betting advice.</div>'+recBanner;
     html+='<div class="filters">'+
       filterBtn("All sports",!bestFilter.sport,"sport","")+
       filterBtn("Tennis",bestFilter.sport==="tennis","sport","tennis")+
       filterBtn("MLB",bestFilter.sport==="mlb","sport","mlb")+
+      filterBtn("NBA",bestFilter.sport==="nba","sport","nba")+
+      filterBtn("NFL",bestFilter.sport==="nfl","sport","nfl")+
       filterBtn("60%+",bestFilter.min===0.6,"min",0.6)+
       filterBtn("70%+",bestFilter.min===0.7,"min",0.7)+
       filterBtn("Any",bestFilter.min===0,"min",0)+'</div>';
@@ -773,11 +784,16 @@ async function renderPicks(){
     else html+=d.picks.map(pickCardHTML).join("");
     list.innerHTML=html;bindPickCards();
   }}
+function recordBannerHTML(rec){
+  if(!rec||!rec.total)return '<div class="rec-banner pending"><span>Today\u2019s results</span><b>Pending</b><span class="rec-note">picks grade as games finish</span></div>';
+  const cls=rec.hit_rate>=60?"good":(rec.hit_rate>=50?"ok":"bad");
+  return '<div class="rec-banner '+cls+'"><span>Today\u2019s results</span>'+
+    '<b>'+rec.wins+'\u2013'+rec.losses+'</b><span class="rec-pct">'+(rec.hit_rate!=null?rec.hit_rate+'% hit rate':'')+'</span></div>';}
 function filterBtn(label,active,key,val){return '<button class="pill'+(active?" active":"")+'" onclick="setBestFilter(\''+key+'\',\''+val+'\')">'+label+'</button>';}
 function setBestFilter(key,val){bestFilter[key]=(key==="min")?parseFloat(val):val;renderPicks();}
-function pickCardHTML(p){const pct=Math.round(p.prob*100);
+function pickCardHTML(p){const pct=Math.round(p.prob*100);const slabel=(SPORT_LABEL[p.sport]||p.sport).toUpperCase();
   return '<div class="pick-card" data-sport="'+p.sport+'" data-id="'+p.id+'">'+
-    '<div class="pick-top"><span class="pick-sport '+p.sport+'">'+(p.sport==="mlb"?"MLB":"TENNIS")+'</span>'+
+    '<div class="pick-top"><span class="pick-sport '+p.sport+'">'+slabel+'</span>'+
     '<span class="pick-conf '+p.confidence+'">'+p.confidence+'</span>'+
     '<span class="pick-prob">'+pct+'%</span></div>'+
     '<div class="pick-name">'+p.pick+'</div>'+

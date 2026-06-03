@@ -428,6 +428,30 @@ def accuracy(days: int = 30):
     return data
 
 
+@app.get("/api/picks/record")
+def picks_record(date: str | None = None):
+    """Settled picks W/L for a given day (for the Free/Best Bets transparency header)."""
+    from models import PickResult
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    start = dt.datetime.combine(target, dt.time.min)
+    end = dt.datetime.combine(target, dt.time.max)
+    wins = losses = 0
+    items = []
+    with SessionLocal() as db:
+        rows = db.query(PickResult).filter(PickResult.settled_date >= start,
+                                           PickResult.settled_date <= end).all()
+        for r in rows:
+            if r.correct:
+                wins += 1
+            else:
+                losses += 1
+            items.append({"sport": r.sport, "ref": r.ref, "won": bool(r.correct)})
+    total = wins + losses
+    return {"date": target.isoformat(), "wins": wins, "losses": losses,
+            "total": total, "hit_rate": round(100 * wins / total) if total else None,
+            "items": items}
+
+
 @app.get("/api/mlb/games")
 def mlb_games(date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
