@@ -131,15 +131,20 @@ def get_games(date: dt.date, force_live=False):
         return _cache.get(key, (0, []))[1]
     games = []
     want = date.isoformat()
-    want_next = (date + dt.timedelta(days=1)).isoformat()
-    want_prev = (date - dt.timedelta(days=1)).isoformat()
     for ev in data.get("events", []):
-        # ESPN event dates are UTC timestamps; a night game on the requested
-        # local day can read as the NEXT day in UTC. Accept the requested day
-        # and its immediate UTC neighbors so we don't silently drop games.
-        ev_date = (ev.get("date", "") or "")[:10]
-        if ev_date and ev_date not in (want, want_next, want_prev):
-            continue
+        # ESPN dates are UTC timestamps. Convert to Central time and keep ONLY
+        # games whose Central calendar date matches the requested date. (The old
+        # logic accepted prev/this/next day, which showed games on wrong days.)
+        raw = ev.get("date", "") or ""
+        if raw:
+            try:
+                u = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                ct_date = (u - dt.timedelta(hours=5)).date().isoformat()
+                if ct_date != want:
+                    continue
+            except Exception:
+                # if we can't parse the date, skip rather than misattribute it
+                continue
         comps = ev.get("competitions", [])
         if not comps:
             continue
