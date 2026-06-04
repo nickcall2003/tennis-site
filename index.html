@@ -347,7 +347,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v64</span>
+    Not betting advice. <span style="opacity:.4">build v65</span>
   </footer>
 </div>
 <script>
@@ -574,9 +574,13 @@ async function reload(){if(detailId)return;if(view==="free"||view==="best"||view
   renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
   else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}}
-function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";const ws=new WebSocket(proto+"://"+location.host+"/ws/live");
-  ws.onclose=()=>setTimeout(connectWS,1500);
-  ws.onmessage=ev=>{const msg=JSON.parse(ev.data);if(msg.type!=="score")return;const m=byId[msg.match_id];if(!m)return;
+let _wsRetry=0;
+function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";let ws;
+  try{ws=new WebSocket(proto+"://"+location.host+"/ws/live");}catch(e){return;}
+  ws.onopen=()=>{_wsRetry=0;};
+  ws.onclose=()=>{_wsRetry=Math.min(_wsRetry+1,6);setTimeout(connectWS,2000*_wsRetry);};
+  ws.onerror=()=>{try{ws.close();}catch(e){}};
+  ws.onmessage=ev=>{let msg;try{msg=JSON.parse(ev.data);}catch(e){return;}if(msg.type!=="score")return;const m=byId[msg.match_id];if(!m)return;
     m.score=msg.score;m.status=msg.score.status;
     if(msg.score.status==="finished"&&m.predicted_winner&&(msg.score.winner==="a"||msg.score.winner==="b"))m.correct=(m.predicted_winner===msg.score.winner);
     if(!detailId&&sport==="tennis"&&view==="sport")render();};}

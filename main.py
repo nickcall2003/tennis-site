@@ -1632,7 +1632,11 @@ async def ws_live(ws: WebSocket):
     try:
         while True:
             await ws.receive_text()
-    except WebSocketDisconnect:
+    except Exception:
+        # ANY disconnect/error path must clean up, or dead sockets pile up in the
+        # broadcast list and the live engine wastes the single CPU pinging them.
+        pass
+    finally:
         await manager.disconnect(ws)
 
 
@@ -1679,7 +1683,7 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v64",
+    return {"backend_build": "v65",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,
