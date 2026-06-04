@@ -1173,6 +1173,64 @@ def team_games(sport: str, date: str | None = None):
     return games
 
 
+@app.get("/api/ncaabb/ping")
+def ncaabb_ping():
+    """
+    Connectivity test that CANNOT hang. Each external host is pinged exactly once
+    with a hard 3-second timeout, fully isolated so one failure never blocks the
+    others, and NO per-game logic runs. Tells us definitively which hosts the
+    Render server can reach and whether the Highlightly key authenticates.
+    """
+    import time as _t
+    results = {}
+
+    def _probe(label, method):
+        t0 = _t.time()
+        try:
+            info = method()
+            results[label] = {"ok": True, "ms": int((_t.time() - t0) * 1000), **info}
+        except Exception as e:
+            results[label] = {"ok": False, "ms": int((_t.time() - t0) * 1000),
+                              "error": type(e).__name__, "detail": str(e)[:200]}
+
+    def _espn():
+        import httpx
+        url = ("https://site.api.espn.com/apis/site/v2/sports/baseball/"
+               "college-baseball/scoreboard")
+        r = httpx.get(url, params={"limit": 5}, timeout=3.0)
+        j = r.json()
+        return {"status": r.status_code, "events": len(j.get("events", []) or [])}
+
+    def _highlightly():
+        import httpx
+        import highlightly as hl
+        if not hl.enabled():
+            return {"note": "no key set / breaker open"}
+        headers = ({"x-rapidapi-key": hl.API_KEY, "x-rapidapi-host": hl.HOST}
+                   if hl.PLATFORM == "rapidapi" else {"x-api-key": hl.API_KEY})
+        r = httpx.get(hl.BASE + "/teams", params={"limit": 3},
+                      headers=headers, timeout=3.0)
+        return {"status": r.status_code, "host": hl.HOST,
+                "platform": hl.PLATFORM, "body": r.text[:200]}
+
+    def _warrennolan():
+        import httpx
+        r = httpx.get("https://www.warrennolan.com/baseball/2026/rpi-live",
+                      timeout=3.0,
+                      headers={"User-Agent": "LineLogic/1.0 connectivity check"})
+        return {"status": r.status_code, "bytes": len(r.text)}
+
+    _probe("espn", _espn)
+    _probe("highlightly", _highlightly)
+    _probe("warrennolan", _warrennolan)
+    results["_summary"] = {
+        "reachable": [k for k, v in results.items()
+                      if isinstance(v, dict) and v.get("ok")],
+        "note": "Each host hard-capped at 3s; total worst case ~9s.",
+    }
+    return results
+
+
 @app.get("/api/ncaabb/hl-debug")
 def ncaabb_hl_debug(team: str = "Texas"):
     """Deep diagnostic: hits several plausible Highlightly endpoints and shows the
