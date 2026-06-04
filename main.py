@@ -1209,10 +1209,25 @@ def ncaabb_ping():
         headers = {"x-rapidapi-key": hl.API_KEY}
         if hl.PLATFORM == "rapidapi":
             headers["x-rapidapi-host"] = hl.HOST
-        r = httpx.get(hl.BASE + "/teams", params={"league": "NCAA", "limit": 3},
+        r = httpx.get(hl.BASE + "/teams", params={"league": "NCAA"},
                       headers=headers, timeout=3.0)
         return {"status": r.status_code, "host": hl.HOST,
                 "platform": hl.PLATFORM, "body": r.text[:300]}
+
+    def _highlightly_matches():
+        import httpx
+        import highlightly as hl
+        if not hl.enabled():
+            return {"note": "no key set"}
+        headers = {"x-rapidapi-key": hl.API_KEY}
+        if hl.PLATFORM == "rapidapi":
+            headers["x-rapidapi-host"] = hl.HOST
+        # probe the games endpoint for the super-regional weekend
+        r = httpx.get(hl.BASE + "/matches",
+                      params={"league": "NCAA", "date": "2026-06-07",
+                              "timezone": "America/Chicago"},
+                      headers=headers, timeout=3.0)
+        return {"status": r.status_code, "body": r.text[:400]}
 
     def _warrennolan():
         import httpx
@@ -1223,6 +1238,7 @@ def ncaabb_ping():
 
     _probe("espn", _espn)
     _probe("highlightly", _highlightly)
+    _probe("highlightly_matches", _highlightly_matches)
     _probe("warrennolan", _warrennolan)
     results["_summary"] = {
         "reachable": [k for k, v in results.items()

@@ -102,10 +102,19 @@ def _find_team_id(name):
         return _id_cache[key]
     if not _quota_ok():
         return None
-    try:
-        data = _get("/teams", {"league": "NCAA", "name": name, "limit": 5})
-    except Exception as e:
-        print(f"[highlightly] team lookup failed for {name}: {e}")
+    # /teams accepts league/name/displayName/abbreviation (NOT limit). ESPN gives
+    # us the school name (e.g. "Texas"), which maps to Highlightly's displayName.
+    data = None
+    for params in ({"league": "NCAA", "displayName": name},
+                   {"league": "NCAA", "name": name}):
+        try:
+            data = _get("/teams", params)
+            if data:
+                break
+        except Exception as e:
+            print(f"[highlightly] team lookup {params} failed: {e}")
+            data = None
+    if not data:
         return None
     teams = data if isinstance(data, list) else data.get("data", [])
     for t in teams:
@@ -114,6 +123,11 @@ def _find_team_id(name):
             tid = t.get("id")
             _id_cache[key] = tid
             return tid
+    # if exactly one came back, trust it
+    if len(teams) == 1:
+        tid = teams[0].get("id")
+        _id_cache[key] = tid
+        return tid
     return None
 
 
