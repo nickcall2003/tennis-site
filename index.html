@@ -621,7 +621,7 @@ function teamCardHTML(g){const fin=g.status==="finished",live=g.status==="live";
   let mid;
   if(fin)mid='<div class="mlb-vs"><div class="rs">'+sa+" - "+sh+'</div><div style="font-size:11px">Final</div></div>';
   else if(live)mid='<div class="mlb-vs"><div class="rs">'+sa+" - "+sh+'</div><div class="inn">'+((g.score&&(g.score.detail||((g.score.state||"")+" "+(g.score.inning||""))))||"Live")+'</div></div>';
-  else mid='<div class="mlb-vs">@<div style="font-size:11px;color:var(--muted)">'+(g.event_time||"")+'</div></div>';
+  else mid='<div class="mlb-vs">@<div style="font-size:11px;color:var(--muted)">'+(g.event_time||(g.score&&g.score.detail)||"TBD")+'</div></div>';
   const winHome=fin&&g.winner==="home",winAway=fin&&g.winner==="away";
   const lc=g.confidence==="low"?'<span class="lowconf">low-confidence</span>':"";
   let mark="";
@@ -772,7 +772,7 @@ function teamLinesHTML(g){const L=g.lines;if(!L)return "";const pc=v=>Math.round
     '</div>';}
 function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status==="live";const ph=Math.round(g.prob_home*100),pa=100-ph;
   const sa=g.score&&g.score.away!=null?g.score.away:"",sh=g.score&&g.score.home!=null?g.score.home:"";
-  let statTxt=live?'<span class="live-tag"><span class="pulse"></span>'+((g.score&&g.score.detail)||"Live")+'</span>':fin?"Final":(g.event_time||"");
+  let statTxt=live?'<span class="live-tag"><span class="pulse"></span>'+((g.score&&g.score.detail)||"Live")+'</span>':fin?"Final":(g.event_time||(g.score&&g.score.detail)||"Scheduled");
   const head='<div class="d-head"><div class="d-meta"><span class="tier" style="background:'+(TIER_COLOR[sp]||"#3f7fc4")+'">'+SPORT_LABEL[sp]+'</span><span class="tourn">'+(g.venue||"")+'</span><span class="status" style="margin-left:auto">'+statTxt+'</span></div>'+
     '<div class="d-logos"><img src="'+(g.away.logo||"")+'" onerror="this.style.visibility=\'hidden\'">'+
     '<div class="mlb-vs">'+((fin||live)?'<div class="rs">'+sa+" - "+sh+'</div>':"@")+'</div>'+
