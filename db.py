@@ -1,72 +1,90 @@
 """
 db.py
 -----
-Database connection. Uses SQLite by default so the demo runs with zero setup.
-For production, set DATABASE_URL to your Postgres connection string and nothing
-else changes:
+Database setup. Two modes, chosen automatically:
 
-    export DATABASE_URL=postgresql+psycopg://user:pass@host:5432/tennis
+  1. If DATABASE_URL is set (e.g. you re-attach a Railway Postgres plugin),
+     we use it. Postgres persists on its own.
+
+  2. Otherwise we use SQLite, and the file lives at DB_PATH. On Railway the
+     filesystem is WIPED on every restart/redeploy unless the file is inside a
+     mounted Volume. So DB_PATH must point inside your volume mount (e.g.
+     /data/linelogic.db). If it doesn't, your accuracy log, pick history and
+     built tennis slates are erased on every restart — which is what caused the
+     rebuild-on-every-boot loop.
+
+IMPORTANT: make sure you do NOT have a stale DATABASE_URL variable left over
+from the old Postgres plugin. If one is set and points at a dead database, the
+app will try Postgres and fail to start. Delete that variable to use SQLite.
 """
 
 from __future__ import annotations
 
 import os
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./tennis.db")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
-# Neon/Heroku/Render often hand you a URL starting with "postgres://" or
-# "postgresql://". SQLAlchemy needs an explicit driver, and Neon needs SSL.
-# Normalize automatically so you can paste the raw connection string as-is.
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgres://"):]
-elif DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgresql://"):]
-
-if DATABASE_URL.startswith("postgresql+psycopg://") and "sslmode=" not in DATABASE_URL:
-    DATABASE_URL += ("&" if "?" in DATABASE_URL else "?") + "sslmode=require"
-
-# check_same_thread is only needed for SQLite + the background poller thread.
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-if DATABASE_URL.startswith("sqlite"):
-    # Let writers wait for a lock instead of instantly erroring ("database is locked").
-    connect_args["timeout"] = 30
-
-if DATABASE_URL.startswith("sqlite"):
-    engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True,
-                           pool_pre_ping=True)
+if not DATABASE_URL:
+    # SQLite on a persistent path. Default assumes a Railway Volume at /data.
+    db_path = os.environ.get("DB_PATH", "/data/linelogic.db")
+    parent = os.path.dirname(db_path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    DATABASE_URL = f"sqlite:///{db_path}"
+    print(f"[db] using SQLite at {db_path}")
 else:
-    # Postgres: size the pool for concurrent requests + background threads, and
-    # recycle connections so stale ones don't cause hangs. pool_pre_ping verifies
-    # a connection is alive before use.
-    engine = create_engine(
-        DATABASE_URL, future=True, pool_pre_ping=True,
-        pool_size=int(os.environ.get("DB_POOL_SIZE", "10")),
-        max_overflow=int(os.environ.get("DB_MAX_OVERFLOW", "20")),
-        pool_recycle=1800, pool_timeout=30,
-    )
+    print("[db] using DATABASE_URL from environment")
 
-# For SQLite, turn on WAL mode so reads don't block writes (much better
-# concurrency for our web-requests + background-poller setup).
 if DATABASE_URL.startswith("sqlite"):
-    from sqlalchemy import event
+    engine = create_engine(
+        DATABASE_URL,
+        # Required: the live engine + request threadpool both touch the DB from
+        # different threads.
+        connect_args={"check_same_thread": False},
+        pool_pre_ping=True,
+    )
 
     @event.listens_for(engine, "connect")
     def _sqlite_pragmas(dbapi_conn, _rec):
+        # WAL lets the background live engine write while page requests read,
+        # which kills almost all "database is locked" errors on one instance.
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA busy_timeout=30000")
-        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.execute("PRAGMA busy_timeout=5000")
         cur.close()
-SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+else:
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
+SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 
-class Base(DeclarativeBase):
-    pass
+# If your models.py says `from db import Base`, leave this here. If models.py
+# defines its OWN Base, that's fine too — init_db() below handles both.
+Base = declarative_base()
 
 
 def init_db() -> None:
-    import models  # noqa: F401  (register models)
-    Base.metadata.create_all(engine)
+    """Create all tables.
+
+    models.py defines its OWN Base, so the tables live on that Base's metadata,
+    not on the Base in this file. Rather than guess the variable name, we pull
+    the shared MetaData directly off the real model classes — that registry
+    contains every table regardless of what the Base is called.
+    """
+    import models  # noqa: F401  (defines + registers the model classes)
+    metadatas = set()
+    for cls_name in ("Match", "Prediction", "LiveState", "StatSnapshot",
+                     "PickResult", "PickLog", "OddsSnapshot"):
+        cls = getattr(models, cls_name, None)
+        md = getattr(cls, "metadata", None) if cls is not None else None
+        if md is not None:
+            metadatas.add(md)
+    mb = getattr(models, "Base", None)
+    if mb is not None and getattr(mb, "metadata", None) is not None:
+        metadatas.add(mb.metadata)
+    if not metadatas:                 # last-ditch fallback
+        metadatas.add(Base.metadata)
+    for md in metadatas:
+        md.create_all(bind=engine)    # idempotent: safe to run on every boot

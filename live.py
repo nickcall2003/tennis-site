@@ -20,6 +20,7 @@ it runs as an asyncio task inside the web server.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 
 from db import SessionLocal
@@ -29,6 +30,16 @@ from ws import manager
 
 POLL_SECONDS = 20          # gentle on a single CPU; real feeds don't need 1.5s
 STATS_EVERY_N_TICKS = 5     # snapshot stats less often than score
+
+# Only matches scheduled within this window are polled. This is the key fix:
+# the old query polled EVERY non-finished match across every day ever built,
+# which on a full tennis slate meant hundreds of blocking provider calls every
+# tick. The window keeps it to matches that could plausibly be in play right
+# now, and the generous slack means a timezone mismatch can't make us miss a
+# live match.
+POLL_PAST_HOURS = 24        # a match could have started up to ~a day ago
+POLL_FUTURE_HOURS = 3       # slack for timezone differences in stored start times
+MAX_POLL_PER_TICK = 60      # hard ceiling so one giant slate can't peg the CPU
 
 
 def _score_to_dict(s: LiveScore) -> dict:
@@ -75,9 +86,21 @@ class LiveEngine:
             await asyncio.sleep(POLL_SECONDS)
 
     async def _poll_once(self) -> None:
-        # Figure out which matches are not yet finished.
+        # Figure out which matches are plausibly in play right now. We bound the
+        # query by scheduled time so we never iterate the entire historical slate
+        # (the old `status != "finished"` query was the load/cost problem). We
+        # also always include anything already marked "live" so a match that's
+        # underway is never dropped because of a timezone quirk.
+        now = dt.datetime.utcnow()
+        lo = now - dt.timedelta(hours=POLL_PAST_HOURS)
+        hi = now + dt.timedelta(hours=POLL_FUTURE_HOURS)
         with SessionLocal() as db:
-            rows = db.query(Match).filter(Match.status != "finished").all()
+            rows = (db.query(Match)
+                      .filter(Match.status != "finished")
+                      .filter((Match.status == "live") |
+                              ((Match.scheduled >= lo) & (Match.scheduled <= hi)))
+                      .order_by(Match.scheduled)
+                      .all())
             active = [(m.id, m.provider_match_id, m.player_a, m.player_b, m.tier) for m in rows]
 
         # Nothing live to poll -> don't touch the network at all. This keeps the
@@ -85,10 +108,20 @@ class LiveEngine:
         if not active:
             return
 
+        # Safety ceiling: even with the window filter, never make more than
+        # MAX_POLL_PER_TICK blocking calls in a single tick. The rest get picked
+        # up on the next tick. Live matches sort first via the query order.
+        if len(active) > MAX_POLL_PER_TICK:
+            active = active[:MAX_POLL_PER_TICK]
+
         for match_id, pid, name_a, name_b, tier in active:
             # get_live_score is a BLOCKING network call. Run it in a thread so it
             # never freezes the event loop (which would make the whole site hang).
-            score = await asyncio.to_thread(self.provider.get_live_score, pid)
+            try:
+                score = await asyncio.to_thread(self.provider.get_live_score, pid)
+            except Exception as e:
+                print(f"[live] score fetch failed for {match_id}: {e}")
+                continue
             score_d = _score_to_dict(score)
 
             if self._last.get(match_id) == score_d:
@@ -107,7 +140,8 @@ class LiveEngine:
                 live.server, live.status, live.winner = score.server, score.status, score.winner
 
                 m = db.get(Match, match_id)
-                m.status = score.status
+                if m is not None:
+                    m.status = score.status
                 db.commit()
 
             payload = {
@@ -119,12 +153,15 @@ class LiveEngine:
 
             # Periodically attach a stats snapshot (or note it's unavailable).
             if self._tick % STATS_EVERY_N_TICKS == 0:
-                stats = self.provider.get_match_stats(pid)
-                stats_d = _stats_to_dict(stats)
-                payload["stats"] = stats_d
-                payload["stats_available"] = stats_d is not None
-                with SessionLocal() as db:
-                    db.add(StatSnapshot(match_id=match_id, payload=json.dumps(stats_d)))
-                    db.commit()
+                try:
+                    stats = self.provider.get_match_stats(pid)
+                    stats_d = _stats_to_dict(stats)
+                    payload["stats"] = stats_d
+                    payload["stats_available"] = stats_d is not None
+                    with SessionLocal() as db:
+                        db.add(StatSnapshot(match_id=match_id, payload=json.dumps(stats_d)))
+                        db.commit()
+                except Exception as e:
+                    print(f"[live] stats fetch failed for {match_id}: {e}")
 
             await manager.broadcast(payload)
