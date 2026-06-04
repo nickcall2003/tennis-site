@@ -1555,4 +1555,8 @@ async def ws_live(ws: WebSocket):
 
 @app.get("/")
 def index():
-    return FileResponse("index.html")
+    # No-cache so every deploy reaches the browser immediately. index.html is
+    # small; the cost is negligible and it prevents stale-frontend confusion.
+    return FileResponse("index.html", headers={
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache", "Expires": "0"})
