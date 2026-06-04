@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 main.py
 -------
@@ -27,7 +28,7 @@ import os
 
 app = FastAPI()
 
-from __future__ import annotations
+
 
 import asyncio
 import datetime as dt
