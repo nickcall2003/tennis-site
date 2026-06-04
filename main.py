@@ -1206,12 +1206,13 @@ def ncaabb_ping():
         import highlightly as hl
         if not hl.enabled():
             return {"note": "no key set / breaker open"}
-        headers = ({"x-rapidapi-key": hl.API_KEY, "x-rapidapi-host": hl.HOST}
-                   if hl.PLATFORM == "rapidapi" else {"x-api-key": hl.API_KEY})
-        r = httpx.get(hl.BASE + "/teams", params={"limit": 3},
+        headers = {"x-rapidapi-key": hl.API_KEY}
+        if hl.PLATFORM == "rapidapi":
+            headers["x-rapidapi-host"] = hl.HOST
+        r = httpx.get(hl.BASE + "/teams", params={"league": "NCAA", "limit": 3},
                       headers=headers, timeout=3.0)
         return {"status": r.status_code, "host": hl.HOST,
-                "platform": hl.PLATFORM, "body": r.text[:200]}
+                "platform": hl.PLATFORM, "body": r.text[:300]}
 
     def _warrennolan():
         import httpx
@@ -1308,14 +1309,30 @@ def ncaabb_debug(date: str | None = None):
 
 @app.get("/api/ncaabb/games")
 def ncaabb_games(date: str | None = None):
-    """College baseball games for a date (ESPN backbone + Warren Nolan RPI)."""
+    """College baseball games for a date. Highlightly first (D1-oriented); falls
+    back to ESPN if Highlightly is unset, out of quota, or returns nothing."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
+    games = []
+    source = "none"
+    # 1) Highlightly (purpose-built for college baseball)
     try:
-        from ncaab_baseball import get_games
-        games = get_games(target)
+        import highlightly as hl
+        if hl.enabled():
+            games = hl.get_games(target)
+            if games:
+                source = "highlightly"
     except Exception as e:
-        print(f"[ncaabb] games failed: {e}")
-        return []
+        print(f"[ncaabb] highlightly games failed: {e}")
+    # 2) ESPN fallback
+    if not games:
+        try:
+            from ncaab_baseball import get_games
+            games = get_games(target)
+            if games:
+                source = "espn"
+        except Exception as e:
+            print(f"[ncaabb] espn games failed: {e}")
+            games = []
     try:
         with SessionLocal() as db:
             wrote = False

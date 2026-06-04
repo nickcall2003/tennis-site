@@ -23,8 +23,9 @@ import datetime as dt
 
 API_KEY = os.environ.get("HIGHLIGHTLY_API_KEY", "").strip()
 # Two front doors, NOT cross-compatible (per Highlightly docs):
-#   - Direct platform (default here): https://baseball.highlightly.net, auth via x-api-key
-#   - RapidAPI proxy: https://mlb-college-baseball-api.p.rapidapi.com, auth via x-rapidapi-key/host
+#   - Direct platform (default here): https://baseball.highlightly.net
+#   - RapidAPI proxy: https://mlb-college-baseball-api.p.rapidapi.com (adds x-rapidapi-host)
+# BOTH require the x-rapidapi-key header (confirmed from docs).
 # A key from highlightly.net only works against the direct host; a RapidAPI key
 # only works against the RapidAPI host. Set HIGHLIGHTLY_PLATFORM=rapidapi to switch.
 PLATFORM = os.environ.get("HIGHLIGHTLY_PLATFORM", "direct").strip().lower()
@@ -36,6 +37,8 @@ BASE = f"https://{HOST}"
 
 _team_cache = {}        # team_name_norm -> (ts, stats dict)
 _id_cache = {}          # team_name_norm -> team_id
+_games_cache = {}       # 'games:LEAGUE:DATE' -> (ts, [games])
+_GAMES_TTL = 300        # 5 min; games/scores move during the day
 _TTL = 12 * 3600
 _DAILY_MAX = int(os.environ.get("HIGHLIGHTLY_DAILY_MAX", "60"))   # under 100 cap
 _spend = {"day": None, "count": 0}
@@ -72,16 +75,17 @@ def _quota_ok():
 def _get(path, params=None):
     import httpx
     import time as _t
+    # Per Highlightly docs: x-rapidapi-key is required on BOTH platforms. Only the
+    # RapidAPI proxy additionally needs x-rapidapi-host. (Sending x-api-key on the
+    # direct host returns 403 "Missing mandatory HTTP Headers".)
+    headers = {"x-rapidapi-key": API_KEY}
     if PLATFORM == "rapidapi":
-        headers = {"x-rapidapi-key": API_KEY, "x-rapidapi-host": HOST}
-    else:
-        headers = {"x-api-key": API_KEY}
+        headers["x-rapidapi-host"] = HOST
     try:
         r = httpx.get(BASE + path, params=params or {}, headers=headers, timeout=6.0)
     except Exception:
-        # network error/timeout: trip the breaker so we stop hammering it
         _breaker["fails"] += 1
-        _breaker["open_until"] = _t.time() + 600   # 10 min cooldown
+        _breaker["open_until"] = _t.time() + 600
         raise
     _spend["count"] = _spend.get("count", 0) + 1
     rem = r.headers.get("x-ratelimit-requests-remaining")
@@ -188,6 +192,116 @@ def get_team_stats_cached(name):
     """Return cached stats only (no network). For use inside hot request paths."""
     c = _team_cache.get(_norm(name))
     return c[1] if c else {}
+
+
+def _ct_time_from_iso(iso):
+    """Format an ISO UTC timestamp as Central time, e.g. '6:30 PM CT'."""
+    try:
+        utc = dt.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+        ct = utc - dt.timedelta(hours=5)
+        h = ct.hour % 12 or 12
+        return f"{h}:{ct.minute:02d} {'AM' if ct.hour < 12 else 'PM'} CT"
+    except Exception:
+        return ""
+
+
+_STATE_MAP = {
+    "Finished": "finished", "Final": "finished",
+    "In Progress": "live", "Half Time": "live", "Rain Delay": "live",
+    "Suspended": "live", "Period End": "live",
+    "Scheduled": "scheduled", "Postponed": "scheduled", "Unknown": "scheduled",
+    "Canceled": "scheduled", "Abandoned": "finished",
+}
+
+
+def get_games(date, league="NCAA"):
+    """
+    College baseball games for a date via Highlightly /matches. Returns a list in
+    the same shape the site's team renderer expects. Cached 5 min. Empty list on
+    any failure (caller falls back). Uses the confirmed API spec:
+      GET /matches?league=NCAA&date=YYYY-MM-DD&timezone=America/Chicago
+    """
+    if not API_KEY:
+        return []
+    key = f"games:{league}:{date.isoformat()}"
+    c = _games_cache.get(key)
+    if c and time.time() - c[0] < _GAMES_TTL:
+        return c[1]
+    if not _quota_ok():
+        return c[1] if c else []
+    try:
+        data = _get("/matches", {"league": league, "date": date.isoformat(),
+                                 "timezone": "America/Chicago", "limit": 100})
+    except Exception as e:
+        print(f"[highlightly] matches failed: {e}")
+        return c[1] if c else []
+    rows = data.get("data", []) if isinstance(data, dict) else (data or [])
+    games = []
+    for m in rows:
+        try:
+            games.append(_match_to_game(m))
+        except Exception as e:
+            print(f"[highlightly] match parse skipped: {e}")
+    games = [g for g in games if g]
+    _games_cache[key] = (time.time(), games)
+    return games
+
+
+def _side_from_team(t, score_block):
+    """Build a team side dict from Highlightly team + optional score."""
+    runs = None
+    if isinstance(score_block, dict):
+        innings = score_block.get("innings") or []
+        # total runs = sum of innings if present, else parse 'current'
+        if innings:
+            try:
+                runs = sum(int(x) for x in innings if x is not None)
+            except (ValueError, TypeError):
+                runs = None
+    return {
+        "team_id": t.get("id"), "name": t.get("displayName") or t.get("name", "Team"),
+        "abbr": t.get("abbreviation", ""), "logo": t.get("logo"),
+        "record": "", "win_pct": None, "rank": None,
+        "location": "", "score": runs,
+    }
+
+
+def _match_to_game(m):
+    state = m.get("state", {}) or {}
+    desc = state.get("description", "Scheduled")
+    status = _STATE_MAP.get(desc, "scheduled")
+    score = state.get("score", {}) or {}
+    home_t = m.get("homeTeam", {}) or {}
+    away_t = m.get("awayTeam", {}) or {}
+    h = _side_from_team(home_t, score.get("home"))
+    a = _side_from_team(away_t, score.get("away"))
+    # parse 'current' like '5 - 8' as a fallback for scores
+    cur = score.get("current") or ""
+    if (h["score"] is None or a["score"] is None) and "-" in cur:
+        try:
+            hs, as_ = [int(x.strip()) for x in cur.split("-")[:2]]
+            h["score"], a["score"] = hs, as_
+        except (ValueError, IndexError):
+            pass
+    # prediction: use cached run-expectancy stats if present, else strength model
+    from ncaa_model import predict_baseball
+    pred = predict_baseball(h, a)
+    winner = None
+    if status == "finished" and h["score"] is not None and a["score"] is not None:
+        winner = "home" if h["score"] > a["score"] else "away"
+    return {
+        "id": str(m.get("id")), "sport": "ncaabb", "status": status,
+        "event_time": _ct_time_from_iso(m.get("date", "")),
+        "home": h, "away": a,
+        "prob_home": pred["prob_home"], "exp_margin": pred["exp_margin"],
+        "confidence": pred["confidence"], "avg_total": pred.get("avg_total"),
+        "factors": pred.get("factors", []),
+        "venue": (m.get("venue", {}) or {}).get("name", "") if isinstance(m.get("venue"), dict) else "",
+        "prominence": 1.0,
+        "score": {"home": h["score"], "away": a["score"],
+                  "detail": state.get("report", "")},
+        "winner": winner,
+    }
 
 
 def quota():
