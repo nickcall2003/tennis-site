@@ -62,7 +62,6 @@ def _make_llm_complete():
     print(f"[ai] AI narrative enabled with {model}")
     return complete
 
-
 LLM_COMPLETE = _make_llm_complete()
 
 if USE_REAL:
@@ -105,7 +104,14 @@ _built_dates: set[str] = set()
 
 _build_attempts = {}   # key -> last attempt timestamp (throttle re-tries)
 
+app = FastAPI()
 
+@app.get("/")
+@app.get("/api/matches")
+def health_check(date: str | None = None):
+    if date is None:
+        return {"status": "healthy", "service": "tennis-backend"}
+    return get_real_matches(date)
 def _ensure_day(day: dt.date) -> None:
     if not USE_REAL:
         return
