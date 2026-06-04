@@ -142,19 +142,45 @@ def _ensure_day(day: dt.date) -> None:
 
 
 
-def _backfill_recent(days: int) -> None:
-    """Build the past `days` days so 30-day accuracy has data. Throttled and
-    fully guarded so it can never take the app down. Opt-in via BACKFILL_DAYS."""
+def _backfill_results(days: int) -> None:
+    """Populate accuracy history: replay the past `days` days through each sport's
+    board so finished games settle into PickResults (which power the 30-day
+    figures). Reuses the existing endpoint settling logic. Throttled + guarded.
+
+    Pass 1 (team sports) is cheap — just provider reads. Pass 2 (tennis) is heavy
+    because it builds each past day, so it's last and opt-in."""
     if not USE_REAL or days <= 0:
         return
     import time as _t
     today = dt.date.today()
+
+    # Pass 1: team sports (cheap reads) — settles NCAA / MLB / NBA / NFL.
     for off in range(1, days + 1):
-        try:
-            _ensure_day(today - dt.timedelta(days=off))
-            _t.sleep(1.0)   # breathe between days so a tiny instance isn't pegged
-        except Exception as e:
-            print(f"[backfill] skipped a day: {e}")
+        d = (today - dt.timedelta(days=off)).isoformat()
+        for label in ("ncaabb", "mlb", "nba", "nfl"):
+            try:
+                if label == "ncaabb":
+                    ncaabb_games(date=d)
+                elif label == "mlb":
+                    mlb_games(date=d)
+                else:
+                    team_games(label, date=d)
+            except Exception as e:
+                print(f"[results-backfill] {d}/{label} skipped: {e}")
+            _t.sleep(0.4)
+        _t.sleep(0.5)
+    print(f"[results-backfill] team sports done ({days} days)")
+
+    # Pass 2: tennis — builds each past day (heavier). Opt-in via env var.
+    if os.environ.get("RESULTS_BACKFILL_TENNIS", "0") == "1":
+        for off in range(1, days + 1):
+            d = (today - dt.timedelta(days=off)).isoformat()
+            try:
+                list_matches(date=d)   # builds (if needed) + settles tennis
+            except Exception as e:
+                print(f"[results-backfill] {d}/tennis skipped: {e}")
+            _t.sleep(1.5)
+        print(f"[results-backfill] tennis done ({days} days)")
 
 
 @asynccontextmanager
