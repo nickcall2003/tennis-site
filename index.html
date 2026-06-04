@@ -347,7 +347,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v56</span>
+    Not betting advice. <span style="opacity:.4">build v58</span>
   </footer>
 </div>
 <script>
@@ -594,16 +594,14 @@ document.querySelectorAll(".menu-item").forEach(it=>it.onclick=()=>{toggleMenu(f
 document.addEventListener("click",()=>toggleMenu(false));
 async function loadTeam(sp){
   try{teamGames=await getJSON("/api/"+sp+"/games?date="+ymd(selected));}catch(e){teamGames=[];}
+  // Only auto-scan forward for sparse college baseball, and keep it cheap:
+  // plain requests (not debug), and stop at the first day with games.
   if(sp==="ncaabb"&&(!teamGames||!teamGames.length)){
     const base=startOfDay(selected);
-    for(let o=1;o<=12;o++){
+    for(let o=1;o<=8;o++){
       const d=addDays(base,o);
-      let r=null;try{r=await getJSON("/api/ncaabb/games?date="+ymd(d)+"&debug=1");}catch(e){}
-      if(r){
-        if(Array.isArray(r)){window._ncaaDiag={stale_backend:true,count:r.length};
-          if(r.length){selected=d;teamGames=r;break;}}
-        else{window._ncaaDiag=r.diag;if(r.games&&r.games.length){selected=d;teamGames=r.games;break;}}
-      }
+      let g=[];try{g=await getJSON("/api/ncaabb/games?date="+ymd(d));}catch(e){}
+      if(g&&g.length){selected=d;teamGames=g;break;}
     }
   }
   window._lastTeamLoad={sport:sp,date:ymd(selected),count:(teamGames||[]).length};
@@ -766,7 +764,13 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
 // ===== NBA / NFL DETAIL =====
 async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";teamProps=null;showView(true);location.hash="t"+id;
   document.getElementById("detail").innerHTML='<div class="empty">Loading game&hellip;</div>';await refreshTeamDetail(id,sport);
-  if(detailTimer)clearInterval(detailTimer);const sp=sport;detailTimer=setInterval(()=>{if(detailId===sp+id)refreshTeamDetail(id,sp);},25000);}
+  if(detailTimer)clearInterval(detailTimer);const sp=sport;
+  detailTimer=setInterval(()=>{
+    if(detailId!==sp+id)return;
+    // only poll while a game is actually live; scheduled/finished games are static
+    const cur=byId[sp+id];
+    if(cur&&cur.status==="live")refreshTeamDetail(id,sp);
+  },25000);}
 async function refreshTeamDetail(id,sp){let g;try{g=await getJSON("/api/"+sp+"/game/"+id+"?date="+ymd(selected));}catch(e){return;}if(detailId!==sp+id||g.error)return;teamGame=g;teamGame._sp=sp;renderTeamDetail(g,sp);}
 function setTeamTab(t){teamDetailTab=t;renderTeamDetail(teamGame,teamGame._sp);
   if(t==="props"&&teamProps===null)loadTeamProps(teamGame.id,teamGame._sp);}

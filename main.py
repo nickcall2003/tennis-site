@@ -152,17 +152,59 @@ def _backfill_recent(days: int) -> None:
 async def lifespan(app: FastAPI):
     if USE_REAL:
         _ensure_day(dt.date.today())
-        # Past-days backfill is OFF by default to keep small instances stable.
-        # Set BACKFILL_DAYS=30 (and ideally upgrade RAM) to enable rolling accuracy.
         bf = int(os.environ.get("BACKFILL_DAYS", "0") or 0)
         if bf > 0:
             asyncio.get_event_loop().run_in_executor(None, _backfill_recent, bf)
+        # Background pre-warmer on its own daemon thread (gentle on 1 CPU).
+        import threading as _thr
+        _thr.Thread(target=_prewarm_all, daemon=True).start()
     else:
         build_today(provider)
     task = asyncio.create_task(live_engine.run())
     yield
     live_engine.running = False
     task.cancel()
+
+
+def _prewarm_all():
+    """Keep the current slate warm so user requests hit cache, not slow APIs.
+    Tuned for 1 CPU / 2GB and the Highlightly free-tier (~100 calls/day): one
+    fetch at a time with sleeps, and a 30-min loop. College-baseball dates use a
+    6h cache, so most cycles are cache hits and cost no API calls."""
+    import time as _t
+    _t.sleep(8)   # let startup finish
+    first = True
+    while True:
+        try:
+            today = dt.date.today()
+            # College baseball upcoming slate (sparse; 6h cache keeps API calls low)
+            for off in range(0, 8):
+                d = today + dt.timedelta(days=off)
+                try:
+                    ncaabb_games(date=d.isoformat())
+                except Exception as e:
+                    print(f"[prewarm] ncaabb {d}: {e}")
+                _t.sleep(1.5)
+            # Year-round team sports: today's slate (these use keyless ESPN/MLB
+            # APIs with no hard daily cap, so warming them is cheap)
+            for fn, label in ((lambda: mlb_games(today.isoformat()), "mlb"),
+                              (lambda: team_games("nba", today.isoformat()), "nba"),
+                              (lambda: team_games("nfl", today.isoformat()), "nfl")):
+                try:
+                    fn()
+                except Exception as e:
+                    print(f"[prewarm] {label}: {e}")
+                _t.sleep(1.5)
+            if first:
+                print("[prewarm] initial slate cached"); first = False
+        except Exception as e:
+            print(f"[prewarm] loop error: {e}")
+        _t.sleep(1800)   # 30 min: stays well under any rate cap
+
+
+def _prewarm_ncaabb():
+    """Kept for compatibility; the unified _prewarm_all covers college baseball."""
+    _prewarm_all()
 
 
 app = FastAPI(title="Tennis Predictions", lifespan=lifespan)
@@ -1627,7 +1669,7 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v56",
+    return {"backend_build": "v58",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,

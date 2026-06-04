@@ -38,7 +38,8 @@ BASE = f"https://{HOST}"
 _team_cache = {}        # team_name_norm -> (ts, stats dict)
 _id_cache = {}          # team_name_norm -> team_id
 _games_cache = {}       # 'games:LEAGUE:DATE' -> (ts, [games])
-_GAMES_TTL = 300        # 5 min; games/scores move during the day
+_GAMES_TTL = 300        # 5 min for TODAY (live scores move)
+_GAMES_TTL_STATIC = 6 * 3600   # 6h for past/future dates (schedule is stable)
 _TTL = 12 * 3600
 _DAILY_MAX = int(os.environ.get("HIGHLIGHTLY_DAILY_MAX", "60"))   # under 100 cap
 _spend = {"day": None, "count": 0}
@@ -239,7 +240,12 @@ def get_games(date, league="NCAA"):
         return []
     key = f"games:{league}:{date.isoformat()}"
     c = _games_cache.get(key)
-    if c and time.time() - c[0] < _GAMES_TTL:
+    # College baseball games are known in advance and the season is sparse, so we
+    # use the long cache for ALL dates (incl. today). Live in-game score refreshes
+    # for a game being watched are handled by the detail-page poll, not here. This
+    # keeps Highlightly API usage far under the free-tier daily cap.
+    ttl = _GAMES_TTL_STATIC
+    if c and time.time() - c[0] < ttl:
         return c[1]
     if not _quota_ok():
         return c[1] if c else []
