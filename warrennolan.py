@@ -97,6 +97,23 @@ def _do_fetch():
         _loading["active"] = False
 
 
+def _load():
+    """Trigger a background refresh if stale. NEVER blocks the caller — the
+    request path only ever reads whatever is already cached. RPI enrichment
+    appears on the next request after the warm-up completes."""
+    if time.time() - _cache["ts"] < _TTL and _cache["rpi"]:
+        return
+    if time.time() < _breaker["open_until"]:
+        return
+    if _loading["active"]:
+        return
+    _loading["active"] = True
+    try:
+        import threading
+        threading.Thread(target=_do_fetch, daemon=True).start()
+    except Exception:
+        _loading["active"] = False
+
 
 def get_rating(team_name):
     """Return cached {'rpi_rank', 'rpi', 'record'} for a team, or {}. Triggers a
