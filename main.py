@@ -1576,6 +1576,36 @@ async def ws_live(ws: WebSocket):
         await manager.disconnect(ws)
 
 
+@app.get("/api/cbb_v53")
+def cbb_v53(date: str | None = None):
+    """Brand-new endpoint name (never existed before) to bypass any possibility
+    of a stale route. Returns full diagnostics always. If THIS returns games but
+    /api/ncaabb/games doesn't, the problem is route/deploy staleness."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    out = {"date": target.isoformat(), "hl_enabled": False, "hl_count": 0,
+           "hl_error": None, "espn_count": 0, "espn_error": None,
+           "hl_sample": [], "espn_sample": []}
+    try:
+        import highlightly as hl
+        out["hl_enabled"] = hl.enabled()
+        if hl.enabled():
+            hg = hl.get_games(target) or []
+            out["hl_count"] = len(hg)
+            out["hl_sample"] = [g["away"]["name"] + " @ " + g["home"]["name"] for g in hg[:6]]
+    except Exception as e:
+        import traceback
+        out["hl_error"] = traceback.format_exc()[-500:]
+    try:
+        from ncaab_baseball import get_games as espn_get
+        eg = espn_get(target) or []
+        out["espn_count"] = len(eg)
+        out["espn_sample"] = [g["away"]["name"] + " @ " + g["home"]["name"] for g in eg[:6]]
+    except Exception as e:
+        import traceback
+        out["espn_error"] = traceback.format_exc()[-500:]
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/version")
 def version():
     """Backend build marker that PROVES which ncaabb_games code is live by
@@ -1583,12 +1613,17 @@ def version():
     import inspect
     try:
         sig = str(inspect.signature(ncaabb_games))
-        has_debug = "debug" in sig
+        src = inspect.getsource(ncaabb_games)
+        has_debug_return = '"diag": diag' in src
+        has_jsonresponse = "JSONResponse" in src
+        line_count = src.count("\n")
     except Exception:
-        sig = "?"; has_debug = False
-    return {"backend_build": "v52",
+        sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
+    return {"backend_build": "v53",
             "ncaabb_games_signature": sig,
-            "ncaabb_games_has_debug_param": has_debug}
+            "has_debug_return": has_debug_return,
+            "uses_JSONResponse": has_jsonresponse,
+            "function_line_count": line_count}
 
 
 @app.get("/")
