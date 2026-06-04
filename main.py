@@ -159,21 +159,19 @@ def _backfill_recent(days: int) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # CRITICAL: never block startup. The server must become ready immediately so
-    # the page always loads; all data-building/warming happens in the background.
-    # First, create DB tables right away (fast, no network) so nothing errors with
-    # "no such table" on a fresh instance (e.g. a new Railway deploy).
     try:
         from db import init_db
         init_db()
     except Exception as e:
         print(f"[startup] init_db failed: {e}")
-    # When running MULTIPLE workers (uvicorn --workers N), only ONE of them should
-    # run the background jobs (live engine, slate builder, pre-warm) — otherwise
-    # every worker duplicates them. Set RUN_BACKGROUND=0 on extra workers, or rely
-    # on the default below (single-process = background on).
+
     run_bg = os.environ.get("RUN_BACKGROUND", "1") == "1"
-    if USE_REAL and run_bg:
+    # Heavy slate-building is now gated SEPARATELY from the live engine, because
+    # that build is what spikes resources and gets the container killed. Default
+    # OFF so turning on the live engine never auto-triggers a boot-time build.
+    startup_build = os.environ.get("STARTUP_BUILD", "0") == "1"
+
+    if USE_REAL and run_bg and startup_build:
         def _startup_bg():
             import time as _t
             _t.sleep(5)
@@ -197,11 +195,16 @@ async def lifespan(app: FastAPI):
         _thr.Thread(target=_prewarm_all, daemon=True).start()
     elif USE_REAL is False:
         build_today(provider)
+
+    # Live engine (tennis live scores) runs whenever background is on. It only
+    # polls matches that already exist and are in play, so it never triggers a
+    # heavy build on its own.
     task = asyncio.create_task(live_engine.run()) if run_bg else None
     yield
     live_engine.running = False
     if task:
         task.cancel()
+
 
 
 def _prewarm_all():
