@@ -347,10 +347,28 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v59</span>
+    Not betting advice. <span style="opacity:.4">build v60</span>
   </footer>
 </div>
 <script>
+window.addEventListener("error",function(e){
+  try{
+    var box=document.getElementById("crash-box");
+    if(!box){box=document.createElement("div");box.id="crash-box";
+      box.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#2a1416;color:#ffd9d4;font:12px/1.5 monospace;padding:12px 14px;border-top:2px solid #e2685f;max-height:45vh;overflow:auto";
+      document.body.appendChild(box);}
+    box.innerHTML='<b style="color:#ff9a8f">Something errored (app still running):</b><br>'+
+      (e.message||e.error||"unknown")+'<br><span style="opacity:.7">'+(e.filename||"")+' line '+(e.lineno||"?")+'</span>'+
+      '<br><button onclick="location.reload()" style="margin-top:8px;background:#e2683a;color:#fff;border:0;padding:6px 12px;border-radius:6px">Reload</button>';
+  }catch(_){}
+});
+window.addEventListener("unhandledrejection",function(e){
+  try{var box=document.getElementById("crash-box");if(!box){box=document.createElement("div");box.id="crash-box";
+    box.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#2a1416;color:#ffd9d4;font:12px/1.5 monospace;padding:12px 14px;max-height:45vh;overflow:auto";
+    document.body.appendChild(box);}
+    box.innerHTML='<b style="color:#ff9a8f">Async error (app still running):</b><br>'+(e.reason&&(e.reason.message||e.reason)||"unknown");
+  }catch(_){}
+});
 const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}

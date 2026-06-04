@@ -1666,7 +1666,7 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v59",
+    return {"backend_build": "v60",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,
