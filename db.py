@@ -34,8 +34,19 @@ if DATABASE_URL.startswith("sqlite"):
     # Let writers wait for a lock instead of instantly erroring ("database is locked").
     connect_args["timeout"] = 30
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True,
-                       pool_pre_ping=True)
+if DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(DATABASE_URL, connect_args=connect_args, future=True,
+                           pool_pre_ping=True)
+else:
+    # Postgres: size the pool for concurrent requests + background threads, and
+    # recycle connections so stale ones don't cause hangs. pool_pre_ping verifies
+    # a connection is alive before use.
+    engine = create_engine(
+        DATABASE_URL, future=True, pool_pre_ping=True,
+        pool_size=int(os.environ.get("DB_POOL_SIZE", "10")),
+        max_overflow=int(os.environ.get("DB_MAX_OVERFLOW", "20")),
+        pool_recycle=1800, pool_timeout=30,
+    )
 
 # For SQLite, turn on WAL mode so reads don't block writes (much better
 # concurrency for our web-requests + background-poller setup).

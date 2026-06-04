@@ -159,7 +159,12 @@ async def lifespan(app: FastAPI):
         init_db()
     except Exception as e:
         print(f"[startup] init_db failed: {e}")
-    if USE_REAL:
+    # When running MULTIPLE workers (uvicorn --workers N), only ONE of them should
+    # run the background jobs (live engine, slate builder, pre-warm) — otherwise
+    # every worker duplicates them. Set RUN_BACKGROUND=0 on extra workers, or rely
+    # on the default below (single-process = background on).
+    run_bg = os.environ.get("RUN_BACKGROUND", "1") == "1"
+    if USE_REAL and run_bg:
         def _startup_bg():
             import time as _t
             _t.sleep(5)
@@ -167,8 +172,6 @@ async def lifespan(app: FastAPI):
                 _ensure_day(dt.date.today())
             except Exception as e:
                 print(f"[startup] ensure_day failed: {e}")
-            # Warm Warren Nolan RPI once here, OFF the request path, so the heavy
-            # 672KB HTML parse never runs while serving a games request.
             try:
                 import warrennolan
                 warrennolan.warm()
@@ -183,12 +186,13 @@ async def lifespan(app: FastAPI):
         import threading as _thr
         _thr.Thread(target=_startup_bg, daemon=True).start()
         _thr.Thread(target=_prewarm_all, daemon=True).start()
-    else:
+    elif USE_REAL is False:
         build_today(provider)
-    task = asyncio.create_task(live_engine.run())
+    task = asyncio.create_task(live_engine.run()) if run_bg else None
     yield
     live_engine.running = False
-    task.cancel()
+    if task:
+        task.cancel()
 
 
 def _prewarm_all():
@@ -1690,17 +1694,27 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v66",
+    return {"backend_build": "v68",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,
             "function_line_count": line_count}
 
 
+@app.get("/healthz")
+@app.head("/healthz")
+def healthz():
+    """Lightweight health check for the platform's router (Railway/Render). Always
+    fast, no DB or network, so the app is marked healthy and receives traffic."""
+    return {"ok": True}
+
+
 @app.get("/")
+@app.head("/")
 def index():
     # No-cache so every deploy reaches the browser immediately. index.html is
     # small; the cost is negligible and it prevents stale-frontend confusion.
+    # HEAD is accepted too so platform health checks don't get a 405.
     return FileResponse("index.html", headers={
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache", "Expires": "0"})
