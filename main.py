@@ -166,10 +166,17 @@ async def lifespan(app: FastAPI):
         print(f"[startup] init_db failed: {e}")
 
     run_bg = os.environ.get("RUN_BACKGROUND", "1") == "1"
-    # Heavy slate-building is now gated SEPARATELY from the live engine, because
-    # that build is what spikes resources and gets the container killed. Default
-    # OFF so turning on the live engine never auto-triggers a boot-time build.
     startup_build = os.environ.get("STARTUP_BUILD", "0") == "1"
+
+    # Warren Nolan RPI warm-up — light (one background fetch + parse), and it's
+    # what fills the RPI cache the college-baseball model reads. Runs whenever
+    # background is on, independent of the heavy build.
+    if USE_REAL and run_bg:
+        try:
+            import warrennolan
+            warrennolan.warm()
+        except Exception as e:
+            print(f"[startup] warrennolan warm failed: {e}")
 
     if USE_REAL and run_bg and startup_build:
         def _startup_bg():
@@ -179,11 +186,6 @@ async def lifespan(app: FastAPI):
                 _ensure_day(dt.date.today())
             except Exception as e:
                 print(f"[startup] ensure_day failed: {e}")
-            try:
-                import warrennolan
-                warrennolan.warm()
-            except Exception as e:
-                print(f"[startup] warrennolan warm failed: {e}")
             bf = int(os.environ.get("BACKFILL_DAYS", "0") or 0)
             if bf > 0:
                 try:
@@ -196,9 +198,6 @@ async def lifespan(app: FastAPI):
     elif USE_REAL is False:
         build_today(provider)
 
-    # Live engine (tennis live scores) runs whenever background is on. It only
-    # polls matches that already exist and are in play, so it never triggers a
-    # heavy build on its own.
     task = asyncio.create_task(live_engine.run()) if run_bg else None
     yield
     live_engine.running = False
