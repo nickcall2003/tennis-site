@@ -1560,6 +1560,16 @@ async def ws_live(ws: WebSocket):
         await manager.disconnect(ws)
 
 
+@app.get("/api/version")
+def version():
+    """Backend build marker. If this lags the footer build number, the Python
+    process didn't redeploy (frontend updated but backend stale) — which would
+    explain new UI behavior not matching backend behavior."""
+    return {"backend_build": "v50",
+            "has_ncaabb_debug_param": True,
+            "ncaabb_sources": ["highlightly", "espn"]}
+
+
 @app.get("/")
 def index():
     # No-cache so every deploy reaches the browser immediately. index.html is
