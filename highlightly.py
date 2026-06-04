@@ -257,7 +257,10 @@ def get_games(date, league="NCAA"):
         except Exception as e:
             print(f"[highlightly] match parse skipped: {e}")
     games = [g for g in games if g]
-    _games_cache[key] = (time.time(), games)
+    # only cache non-empty results (an empty cache entry would block real games
+    # for the full TTL — same bug class as the ESPN provider)
+    if games:
+        _games_cache[key] = (time.time(), games)
     return games
 
 

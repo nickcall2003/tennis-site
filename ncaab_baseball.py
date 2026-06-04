@@ -24,7 +24,8 @@ SUMMARY = "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseba
 RANKINGS = "https://site.api.espn.com/apis/site/v2/sports/baseball/college-baseball/rankings"
 
 _cache = {}          # date -> (ts, [games])
-_DAY_TTL = 6 * 3600
+_DAY_TTL = 300        # 5 min: long enough to protect ESPN, short enough that
+                      # new games and score changes appear promptly
 _LIVE_TTL = 30
 
 
@@ -180,4 +181,9 @@ def get_games(date: dt.date, force_live=False):
                        else "away" if status == "finished" else None),
         })
     _cache[key] = (time.time(), games)
+    # NOTE: only cache non-empty results. Caching an empty list would serve "no
+    # games" for the full TTL even after data becomes available (this was the bug
+    # that made games never appear while the cache-clearing debug endpoint worked).
+    if not games:
+        del _cache[key]
     return games
