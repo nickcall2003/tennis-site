@@ -1,7 +1,7 @@
 """
 main.py
 -------
-Run:   uvicorn main:app --reload   (locally)
+Run:  uvicorn main:app --reload   (locally)
 On Render the start command is: uvicorn main:app --host 0.0.0.0 --port $PORT
 
 DATA FEED (env vars):
@@ -16,12 +16,6 @@ Endpoints:
 """
 
 from __future__ import annotations
-
-import os
-from fastapi import FastAPI
-
-app = FastAPI()
-
 
 import asyncio
 import datetime as dt
