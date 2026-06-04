@@ -1353,31 +1353,36 @@ def ncaabb_debug(date: str | None = None):
 
 
 @app.get("/api/ncaabb/games")
-def ncaabb_games(date: str | None = None):
-    """College baseball games for a date. Highlightly first (D1-oriented); falls
-    back to ESPN if Highlightly is unset, out of quota, or returns nothing."""
+def ncaabb_games(date: str | None = None, debug: int = 0):
+    """College baseball games for a date. Tries BOTH sources and returns whichever
+    has games (Highlightly preferred), so one source failing never yields an empty
+    board when the other has data. ?debug=1 returns a diagnostic wrapper."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
-    games = []
-    source = "none"
-    # 1) Highlightly (purpose-built for college baseball)
+    diag = {"hl_enabled": False, "hl_count": 0, "hl_error": None,
+            "espn_count": 0, "espn_error": None, "source": "none"}
+    hl_games, espn_games = [], []
+    # 1) Highlightly
     try:
         import highlightly as hl
+        diag["hl_enabled"] = hl.enabled()
         if hl.enabled():
-            games = hl.get_games(target)
-            if games:
-                source = "highlightly"
+            hl_games = hl.get_games(target) or []
+            diag["hl_count"] = len(hl_games)
     except Exception as e:
+        diag["hl_error"] = str(e)[:200]
         print(f"[ncaabb] highlightly games failed: {e}")
-    # 2) ESPN fallback
-    if not games:
+    # 2) ESPN — fetch it whenever Highlightly didn't yield games (independent path)
+    if not hl_games:
         try:
-            from ncaab_baseball import get_games
-            games = get_games(target)
-            if games:
-                source = "espn"
+            from ncaab_baseball import get_games as espn_get
+            espn_games = espn_get(target) or []
+            diag["espn_count"] = len(espn_games)
         except Exception as e:
+            diag["espn_error"] = str(e)[:200]
             print(f"[ncaabb] espn games failed: {e}")
-            games = []
+    games = hl_games or espn_games
+    diag["source"] = "highlightly" if hl_games else ("espn" if espn_games else "none")
+    # settle finished games for accuracy
     try:
         with SessionLocal() as db:
             wrote = False
@@ -1390,6 +1395,8 @@ def ncaabb_games(date: str | None = None):
                 db.commit()
     except Exception as e:
         print(f"[accuracy] ncaabb log skipped: {e}")
+    if debug:
+        return {"diag": diag, "count": len(games), "games": games}
     return games
 
 

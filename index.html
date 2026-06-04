@@ -347,7 +347,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v48</span>
+    Not betting advice. <span style="opacity:.4">build v49</span>
   </footer>
 </div>
 <script>
@@ -595,12 +595,17 @@ document.addEventListener("click",()=>toggleMenu(false));
 async function loadTeam(sp){
   try{teamGames=await getJSON("/api/"+sp+"/games?date="+ymd(selected));}catch(e){teamGames=[];}
   if(sp==="ncaabb"&&(!teamGames||!teamGames.length)){
-    // sparse sport: scan a wide forward window to find the next slate with games
+    // sparse sport: scan a wide forward window to find the next slate with games.
+    // Use debug=1 so we capture WHY a day is empty (source/quota), shown if all empty.
     const base=startOfDay(selected);
-    for(let o=1;o<=10;o++){
+    for(let o=1;o<=12;o++){
       const d=addDays(base,o);
-      let g=[];try{g=await getJSON("/api/ncaabb/games?date="+ymd(d));}catch(e){}
-      if(g&&g.length){selected=d;teamGames=g;break;}
+      let r=null;try{r=await getJSON("/api/ncaabb/games?date="+ymd(d)+"&debug=1");}catch(e){}
+      if(r){window._ncaaDiag=r.diag;if(r.games&&r.games.length){selected=d;teamGames=r.games;break;}}
+    }
+    // also capture diag for the originally-selected day
+    if((!teamGames||!teamGames.length)&&!window._ncaaDiag){
+      try{const r0=await getJSON("/api/ncaabb/games?date="+ymd(selected)+"&debug=1");window._ncaaDiag=r0.diag;}catch(e){}
     }
   }
   window._lastTeamLoad={sport:sp,date:ymd(selected),count:(teamGames||[]).length};
@@ -667,8 +672,11 @@ function renderTeam(){renderDatebar();renderTabsTeam();
     '<div class="bubble acc"><div class="num">'+(s.p?s.acc+"%":"\u2014")+'</div><div class="lab">Day accuracy</div></div>';
   const list=document.getElementById("list");const shown=teamFiltered();
   if(!shown.length){
-    const diag=window._lastTeamLoad?(" [loaded "+window._lastTeamLoad.count+" for "+window._lastTeamLoad.date+", raw teamGames="+(teamGames?teamGames.length:"null")+", tab="+tabMode+"]"):"";
-    list.innerHTML='<div class="empty">No '+SPORT_LABEL[sport]+' games for '+ymd(selected)+'. Use the date arrows to find the next slate.<br><span style="opacity:.45;font-size:11px">'+diag+'</span></div>';return;}
+    let diag="";
+    if(window._ncaaDiag){const d=window._ncaaDiag;
+      diag="source="+d.source+" · HL("+(d.hl_enabled?"on":"off")+")="+d.hl_count+(d.hl_error?" err:"+d.hl_error:"")+" · ESPN="+d.espn_count+(d.espn_error?" err:"+d.espn_error:"");}
+    else if(window._lastTeamLoad){diag="loaded "+window._lastTeamLoad.count+" for "+window._lastTeamLoad.date;}
+    list.innerHTML='<div class="empty">No '+SPORT_LABEL[sport]+' games for '+ymd(selected)+'. Use the date arrows to find the next slate.<br><span style="opacity:.5;font-size:11px">'+diag+'</span></div>';return;}
   list.innerHTML="";
   const openFn=(sport==="mlb")?openMLBDetail:openTeamDetail;
   if(tabMode==="all"){const big=shown.filter(g=>g.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
