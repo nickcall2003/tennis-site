@@ -1,4 +1,6 @@
-"""
+"""@app.get("/ping")
+def ping():
+    return {"ping": "works"}
 main.py
 -------
 Run:  uvicorn main:app --reload   (locally)
