@@ -169,24 +169,21 @@ async def lifespan(app: FastAPI):
 def _prewarm_all():
     """Keep the current slate warm so user requests hit cache, not slow APIs.
     Tuned for 1 CPU / 2GB and the Highlightly free-tier (~100 calls/day): one
-    fetch at a time with sleeps, and a 30-min loop. College-baseball dates use a
-    6h cache, so most cycles are cache hits and cost no API calls."""
+    fetch at a time with sleeps, and a 30-min loop. Starts well after boot so it
+    never competes with serving the first page loads."""
     import time as _t
-    _t.sleep(8)   # let startup finish
+    _t.sleep(45)   # let the app fully settle and serve initial traffic first
     first = True
     while True:
         try:
             today = dt.date.today()
-            # College baseball upcoming slate (sparse; 6h cache keeps API calls low)
             for off in range(0, 8):
                 d = today + dt.timedelta(days=off)
                 try:
                     ncaabb_games(date=d.isoformat())
                 except Exception as e:
                     print(f"[prewarm] ncaabb {d}: {e}")
-                _t.sleep(1.5)
-            # Year-round team sports: today's slate (these use keyless ESPN/MLB
-            # APIs with no hard daily cap, so warming them is cheap)
+                _t.sleep(2.0)
             for fn, label in ((lambda: mlb_games(today.isoformat()), "mlb"),
                               (lambda: team_games("nba", today.isoformat()), "nba"),
                               (lambda: team_games("nfl", today.isoformat()), "nfl")):
@@ -194,12 +191,12 @@ def _prewarm_all():
                     fn()
                 except Exception as e:
                     print(f"[prewarm] {label}: {e}")
-                _t.sleep(1.5)
+                _t.sleep(2.0)
             if first:
                 print("[prewarm] initial slate cached"); first = False
         except Exception as e:
             print(f"[prewarm] loop error: {e}")
-        _t.sleep(1800)   # 30 min: stays well under any rate cap
+        _t.sleep(1800)   # 30 min
 
 
 def _prewarm_ncaabb():
@@ -1669,7 +1666,7 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v58",
+    return {"backend_build": "v59",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,
