@@ -24,7 +24,7 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import func
 
 from db import SessionLocal
@@ -166,6 +166,19 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Tennis Predictions", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _no_cache_api(request, call_next):
+    """Prevent edge/CDN/browser caching of API responses. A stale cached empty
+    response on /api/ncaabb/games was masking live code for hours; this ensures
+    every API call reflects current server state."""
+    resp = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+    return resp
 
 
 def _sets_list(csv: str):
@@ -1395,9 +1408,12 @@ def ncaabb_games(date: str | None = None, debug: int = 0):
                 db.commit()
     except Exception as e:
         print(f"[accuracy] ncaabb log skipped: {e}")
+    _NOCACHE = {"Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache", "Expires": "0"}
     if debug:
-        return {"diag": diag, "count": len(games), "games": games}
-    return games
+        return JSONResponse({"diag": diag, "count": len(games), "games": games},
+                            headers=_NOCACHE)
+    return JSONResponse(games, headers=_NOCACHE)
 
 
 @app.get("/api/ncaabb/game/{game_id}")
@@ -1570,7 +1586,7 @@ def version():
         has_debug = "debug" in sig
     except Exception:
         sig = "?"; has_debug = False
-    return {"backend_build": "v51",
+    return {"backend_build": "v52",
             "ncaabb_games_signature": sig,
             "ncaabb_games_has_debug_param": has_debug}
 

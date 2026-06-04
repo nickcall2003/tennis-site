@@ -347,7 +347,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v51</span>
+    Not betting advice. <span style="opacity:.4">build v52</span>
   </footer>
 </div>
 <script>
@@ -393,7 +393,7 @@ let selected=startOfDay(new Date());
 let tabMode="all",tFilter=null,current=[];
 const byId={};
 let detailId=null,detailTab="analysis",detailTimer=null;
-async function getJSON(u){const r=await fetch(u);if(!r.ok)throw 0;return r.json();}
+async function getJSON(u){const sep=u.indexOf("?")>=0?"&":"?";const r=await fetch(u+sep+"_t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;return r.json();}
 async function loadDay(){try{current=await getJSON("/api/matches?date="+ymd(selected));}catch(e){current=[];}for(const k in byId)delete byId[k];current.forEach(m=>byId[m.id]=m);}
 async function loadTournaments(){
   let ts=[];try{ts=await getJSON("/api/tournaments?date="+ymd(selected));}catch(e){}
