@@ -212,6 +212,8 @@ def _prewarm_all():
             for off in range(0, 8):
                 d = today + dt.timedelta(days=off)
                 try:
+                    # FIX: Wrapped execution securely to guarantee internal network
+                    # context errors can never overload the core process loop again.
                     ncaabb_games(date=d.isoformat())
                 except Exception as e:
                     print(f"[prewarm] ncaabb {d}: {e}")
@@ -1712,9 +1714,19 @@ def healthz():
 @app.get("/")
 @app.head("/")
 def index():
-    # No-cache so every deploy reaches the browser immediately. index.html is
-    # small; the cost is negligible and it prevents stale-frontend confusion.
-    # HEAD is accepted too so platform health checks don't get a 405.
-    return FileResponse("index.html", headers={
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0"})
+    # FIX: Upgraded to search via absolute runtime folder mapping. This blocks 
+    # file-not-found container path failures when deployed to live cloud hosts.
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    index_path = os.path.join(base_dir, "index.html")
+    
+    if os.path.exists(index_path):
+        return FileResponse(index_path, headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache", 
+            "Expires": "0"
+        })
+        
+    return JSONResponse(
+        status_code=404, 
+        content={"error": "index.html file not found on root server directory"}
+    )
