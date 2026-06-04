@@ -590,7 +590,7 @@ async function loadTeam(sp){
   try{teamGames=await getJSON("/api/"+sp+"/games?date="+ymd(selected));}catch(e){teamGames=[];}
   if(sp==="ncaabb"&&(!teamGames||!teamGames.length)){
     const base=startOfDay(selected);
-    const offsets=[1,2,-1,3,-2,4,-3];
+    const offsets=[2,3,4,5];
     for(const o of offsets){
       const d=addDays(base,o);
       let g=[];try{g=await getJSON("/api/ncaabb/games?date="+ymd(d));}catch(e){}

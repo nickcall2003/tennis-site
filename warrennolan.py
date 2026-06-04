@@ -78,11 +78,10 @@ def _parse_rpi(html_text):
     return out
 
 
-def _load():
-    if time.time() - _cache["ts"] < _TTL and _cache["rpi"]:
-        return
-    if time.time() < _breaker["open_until"]:
-        return   # cooling down after a failure; skip the fetch
+_loading = {"active": False}
+
+
+def _do_fetch():
     try:
         rpi = _parse_rpi(_fetch(RPI_URL))
         if rpi:
@@ -90,18 +89,38 @@ def _load():
             _cache["ts"] = time.time()
     except Exception as e:
         print(f"[warrennolan] rpi load failed: {e}")
-        _breaker["open_until"] = time.time() + 600   # 10 min cooldown
+        _breaker["open_until"] = time.time() + 600
+    finally:
+        _loading["active"] = False
+
+
+def _load():
+    """Trigger a background refresh if stale. NEVER blocks the caller — the
+    request path only ever reads whatever is already cached. RPI enrichment
+    appears on the next request after the warm-up completes."""
+    if time.time() - _cache["ts"] < _TTL and _cache["rpi"]:
+        return
+    if time.time() < _breaker["open_until"]:
+        return
+    if _loading["active"]:
+        return
+    _loading["active"] = True
+    try:
+        import threading
+        threading.Thread(target=_do_fetch, daemon=True).start()
+    except Exception:
+        _loading["active"] = False
 
 
 def get_rating(team_name):
-    """Return {'rpi_rank', 'rpi', 'record'} for a team, or {} if unavailable."""
+    """Return cached {'rpi_rank', 'rpi', 'record'} for a team, or {}. Triggers a
+    non-blocking background refresh; never waits on the network."""
     _load()
     if not _cache["rpi"]:
         return {}
     key = _norm(team_name)
     if key in _cache["rpi"]:
         return _cache["rpi"][key]
-    # try a loose contains-match (e.g. "North Carolina" vs "North Carolina Tar Heels")
     for k, v in _cache["rpi"].items():
         if k and (k in key or key in k):
             return v
@@ -109,5 +128,7 @@ def get_rating(team_name):
 
 
 def available():
+    """True only if ratings are already cached. Triggers a background refresh
+    if stale but never blocks; returns current cache state immediately."""
     _load()
     return bool(_cache["rpi"])
