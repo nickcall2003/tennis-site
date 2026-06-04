@@ -123,9 +123,12 @@ def _strength_baseball(home, away):
     rpi_home = rpi_away = {}
     try:
         import warrennolan
-        if warrennolan.available():
-            rpi_home = warrennolan.get_rating(home.get("name", ""))
-            rpi_away = warrennolan.get_rating(away.get("name", ""))
+        # CACHE-ONLY in the request path: never trigger a fetch/parse here, since
+        # the 672KB HTML parse is CPU-heavy and (via the GIL) can stall page
+        # serving on a single core. RPI enrichment appears only if already warmed.
+        if warrennolan.cached_ready():
+            rpi_home = warrennolan.get_rating_cached(home.get("name", ""))
+            rpi_away = warrennolan.get_rating_cached(away.get("name", ""))
     except Exception:
         pass
 

@@ -132,3 +132,28 @@ def available():
     if stale but never blocks; returns current cache state immediately."""
     _load()
     return bool(_cache["rpi"])
+
+
+def cached_ready():
+    """True if ratings are already in memory. Does NOT trigger a fetch/parse, so
+    it is safe to call in the request hot path on a single CPU."""
+    return bool(_cache["rpi"])
+
+
+def get_rating_cached(team_name):
+    """Look up a team's RPI from the in-memory cache only. Never triggers _load
+    (no network, no 672KB HTML parse), so it can't stall page serving."""
+    if not _cache["rpi"]:
+        return {}
+    key = _norm(team_name)
+    if key in _cache["rpi"]:
+        return _cache["rpi"][key]
+    for k, v in _cache["rpi"].items():
+        if k and (k in key or key in k):
+            return v
+    return {}
+
+
+def warm():
+    """Explicitly kick the background load (used off the request path)."""
+    _load()

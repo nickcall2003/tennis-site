@@ -150,13 +150,31 @@ def _backfill_recent(days: int) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # CRITICAL: never block startup. The server must become ready immediately so
+    # the page always loads; all data-building/warming happens in the background.
     if USE_REAL:
-        _ensure_day(dt.date.today())
-        bf = int(os.environ.get("BACKFILL_DAYS", "0") or 0)
-        if bf > 0:
-            asyncio.get_event_loop().run_in_executor(None, _backfill_recent, bf)
-        # Background pre-warmer on its own daemon thread (gentle on 1 CPU).
+        def _startup_bg():
+            import time as _t
+            _t.sleep(5)
+            try:
+                _ensure_day(dt.date.today())
+            except Exception as e:
+                print(f"[startup] ensure_day failed: {e}")
+            # Warm Warren Nolan RPI once here, OFF the request path, so the heavy
+            # 672KB HTML parse never runs while serving a games request.
+            try:
+                import warrennolan
+                warrennolan.warm()
+            except Exception as e:
+                print(f"[startup] warrennolan warm failed: {e}")
+            bf = int(os.environ.get("BACKFILL_DAYS", "0") or 0)
+            if bf > 0:
+                try:
+                    _backfill_recent(bf)
+                except Exception as e:
+                    print(f"[startup] backfill failed: {e}")
         import threading as _thr
+        _thr.Thread(target=_startup_bg, daemon=True).start()
         _thr.Thread(target=_prewarm_all, daemon=True).start()
     else:
         build_today(provider)
@@ -167,12 +185,15 @@ async def lifespan(app: FastAPI):
 
 
 def _prewarm_all():
-    """Keep the current slate warm so user requests hit cache, not slow APIs.
-    Tuned for 1 CPU / 2GB and the Highlightly free-tier (~100 calls/day): one
-    fetch at a time with sleeps, and a 30-min loop. Starts well after boot so it
-    never competes with serving the first page loads."""
+    """Keep the current slate warm so navigation is fast. OFF by default because
+    on a single CPU the background fetching competes with serving pages. Enable
+    with PREWARM=1 once on a 2+ CPU instance. (Added during the NCAA work; left
+    running it was overloading the one core, causing the whole site to hang.)"""
     import time as _t
-    _t.sleep(45)   # let the app fully settle and serve initial traffic first
+    if os.environ.get("PREWARM", "0") != "1":
+        print("[prewarm] disabled (set PREWARM=1 to enable, recommended only on 2+ CPU)")
+        return
+    _t.sleep(45)
     first = True
     while True:
         try:
@@ -183,20 +204,12 @@ def _prewarm_all():
                     ncaabb_games(date=d.isoformat())
                 except Exception as e:
                     print(f"[prewarm] ncaabb {d}: {e}")
-                _t.sleep(2.0)
-            for fn, label in ((lambda: mlb_games(today.isoformat()), "mlb"),
-                              (lambda: team_games("nba", today.isoformat()), "nba"),
-                              (lambda: team_games("nfl", today.isoformat()), "nfl")):
-                try:
-                    fn()
-                except Exception as e:
-                    print(f"[prewarm] {label}: {e}")
-                _t.sleep(2.0)
+                _t.sleep(3.0)
             if first:
                 print("[prewarm] initial slate cached"); first = False
         except Exception as e:
             print(f"[prewarm] loop error: {e}")
-        _t.sleep(1800)   # 30 min
+        _t.sleep(1800)
 
 
 def _prewarm_ncaabb():
@@ -1666,7 +1679,7 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v61",
+    return {"backend_build": "v64",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,

@@ -347,7 +347,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v61</span>
+    Not betting advice. <span style="opacity:.4">build v64</span>
   </footer>
 </div>
 <script>
@@ -1092,7 +1092,12 @@ window.addEventListener("hashchange",()=>{if(!location.hash&&detailId)closeDetai
   }
   try{connectWS();}catch(e){}
 })();
-setInterval(()=>{if(!detailId&&view==="sport"&&ymd(selected)===ymd(startOfDay(new Date())))reload();},30000);
+setInterval(()=>{
+  if(detailId||view!=="sport")return;
+  if(ymd(selected)!==ymd(startOfDay(new Date())))return;
+  const anyLive=(isTeam(sport)?teamGames:current).some(g=>g.status==="live");
+  if(anyLive)reload();
+},30000);
 setInterval(loadAccuracy,300000);
 </script>
 </body>
