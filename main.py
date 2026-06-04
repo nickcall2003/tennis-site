@@ -1562,12 +1562,17 @@ async def ws_live(ws: WebSocket):
 
 @app.get("/api/version")
 def version():
-    """Backend build marker. If this lags the footer build number, the Python
-    process didn't redeploy (frontend updated but backend stale) — which would
-    explain new UI behavior not matching backend behavior."""
-    return {"backend_build": "v50",
-            "has_ncaabb_debug_param": True,
-            "ncaabb_sources": ["highlightly", "espn"]}
+    """Backend build marker that PROVES which ncaabb_games code is live by
+    introspecting the actual function signature, not a hardcoded string."""
+    import inspect
+    try:
+        sig = str(inspect.signature(ncaabb_games))
+        has_debug = "debug" in sig
+    except Exception:
+        sig = "?"; has_debug = False
+    return {"backend_build": "v51",
+            "ncaabb_games_signature": sig,
+            "ncaabb_games_has_debug_param": has_debug}
 
 
 @app.get("/")
