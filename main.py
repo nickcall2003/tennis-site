@@ -1712,9 +1712,4 @@ def healthz():
 @app.get("/")
 @app.head("/")
 def index():
-    # No-cache so every deploy reaches the browser immediately. index.html is
-    # small; the cost is negligible and it prevents stale-frontend confusion.
-    # HEAD is accepted too so platform health checks don't get a 405.
-    return FileResponse("index.html", headers={
-        "Cache-Control": "no-cache, no-store, must-revalidate",
-        "Pragma": "no-cache", "Expires": "0"})
+    return {"status": "backend works"}
