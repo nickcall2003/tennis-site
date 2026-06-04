@@ -1,8 +1,7 @@
-from __future__ import annotations
 """
 main.py
 -------
-Run:  uvicorn main:app --reload   (locally)
+Run:   uvicorn main:app --reload   (locally)
 On Render the start command is: uvicorn main:app --host 0.0.0.0 --port $PORT
 
 DATA FEED (env vars):
@@ -16,18 +15,12 @@ Endpoints:
   WS  /ws/live                       -> pushed live score updates
 """
 
-# Your actual Python code starts down here, for example:
-from fastapi import FastAPI
+from __future__ import annotations
+
 import os
+from fastapi import FastAPI
 
 app = FastAPI()
-
-# Your actual Python code starts down here, for example:
-from fastapi import FastAPI
-import os
-
-app = FastAPI()
-
 
 
 import asyncio
