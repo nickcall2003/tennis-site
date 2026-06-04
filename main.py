@@ -1309,17 +1309,46 @@ def ncaabb_debug(date: str | None = None):
                                       "sample": sample}
         except Exception as e:
             out["raw_espn"][label] = {"error": str(e)}
-    # now the REAL provider output (post-processing)
+    # Highlightly games path (the new primary source)
     try:
-        from ncaab_baseball import get_games, _cache
-        _cache.clear()   # bypass cache so we see a fresh result
-        g = get_games(target)
-        out["provider_games"] = {"count": len(g),
-                                 "sample": [{"teams": x["away"]["name"] + " @ " + x["home"]["name"],
-                                             "status": x["status"]} for x in g[:6]]}
+        import highlightly as hl
+        if hl.enabled():
+            hg = hl.get_games(target)
+            out["highlightly_games"] = {
+                "enabled": True, "count": len(hg),
+                "sample": [{"teams": x["away"]["name"] + " @ " + x["home"]["name"],
+                            "status": x["status"], "time": x.get("event_time")}
+                           for x in hg[:6]]}
+        else:
+            out["highlightly_games"] = {"enabled": False,
+                                        "note": "no key or breaker open"}
     except Exception as e:
         import traceback
-        out["provider_games"] = {"error": str(e), "trace": traceback.format_exc()[-800:]}
+        out["highlightly_games"] = {"error": str(e), "trace": traceback.format_exc()[-600:]}
+    # ESPN provider output
+    try:
+        from ncaab_baseball import get_games as espn_games, _cache
+        _cache.clear()
+        g = espn_games(target)
+        out["espn_provider"] = {"count": len(g),
+                                "sample": [x["away"]["name"] + " @ " + x["home"]["name"]
+                                           for x in g[:6]]}
+    except Exception as e:
+        import traceback
+        out["espn_provider"] = {"error": str(e), "trace": traceback.format_exc()[-600:]}
+    # the ACTUAL endpoint the frontend calls (Highlightly-first, ESPN fallback)
+    try:
+        final = ncaabb_games(date=target.isoformat())
+        if isinstance(final, dict):
+            gl = final.get("games", final)
+        else:
+            gl = final
+        out["FINAL_endpoint"] = {"count": len(gl),
+                                 "sample": [x["away"]["name"] + " @ " + x["home"]["name"]
+                                            for x in gl[:6]] if gl else []}
+    except Exception as e:
+        import traceback
+        out["FINAL_endpoint"] = {"error": str(e), "trace": traceback.format_exc()[-600:]}
     return out
 
 
