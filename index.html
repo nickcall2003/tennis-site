@@ -347,7 +347,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v46</span>
+    Not betting advice. <span style="opacity:.4">build v47</span>
   </footer>
 </div>
 <script>
@@ -666,7 +666,9 @@ function renderTeam(){renderDatebar();renderTabsTeam();
     '<div class="bubble won"><div class="num">'+s.c+'</div><div class="lab">Correct</div></div>'+
     '<div class="bubble acc"><div class="num">'+(s.p?s.acc+"%":"\u2014")+'</div><div class="lab">Day accuracy</div></div>';
   const list=document.getElementById("list");const shown=teamFiltered();
-  if(!shown.length){list.innerHTML='<div class="empty">No '+SPORT_LABEL[sport]+' games for '+ymd(selected)+'. Use the date arrows to find the next slate.</div>';return;}
+  if(!shown.length){
+    const diag=window._lastTeamLoad?(" [loaded "+window._lastTeamLoad.count+" for "+window._lastTeamLoad.date+", raw teamGames="+(teamGames?teamGames.length:"null")+", tab="+tabMode+"]"):"";
+    list.innerHTML='<div class="empty">No '+SPORT_LABEL[sport]+' games for '+ymd(selected)+'. Use the date arrows to find the next slate.<br><span style="opacity:.45;font-size:11px">'+diag+'</span></div>';return;}
   list.innerHTML="";
   const openFn=(sport==="mlb")?openMLBDetail:openTeamDetail;
   if(tabMode==="all"){const big=shown.filter(g=>g.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
