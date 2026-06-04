@@ -152,6 +152,13 @@ def _backfill_recent(days: int) -> None:
 async def lifespan(app: FastAPI):
     # CRITICAL: never block startup. The server must become ready immediately so
     # the page always loads; all data-building/warming happens in the background.
+    # First, create DB tables right away (fast, no network) so nothing errors with
+    # "no such table" on a fresh instance (e.g. a new Railway deploy).
+    try:
+        from db import init_db
+        init_db()
+    except Exception as e:
+        print(f"[startup] init_db failed: {e}")
     if USE_REAL:
         def _startup_bg():
             import time as _t
@@ -1683,7 +1690,7 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v65",
+    return {"backend_build": "v66",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,
