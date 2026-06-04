@@ -27,7 +27,7 @@ from models import LiveState, Match, StatSnapshot
 from base import LiveScore, MatchStats, TennisProvider
 from ws import manager
 
-POLL_SECONDS = 1.5          # demo speed; real feeds update every ~5s
+POLL_SECONDS = 20          # gentle on a single CPU; real feeds don't need 1.5s
 STATS_EVERY_N_TICKS = 5     # snapshot stats less often than score
 
 
@@ -80,8 +80,15 @@ class LiveEngine:
             rows = db.query(Match).filter(Match.status != "finished").all()
             active = [(m.id, m.provider_match_id, m.player_a, m.player_b, m.tier) for m in rows]
 
+        # Nothing live to poll -> don't touch the network at all. This keeps the
+        # single CPU free to serve page requests when there are no live matches.
+        if not active:
+            return
+
         for match_id, pid, name_a, name_b, tier in active:
-            score = self.provider.get_live_score(pid)
+            # get_live_score is a BLOCKING network call. Run it in a thread so it
+            # never freezes the event loop (which would make the whole site hang).
+            score = await asyncio.to_thread(self.provider.get_live_score, pid)
             score_d = _score_to_dict(score)
 
             if self._last.get(match_id) == score_d:
