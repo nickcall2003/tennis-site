@@ -113,24 +113,33 @@ def _ensure_day(day: dt.date) -> None:
     key = day.isoformat()
     if key in _built_dates:
         return
-    # Throttle: even if a build doesn't fully succeed, don't re-attempt more
-    # than once every 60s. This stops the endless slow rebuild-on-every-click.
+    start = dt.datetime.combine(day, dt.time.min)
+    end = dt.datetime.combine(day, dt.time.max)
+    # Already in the DB (e.g. persisted across a restart)? Mark built, skip the
+    # expensive rebuild. This is what stops the rebuild-on-every-boot loop.
+    try:
+        with SessionLocal() as db:
+            has = db.query(Match.id).filter(Match.scheduled >= start,
+                                            Match.scheduled <= end).first()
+        if has:
+            _built_dates.add(key)
+            return
+    except Exception as e:
+        print(f"[build] db check failed for {key}: {e}")
     last = _build_attempts.get(key, 0)
     if _t.time() - last < 60:
         return
     _build_attempts[key] = _t.time()
     try:
         build_day(provider, engine, dt.datetime(day.year, day.month, day.day))
-        # Mark built once the day has matches stored, so future requests are instant.
         with SessionLocal() as db:
-            start = dt.datetime.combine(day, dt.time.min)
-            end = dt.datetime.combine(day, dt.time.max)
             has = db.query(Match.id).filter(Match.scheduled >= start,
                                             Match.scheduled <= end).first()
         if has:
             _built_dates.add(key)
     except Exception as e:
         print(f"[build] could not build {key}: {e}")
+
 
 
 def _backfill_recent(days: int) -> None:
