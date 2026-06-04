@@ -1160,7 +1160,13 @@ def _team_analysis(g, sport):
 
 
 @app.get("/api/{sport}/games")
-def team_games(sport: str, date: str | None = None):
+def team_games(sport: str, date: str | None = None, debug: int = 0):
+    # College baseball has its own dedicated handler (Highlightly + ESPN). This
+    # generic route is registered BEFORE /api/ncaabb/games, so without this
+    # delegation it would shadow it and return [] for every college game. That
+    # shadowing was the root cause of college baseball never displaying.
+    if sport == "ncaabb":
+        return ncaabb_games(date=date, debug=debug)
     if sport not in ("nba", "nfl"):
         return []
     target = dt.date.fromisoformat(date) if date else dt.date.today()
@@ -1435,6 +1441,8 @@ def ncaabb_game(game_id: str, date: str | None = None):
 
 @app.get("/api/{sport}/game/{game_id}")
 def team_game(sport: str, game_id: str, date: str | None = None):
+    if sport == "ncaabb":
+        return ncaabb_game(game_id=game_id, date=date)
     if sport not in ("nba", "nfl"):
         return {"error": "bad sport"}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
@@ -1619,7 +1627,7 @@ def version():
         line_count = src.count("\n")
     except Exception:
         sig = "?"; has_debug_return = False; has_jsonresponse = False; line_count = 0
-    return {"backend_build": "v53",
+    return {"backend_build": "v54",
             "ncaabb_games_signature": sig,
             "has_debug_return": has_debug_return,
             "uses_JSONResponse": has_jsonresponse,
