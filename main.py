@@ -194,15 +194,28 @@ async def lifespan(app: FastAPI):
     run_bg = os.environ.get("RUN_BACKGROUND", "1") == "1"
     startup_build = os.environ.get("STARTUP_BUILD", "0") == "1"
 
-    # Warren Nolan RPI warm-up — light (one background fetch + parse), and it's
-    # what fills the RPI cache the college-baseball model reads. Runs whenever
-    # background is on, independent of the heavy build.
+    # Warren Nolan RPI warm-up — light, runs whenever background is on.
     if USE_REAL and run_bg:
         try:
             import warrennolan
             warrennolan.warm()
         except Exception as e:
             print(f"[startup] warrennolan warm failed: {e}")
+
+    # Results backfill — fills the 30-day accuracy by replaying past finished
+    # games into PickResults. Own daemon thread, delayed so the app is healthy
+    # first; gated + throttled so it stays safe.
+    rb_days = int(os.environ.get("RESULTS_BACKFILL_DAYS", "0") or 0)
+    if USE_REAL and run_bg and rb_days > 0:
+        def _results_bg():
+            import time as _t
+            _t.sleep(30)
+            try:
+                _backfill_results(rb_days)
+            except Exception as e:
+                print(f"[startup] results backfill failed: {e}")
+        import threading as _thr
+        _thr.Thread(target=_results_bg, daemon=True).start()
 
     if USE_REAL and run_bg and startup_build:
         def _startup_bg():
@@ -229,6 +242,7 @@ async def lifespan(app: FastAPI):
     live_engine.running = False
     if task:
         task.cancel()
+
 
 
 
