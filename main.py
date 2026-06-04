@@ -15,6 +15,18 @@ Endpoints:
   WS  /ws/live                       -> pushed live score updates
 """
 
+# Your actual Python code starts down here, for example:
+from fastapi import FastAPI
+import os
+
+app = FastAPI()
+
+# Your actual Python code starts down here, for example:
+from fastapi import FastAPI
+import os
+
+app = FastAPI()
+
 from __future__ import annotations
 
 import asyncio
