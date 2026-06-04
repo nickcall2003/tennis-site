@@ -347,7 +347,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v54</span>
+    Not betting advice. <span style="opacity:.4">build v55</span>
   </footer>
 </div>
 <script>
@@ -1057,11 +1057,18 @@ function bindPickCards(){document.querySelectorAll(".pick-card").forEach(c=>{
 document.getElementById("home-link").onclick=()=>{openHome();};
 window.addEventListener("hashchange",()=>{if(!location.hash&&detailId)closeDetail();});
 (async function(){
-  await loadAccuracy();
-  if(location.hash.indexOf("#m")===0){view="sport";sport="tennis";document.getElementById("home").classList.remove("show");document.getElementById("main").style.display="";await reload();openDetail(parseInt(location.hash.slice(2)));}
-  else if(location.hash.indexOf("#g")===0){setSport("mlb");openMLBDetail(location.hash.slice(2));}
-  else{openHome();}
-  connectWS();
+  try{
+    await loadAccuracy();
+    const h=location.hash||"";
+    if(h.indexOf("#m")===0){view="sport";sport="tennis";document.getElementById("home").classList.remove("show");document.getElementById("main").style.display="";await reload();openDetail(parseInt(h.slice(2)));}
+    else if(h.indexOf("#g")===0){setSport("mlb");openMLBDetail(h.slice(2));}
+    else if(h.indexOf("#t")===0){openHome();}
+    else{openHome();}
+  }catch(e){
+    console.error("init failed",e);
+    try{openHome();}catch(_){}
+  }
+  try{connectWS();}catch(e){}
 })();
 setInterval(()=>{if(!detailId&&view==="sport"&&ymd(selected)===ymd(startOfDay(new Date())))reload();},30000);
 setInterval(loadAccuracy,300000);

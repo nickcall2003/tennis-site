@@ -251,12 +251,24 @@ def get_games(date, league="NCAA"):
         return c[1] if c else []
     rows = data.get("data", []) if isinstance(data, dict) else (data or [])
     games = []
+    import datetime as _dt
+    want = date.isoformat()
     for m in rows:
         try:
-            games.append(_match_to_game(m))
+            raw = m.get("date", "") or ""
+            if raw:
+                try:
+                    utc = _dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    ct_date = (utc - _dt.timedelta(hours=5)).date().isoformat()
+                    if ct_date != want:
+                        continue
+                except Exception:
+                    pass
+            g = _match_to_game(m)
+            if g:
+                games.append(g)
         except Exception as e:
             print(f"[highlightly] match parse skipped: {e}")
-    games = [g for g in games if g]
     # only cache non-empty results (an empty cache entry would block real games
     # for the full TTL — same bug class as the ESPN provider)
     if games:
