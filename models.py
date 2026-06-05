@@ -55,21 +55,31 @@ class Prediction(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
-    prob_a: Mapped[float] = mapped_column(Float)
-    fair_prob_a: Mapped[float | None] = mapped_column(Float, nullable=True)
-    edge_a: Mapped[float | None] = mapped_column(Float, nullable=True)
-    confident: Mapped[bool] = mapped_column(default=True)
-    confidence: Mapped[str] = mapped_column(String(8), default="high")
+    prob_a: Mapped[float] = mapped_column(Float)            # model: P(player_a wins)
+    fair_prob_a: Mapped[float | None] = mapped_column(Float, nullable=True)   # de-vigged book
+    edge_a: Mapped[float | None] = mapped_column(Float, nullable=True)        # model - fair
+    confident: Mapped[bool] = mapped_column(default=True)   # legacy flag
+    confidence: Mapped[str] = mapped_column(String(8), default="high")  # high|medium|low
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    # --- ADD THESE 4 NEW COLUMNS ---
-    form_a: Mapped[float | None] = mapped_column(Float, nullable=True)
-    form_b: Mapped[float | None] = mapped_column(Float, nullable=True)
-    fatigue_a: Mapped[float | None] = mapped_column(Float, nullable=True)
-    fatigue_b: Mapped[float | None] = mapped_column(Float, nullable=True)
-    # -------------------------------
-
     match: Mapped["Match"] = relationship(back_populates="prediction")
+
+
+class LiveState(Base):
+    __tablename__ = "live_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True, unique=True)
+    sets_a: Mapped[str] = mapped_column(String(32), default="")   # "6,3,2"
+    sets_b: Mapped[str] = mapped_column(String(32), default="")
+    game_a: Mapped[str] = mapped_column(String(4), default="0")
+    game_b: Mapped[str] = mapped_column(String(4), default="0")
+    server: Mapped[str] = mapped_column(String(1), default="a")
+    status: Mapped[str] = mapped_column(String(16), default="scheduled")
+    winner: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    match: Mapped["Match"] = relationship(back_populates="live")
 
 
 class StatSnapshot(Base):
