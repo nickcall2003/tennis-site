@@ -195,7 +195,7 @@ async def lifespan(app: FastAPI):
     startup_build = os.environ.get("STARTUP_BUILD", "0") == "1"
 
     # Warren Nolan RPI warm-up — light, runs whenever background is on.
-        if USE_REAL and run_bg:
+    if USE_REAL and run_bg:
         # Delay the RPI warm-up so the heavy parse doesn't run during the Railway
         # healthcheck window. The app passes /healthz first; RPI loads ~60s later.
         def _warm_rpi():
