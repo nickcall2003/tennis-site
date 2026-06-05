@@ -92,8 +92,15 @@ def build_today(provider: MockTennisProvider) -> None:
                 fair_a, _ = devig_two_way(odds[0], odds[1])
                 edge_a = edge(prob_a, fair_a)
 
-            db.add(Prediction(match_id=match.id, prob_a=prob_a,
-                              fair_prob_a=fair_a, edge_a=edge_a))
+            db.add(Prediction(
+                    match_id=match.id, 
+                    prob_a=prob_a,
+                    confident=(confidence != "low"), 
+                    confidence=confidence,
+                    form_a=cx.get("form_a"),
+                    form_b=cx.get("form_b"),
+                    fatigue_a=cx.get("fatigue_a"),
+                    fatigue_b=cx.get("fatigue_b")
 
             # --- weather + auto-generated writeup -----------------------
             weather = get_match_weather(info.tournament, info.scheduled)
