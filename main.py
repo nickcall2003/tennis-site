@@ -226,6 +226,10 @@ async def lifespan(app: FastAPI):
         import threading as _thr
         _thr.Thread(target=_results_bg, daemon=True).start()
 
+    if USE_REAL and run_bg:
+        import threading as _thr_tla
+        _thr_tla.Thread(target=_tennis_lookahead, daemon=True).start()
+
     if USE_REAL and run_bg and startup_build:
         def _startup_bg():
             import time as _t
@@ -253,6 +257,35 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
 
+
+
+def _tennis_lookahead():
+    """Auto-build today + the next few days of the tennis slate so new
+    tournaments appear on the site without anyone navigating to them.
+
+    Light by design: _ensure_day skips any day already in the DB, so this only
+    does real fetch work when a brand-new day or freshly-released draw first
+    shows up. Re-checks a few times a day, which also covers the date rolling
+    over at midnight. Controlled by TENNIS_LOOKAHEAD_DAYS (0 disables)."""
+    import time as _t
+    n = int(os.environ.get("TENNIS_LOOKAHEAD_DAYS", "3") or 0)
+    if n <= 0:
+        print("[tennis-lookahead] disabled (set TENNIS_LOOKAHEAD_DAYS>0)")
+        return
+    _t.sleep(60)  # let the app finish coming up first
+    while True:
+        try:
+            today = dt.date.today()
+            for off in range(0, n + 1):
+                d = today + dt.timedelta(days=off)
+                try:
+                    _ensure_day(d)
+                except Exception as e:
+                    print(f"[tennis-lookahead] {d}: {e}")
+                _t.sleep(2.0)
+        except Exception as e:
+            print(f"[tennis-lookahead] loop error: {e}")
+        _t.sleep(6 * 3600)  # ~4x/day: picks up new draws and the date rollover
 
 
 def _prewarm_all():
