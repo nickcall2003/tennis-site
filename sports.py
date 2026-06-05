@@ -136,6 +136,18 @@ SPORTS: dict[str, Sport] = {
         kind="team", source="ESPN + Poisson xG model", blurb="xG model \u00b7 32 teams",
         stat_file="nhl_stats.json",
         games=_nhl_games, game=_find_by_id(_nhl_games)),
+    "ncaaf": Sport(
+        key="ncaaf", label="NCAA Football", emoji="\U0001F3C8", color="#b5651d",
+        kind="espn", source="ESPN + team-strength model", blurb="FBS \u00b7 AP-aware",
+        games=_espn_games("ncaaf"), game=_espn_game("ncaaf")),
+    "ncaab": Sport(
+        key="ncaab", label="NCAA Basketball", emoji="\U0001F3C0", color="#d08c3f",
+        kind="espn", source="ESPN + team-strength model", blurb="D1 men \u00b7 AP-aware",
+        games=_espn_games("ncaab"), game=_espn_game("ncaab")),
+    "wncaab": Sport(
+        key="wncaab", label="Women's CBB", emoji="\U0001F3C0", color="#c0567e",
+        kind="espn", source="ESPN + team-strength model", blurb="D1 women \u00b7 AP-aware",
+        games=_espn_games("wncaab"), game=_espn_game("wncaab")),
 }
 
 # Convenience views used by the routes/picks loops.

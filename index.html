@@ -329,6 +329,9 @@
           <div class="menu-item" data-sport="nfl">&#127944; NFL</div>
           <div class="menu-item" data-sport="ncaabb">&#9918; NCAA Baseball</div>
           <div class="menu-item" data-sport="nhl">&#127954; NHL</div>
+          <div class="menu-item" data-sport="ncaaf">&#127944; NCAA Football</div>
+          <div class="menu-item" data-sport="ncaab">&#127936; NCAA Basketball</div>
+          <div class="menu-item" data-sport="wncaab">&#127936; Women's CBB</div>
           <div class="menu-sec">Picks</div>
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
@@ -577,7 +580,10 @@ let SPORTS_META=[
   {key:"nba",emoji:"\u{1f3c0}",label:"NBA",blurb:"Spreads \u00b7 player props",color:"#c8612f",team:true},
   {key:"nfl",emoji:"\u{1f3c8}",label:"NFL",blurb:"Spreads \u00b7 yardage props",color:"#4f9d6a",team:true},
   {key:"ncaabb",emoji:"\u{1f9e2}",label:"NCAA Baseball",blurb:"RPI-aware \u00b7 D1",color:"#7b9e3a",team:true},
-  {key:"nhl",emoji:"\u{1f3d2}",label:"NHL",blurb:"xG model \u00b7 32 teams",color:"#5a6b8c",team:true}
+  {key:"nhl",emoji:"\u{1f3d2}",label:"NHL",blurb:"xG model \u00b7 32 teams",color:"#5a6b8c",team:true},
+  {key:"ncaaf",emoji:"\u{1f3c8}",label:"NCAA Football",blurb:"FBS \u00b7 AP-aware",color:"#b5651d",team:true},
+  {key:"ncaab",emoji:"\u{1f3c0}",label:"NCAA Basketball",blurb:"D1 men \u00b7 AP-aware",color:"#d08c3f",team:true},
+  {key:"wncaab",emoji:"\u{1f3c0}",label:"Women's CBB",blurb:"D1 women \u00b7 AP-aware",color:"#c0567e",team:true}
 ];
 // /api/sports (registry) refreshes SPORTS_META on load; applySportsMeta keeps the
 // derived maps in sync. The defaults above mean a failed fetch = unchanged UI.
@@ -841,10 +847,10 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     '<div class="d-score"><span>'+g.away.name+(g.away.record?' &middot; '+g.away.record:"")+'</span></div>'+
     '<div class="d-score"><span>'+g.home.name+(g.home.record?' &middot; '+g.home.record:"")+'</span></div>'+
     '<div class="d-pred">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div></div>';
-  const tabs=(sp==="ncaabb"||sp==="nhl")?'':('<div class="d-tabs"><button class="d-tab '+(teamDetailTab==="prediction"?"active":"")+'" onclick="setTeamTab(\'prediction\')">Prediction</button>'+
+  const tabs=(sp==="ncaabb"||sp==="nhl"||sp==="ncaaf"||sp==="ncaab"||sp==="wncaab")?'':('<div class="d-tabs"><button class="d-tab '+(teamDetailTab==="prediction"?"active":"")+'" onclick="setTeamTab(\'prediction\')">Prediction</button>'+
     '<button class="d-tab '+(teamDetailTab==="props"?"active":"")+'" onclick="setTeamTab(\'props\')">Props</button></div>');
   let body;
-  if(teamDetailTab==="props"&&sp!=="ncaabb"&&sp!=="nhl"){body=propsPanelHTML(teamProps);}
+  if(teamDetailTab==="props"&&sp!=="ncaabb"&&sp!=="nhl"&&sp!=="ncaaf"&&sp!=="ncaab"&&sp!=="wncaab"){body=propsPanelHTML(teamProps);}
   else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
     teamLinesHTML(g)+
