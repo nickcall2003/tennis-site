@@ -141,6 +141,7 @@
   .pick-sport{font-family:"Space Mono",monospace;font-size:9.5px;font-weight:700;letter-spacing:.08em;padding:3px 7px;border-radius:5px;color:#0e1014;background:var(--clay)}
   .pick-sport.mlb{background:#3f7fc4;color:#fff}.pick-sport.tennis{background:#4f9d6a;color:#fff}
   .pick-sport.ncaabb{background:#7b9e3a;color:#fff}
+  .pick-sport.nhl{background:#5a6b8c;color:#fff}
   .pick-prob{margin-left:auto;font-family:"Fraunces",serif;font-weight:900;font-size:22px;color:var(--clay-bright)}
   .pick-name{font-size:16px;font-weight:600;margin-bottom:3px}
   .pick-match{color:var(--muted);font-size:12.5px}
@@ -327,6 +328,7 @@
           <div class="menu-item" data-sport="nba">&#127936; NBA</div>
           <div class="menu-item" data-sport="nfl">&#127944; NFL</div>
           <div class="menu-item" data-sport="ncaabb">&#9918; NCAA Baseball</div>
+          <div class="menu-item" data-sport="nhl">&#127954; NHL</div>
           <div class="menu-sec">Picks</div>
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
@@ -567,8 +569,8 @@ function statsHTML(m){const s=m.stats;
   h+=statRow("Total Games Won",a.games_won,b.games_won,a.games_won,b.games_won);
   h+=statRow("Total Points Won",a.total_points_won,b.total_points_won,a.total_points_won,b.total_points_won);
   return h;}
-const TEAM_SPORTS=["mlb","nba","nfl","ncaabb"];
-const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball"};
+const TEAM_SPORTS=["mlb","nba","nfl","ncaabb","nhl"];
+const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball",nhl:"NHL"};
 function isTeam(s){return TEAM_SPORTS.indexOf(s)>=0;}
 async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="news"||view==="home")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
@@ -631,7 +633,7 @@ async function loadTeam(sp){
   (teamGames||[]).forEach(g=>byId[sp+g.id]=g);}
 function teamFiltered(){return teamGames.filter(g=>tabMode!=="live"||g.status==="live");}
 function teamDayStats(list){let p=0,c=0;list.forEach(g=>{if(g.winner){p++;const pick=g.prob_home>=0.5?"home":"away";if(pick===g.winner)c++;}});return{p:p,c:c,acc:p?Math.round(c/p*100):0};}
-const TIER_COLOR={mlb:"#3f7fc4",nba:"#c8612f",nfl:"#4f9d6a",ncaabb:"#7b9e3a"};
+const TIER_COLOR={mlb:"#3f7fc4",nba:"#c8612f",nfl:"#4f9d6a",ncaabb:"#7b9e3a",nhl:"#5a6b8c"};
 function teamColHTML(side,win){const sp=side.starter||{};
   let sub="";
   if(sport==="mlb")sub='<div class="sp"><b>'+(sp.name||"TBD")+'</b><br>'+(sp.era!=null?sp.era.toFixed(2)+" ERA":"")+'</div>';
@@ -822,10 +824,10 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     '<div class="d-score"><span>'+g.away.name+(g.away.record?' &middot; '+g.away.record:"")+'</span></div>'+
     '<div class="d-score"><span>'+g.home.name+(g.home.record?' &middot; '+g.home.record:"")+'</span></div>'+
     '<div class="d-pred">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div></div>';
-  const tabs=(sp==="ncaabb")?'':('<div class="d-tabs"><button class="d-tab '+(teamDetailTab==="prediction"?"active":"")+'" onclick="setTeamTab(\'prediction\')">Prediction</button>'+
+  const tabs=(sp==="ncaabb"||sp==="nhl")?'':('<div class="d-tabs"><button class="d-tab '+(teamDetailTab==="prediction"?"active":"")+'" onclick="setTeamTab(\'prediction\')">Prediction</button>'+
     '<button class="d-tab '+(teamDetailTab==="props"?"active":"")+'" onclick="setTeamTab(\'props\')">Props</button></div>');
   let body;
-  if(teamDetailTab==="props"&&sp!=="ncaabb"){body=propsPanelHTML(teamProps);}
+  if(teamDetailTab==="props"&&sp!=="ncaabb"&&sp!=="nhl"){body=propsPanelHTML(teamProps);}
   else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
     teamLinesHTML(g)+
@@ -990,7 +992,8 @@ function renderHome(){
     ["mlb","\u26be","MLB","Run lines \u00b7 props"],
     ["nba","\u{1f3c0}","NBA","Spreads \u00b7 player props"],
     ["nfl","\u{1f3c8}","NFL","Spreads \u00b7 yardage props"],
-    ["ncaabb","\u{1f9e2}","NCAA Baseball","RPI-aware \u00b7 D1"]];
+    ["ncaabb","\u{1f9e2}","NCAA Baseball","RPI-aware \u00b7 D1"],
+    ["nhl","\u{1f3d2}","NHL","xG model \u00b7 32 teams"]];
   const acc=_accData&&_accData.by_sport||{};
   const tileHTML=tiles.map(t=>{const a=acc[t[0]];const am=(a&&a.accuracy!=null)?'<div class="acc-mini">'+a.accuracy+'%<span>30d</span></div>':"";
     return '<div class="sport-tile" onclick="setSport(\''+t[0]+'\')">'+am+'<span class="emoji">'+t[1]+'</span><div class="nm">'+t[2]+'</div><div class="sub">'+t[3]+'</div></div>';}).join("");
@@ -1030,6 +1033,7 @@ async function renderPicks(){
       filterBtn("NBA",bestFilter.sport==="nba","sport","nba")+
       filterBtn("NFL",bestFilter.sport==="nfl","sport","nfl")+
       filterBtn("NCAA BB",bestFilter.sport==="ncaabb","sport","ncaabb")+
+      filterBtn("NHL",bestFilter.sport==="nhl","sport","nhl")+
       filterBtn("60%+",bestFilter.min===0.6,"min",0.6)+
       filterBtn("70%+",bestFilter.min===0.7,"min",0.7)+
       filterBtn("Any",bestFilter.min===0,"min",0)+'</div>';
