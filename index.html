@@ -571,6 +571,23 @@ function statsHTML(m){const s=m.stats;
   return h;}
 const TEAM_SPORTS=["mlb","nba","nfl","ncaabb","nhl"];
 const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball",nhl:"NHL"};
+let SPORTS_META=[
+  {key:"tennis",emoji:"\u{1f3be}",label:"Tennis",blurb:"ATP \u00b7 WTA \u00b7 Challenger",color:"#4f9d6a",team:false},
+  {key:"mlb",emoji:"\u26be",label:"MLB",blurb:"Run lines \u00b7 props",color:"#3f7fc4",team:true},
+  {key:"nba",emoji:"\u{1f3c0}",label:"NBA",blurb:"Spreads \u00b7 player props",color:"#c8612f",team:true},
+  {key:"nfl",emoji:"\u{1f3c8}",label:"NFL",blurb:"Spreads \u00b7 yardage props",color:"#4f9d6a",team:true},
+  {key:"ncaabb",emoji:"\u{1f9e2}",label:"NCAA Baseball",blurb:"RPI-aware \u00b7 D1",color:"#7b9e3a",team:true},
+  {key:"nhl",emoji:"\u{1f3d2}",label:"NHL",blurb:"xG model \u00b7 32 teams",color:"#5a6b8c",team:true}
+];
+// /api/sports (registry) refreshes SPORTS_META on load; applySportsMeta keeps the
+// derived maps in sync. The defaults above mean a failed fetch = unchanged UI.
+function applySportsMeta(){
+  try{
+    SPORTS_META.forEach(function(s){SPORT_LABEL[s.key]=s.label;if(s.color)TIER_COLOR[s.key]=s.color;});
+    var teams=SPORTS_META.filter(function(s){return s.team;}).map(function(s){return s.key;});
+    if(teams.length){TEAM_SPORTS.length=0;teams.forEach(function(k){TEAM_SPORTS.push(k);});}
+  }catch(e){}
+}
 function isTeam(s){return TEAM_SPORTS.indexOf(s)>=0;}
 async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="news"||view==="home")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
@@ -988,12 +1005,7 @@ function openHome(){view="home";if(detailId)closeDetail();
   document.getElementById("home").classList.add("show");
   toggleMenu(false);renderHome();}
 function renderHome(){
-  const tiles=[["tennis","\u{1f3be}","Tennis","ATP \u00b7 WTA \u00b7 Challenger"],
-    ["mlb","\u26be","MLB","Run lines \u00b7 props"],
-    ["nba","\u{1f3c0}","NBA","Spreads \u00b7 player props"],
-    ["nfl","\u{1f3c8}","NFL","Spreads \u00b7 yardage props"],
-    ["ncaabb","\u{1f9e2}","NCAA Baseball","RPI-aware \u00b7 D1"],
-    ["nhl","\u{1f3d2}","NHL","xG model \u00b7 32 teams"]];
+  const tiles=SPORTS_META.map(function(s){return [s.key,s.emoji,s.label,s.blurb];});
   const acc=_accData&&_accData.by_sport||{};
   const tileHTML=tiles.map(t=>{const a=acc[t[0]];const am=(a&&a.accuracy!=null)?'<div class="acc-mini">'+a.accuracy+'%<span>30d</span></div>':"";
     return '<div class="sport-tile" onclick="setSport(\''+t[0]+'\')">'+am+'<span class="emoji">'+t[1]+'</span><div class="nm">'+t[2]+'</div><div class="sub">'+t[3]+'</div></div>';}).join("");
@@ -1028,12 +1040,7 @@ async function renderPicks(){
     let html='<div class="picks-head">\u{1F451} Best Bets'+head30+'</div><div class="picks-sub">The model\u2019s full board, ranked by win probability, with market price &amp; edge. Filter by sport and confidence. Not betting advice.</div>'+recBanner;
     html+='<div class="filters">'+
       filterBtn("All sports",!bestFilter.sport,"sport","")+
-      filterBtn("Tennis",bestFilter.sport==="tennis","sport","tennis")+
-      filterBtn("MLB",bestFilter.sport==="mlb","sport","mlb")+
-      filterBtn("NBA",bestFilter.sport==="nba","sport","nba")+
-      filterBtn("NFL",bestFilter.sport==="nfl","sport","nfl")+
-      filterBtn("NCAA BB",bestFilter.sport==="ncaabb","sport","ncaabb")+
-      filterBtn("NHL",bestFilter.sport==="nhl","sport","nhl")+
+      SPORTS_META.map(function(s){return filterBtn(s.key==="ncaabb"?"NCAA BB":s.label,bestFilter.sport===s.key,"sport",s.key);}).join("")+
       filterBtn("60%+",bestFilter.min===0.6,"min",0.6)+
       filterBtn("70%+",bestFilter.min===0.7,"min",0.7)+
       filterBtn("Any",bestFilter.min===0,"min",0)+'</div>';
@@ -1089,6 +1096,7 @@ window.addEventListener("hashchange",()=>{if(!location.hash&&detailId)closeDetai
 (async function(){
   try{
     await loadAccuracy();
+    try{const _sm=await getJSON("/api/sports");if(Array.isArray(_sm)&&_sm.length){SPORTS_META=_sm.map(function(s){return {key:s.key,emoji:s.emoji,label:s.label,blurb:(s.blurb||s.source||""),color:s.color,team:!!s.team,has_props:!!s.has_props};});applySportsMeta();if(document.getElementById("home").classList.contains("show"))renderHome();}}catch(e){}
     const h=location.hash||"";
     if(h.indexOf("#m")===0){view="sport";sport="tennis";document.getElementById("home").classList.remove("show");document.getElementById("main").style.display="";await reload();openDetail(parseInt(h.slice(2)));}
     else if(h.indexOf("#g")===0){setSport("mlb");openMLBDetail(h.slice(2));}

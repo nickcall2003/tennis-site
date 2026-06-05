@@ -32,6 +32,7 @@ from live import LiveEngine
 from models import LiveState, Match, Prediction, StatSnapshot
 from predictions import PredictionEngine
 from ws import manager
+import sports
 
 PROVIDER_NAME = os.environ.get("TENNIS_PROVIDER", "mock").lower()
 USE_REAL = PROVIDER_NAME == "apitennis"
@@ -902,53 +903,31 @@ def _gather_plays_uncached(target: dt.date):
                 })
         except Exception as e:
             print(f"[picks] mlb gather failed: {e}")
-    # --- NBA & NFL (live from ESPN) ---
-    for sp in ("nba", "nfl"):
+    # --- team sports via the registry (nba, nfl, ncaabb, nhl) — one loop ---
+    for _key in sports.GENERIC_TEAM_KEYS:
+        _sp = sports.get(_key)
         try:
-            from espn_provider import get_games as _espn_games
-            for g in _espn_games(sp, target):
-                if g["status"] == "finished":
+            for g in _sp.games(target):
+                if g.get("status") == "finished":
                     continue
                 prob = max(g["prob_home"], 1 - g["prob_home"])
                 pick = g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"]
                 fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
                 dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
                 plays.append({
-                    "sport": sp, "id": g["id"], "kind": "moneyline",
+                    "sport": _key, "id": g["id"], "kind": "moneyline",
                     "match": f"{g['away']['name']} @ {g['home']['name']}",
                     "tournament": g.get("venue", ""),
                     "pick": f"{pick} to win", "prob": round(prob, 3),
                     "confidence": g["confidence"], "event_time": g.get("event_time"),
                     "ctx": {"fav_record": fav.get("record"), "dog_record": dog.get("record"),
                             "exp_margin": g.get("exp_margin"), "fav_name": fav.get("name"),
-                            "dog_name": dog.get("name")},
+                            "dog_name": dog.get("name"), "factors": g.get("factors"),
+                            "avg_total": g.get("avg_total")},
                     "score_key": prob + 0.05 * _confidence_rank(g["confidence"]),
                 })
         except Exception as e:
-            print(f"[picks] {sp} gather failed: {e}")
-    # --- College baseball (ESPN + Warren Nolan RPI) ---
-    try:
-        from ncaab_baseball import get_games as _cbb_games
-        for g in _cbb_games(target):
-            if g["status"] == "finished":
-                continue
-            prob = max(g["prob_home"], 1 - g["prob_home"])
-            pick = g["home"]["name"] if g["prob_home"] >= 0.5 else g["away"]["name"]
-            fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
-            dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
-            plays.append({
-                "sport": "ncaabb", "id": g["id"], "kind": "moneyline",
-                "match": f"{g['away']['name']} @ {g['home']['name']}",
-                "tournament": g.get("venue", ""),
-                "pick": f"{pick} to win", "prob": round(prob, 3),
-                "confidence": g["confidence"], "event_time": g.get("event_time"),
-                "ctx": {"fav_record": fav.get("record"), "dog_record": dog.get("record"),
-                        "exp_margin": g.get("exp_margin"), "fav_name": fav.get("name"),
-                        "dog_name": dog.get("name"), "factors": g.get("factors")},
-                "score_key": prob + 0.05 * _confidence_rank(g["confidence"]),
-            })
-    except Exception as e:
-        print(f"[picks] ncaabb gather failed: {e}")
+            print(f"[picks] {_key} gather failed: {e}")
     plays.sort(key=lambda p: -p["score_key"])
     return plays
 
@@ -1077,6 +1056,22 @@ def _long_reason(p):
             s.append(f"Projected margin about {mg:.0f} run{'s' if mg != 1 else ''}.")
         s.append(f"Confidence: {p['confidence']}. Confirm the weekend rotation yourself — "
                  f"probable starters aren't in the free college feed.")
+    elif p["sport"] == "nhl":
+        s.append(f"The model makes {name} a {pct}% NHL moneyline pick.")
+        if ctx.get("fav_record") and ctx.get("dog_record"):
+            s.append(f"Records (W-L-OTL): {ctx.get('fav_name','the favorite')} {ctx['fav_record']} "
+                     f"versus {ctx.get('dog_name','the opponent')} {ctx['dog_record']}.")
+        facts = ctx.get("factors") or []
+        xg = next((f for f in facts if "xG model" in f), None)
+        if xg:
+            tot = ctx.get("avg_total")
+            s.append(xg + (f" Projected total about {tot} goals." if tot else "")
+                     + " Expected goals come from each side's scoring and goals-against rates, with home ice.")
+        else:
+            s.append("Team goal stats weren't available here, so this rests on records alone "
+                     "— lower confidence.")
+        s.append(f"Confidence: {p['confidence']}. Hockey is high-variance, and this model doesn't "
+                 f"include the starting goalie or injuries — confirm the projected starter yourself.")
     else:  # nba / nfl
         league = p["sport"].upper()
         s.append(f"The model makes {name} a {pct}% {league} favorite.")
@@ -1311,6 +1306,13 @@ def _team_analysis(g, sport):
         return base
 
 
+@app.get("/api/sports")
+def sports_meta():
+    """Registry metadata so the frontend builds its tabs/tiles/labels/colors
+    dynamically. Adding a sport in sports.py surfaces it here automatically."""
+    return sports.public_meta()
+
+
 @app.get("/api/{sport}/games")
 def team_games(sport: str, date: str | None = None, debug: int = 0):
     # College baseball has its own dedicated handler (Highlightly + ESPN). This
@@ -1321,12 +1323,12 @@ def team_games(sport: str, date: str | None = None, debug: int = 0):
         return ncaabb_games(date=date, debug=debug)
     if sport == "nhl":
         return nhl_slate(date=date, debug=debug)
-    if sport not in ("nba", "nfl"):
+    s = sports.get(sport)
+    if not s or s.kind != "espn":      # only nba/nfl are served here
         return []
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     try:
-        from espn_provider import get_games
-        games = get_games(sport, target)
+        games = s.games(target)
     except Exception as e:
         print(f"[{sport}] games failed: {e}")
         return []
@@ -1343,6 +1345,11 @@ def team_games(sport: str, date: str | None = None, debug: int = 0):
                 db.commit()
     except Exception as e:
         print(f"[accuracy] {sport} log skipped: {e}")
+    try:
+        import game_store
+        game_store.save_games(sport, target, games)
+    except Exception:
+        pass
     return games
 
 
@@ -1568,6 +1575,11 @@ def ncaabb_games(date: str | None = None, debug: int = 0):
                 db.commit()
     except Exception as e:
         print(f"[accuracy] ncaabb log skipped: {e}")
+    try:
+        import game_store
+        game_store.save_games("ncaabb", target, games)
+    except Exception:
+        pass
     _NOCACHE = {"Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache", "Expires": "0"}
     if debug:
@@ -1616,6 +1628,11 @@ def nhl_slate(date: str | None = None, debug: int = 0):
                 db.commit()
     except Exception as e:
         print(f"[accuracy] nhl log skipped: {e}")
+    try:
+        import game_store
+        game_store.save_games("nhl", target, games)
+    except Exception:
+        pass
     _NOCACHE = {"Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache", "Expires": "0"}
     if debug:
@@ -1646,12 +1663,12 @@ def team_game(sport: str, game_id: str, date: str | None = None):
         return ncaabb_game(game_id=game_id, date=date)
     if sport == "nhl":
         return nhl_game(game_id=game_id, date=date)
-    if sport not in ("nba", "nfl"):
+    s = sports.get(sport)
+    if not s or s.kind != "espn":
         return {"error": "bad sport"}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     try:
-        from espn_provider import get_game
-        g = get_game(sport, target, game_id)
+        g = s.game(target, game_id)
     except Exception as e:
         print(f"[{sport}] game failed: {e}")
         g = None

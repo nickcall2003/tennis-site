@@ -120,8 +120,6 @@ class PickResult(Base):
     actual: Mapped[str] = mapped_column(String(8))               # who won
     correct: Mapped[bool] = mapped_column()
     # Betting metrics (populated when an odds source is configured).
-    # taken_odds: American odds for our pick when first seen (line we'd have bet).
-    # close_odds: best near-close American odds for our pick (CLV reference).
     taken_odds: Mapped[int | None] = mapped_column(nullable=True)
     close_odds: Mapped[int | None] = mapped_column(nullable=True)
 
@@ -165,3 +163,26 @@ class OddsSnapshot(Base):
     last_seen: Mapped[datetime] = mapped_column(DateTime)
 
     __table_args__ = (UniqueConstraint("sport", "ref", name="uq_odds_sport_ref"),)
+
+
+class GameCache(Base):
+    """
+    Hybrid-ORM persistence for team-sport games (mlb/nba/nfl/ncaabb/nhl).
+
+    The providers fetch live from ESPN (with a short in-memory cache); this
+    table is a WRITE-THROUGH copy of each board, so game state + the model's
+    prediction persist for history/analytics and as a foundation for a future
+    read-fallback when a live fetch comes back empty. One row per (sport, ref),
+    upserted as the game updates from scheduled -> live -> final.
+    """
+    __tablename__ = "game_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[str] = mapped_column(String(10), index=True)     # mlb|nba|nfl|ncaabb|nhl
+    ref: Mapped[str] = mapped_column(String(40), index=True)       # provider game id
+    game_date: Mapped[str] = mapped_column(String(10), index=True) # YYYY-MM-DD (Central)
+    status: Mapped[str] = mapped_column(String(16), default="scheduled", index=True)
+    payload: Mapped[str] = mapped_column(Text)                     # JSON of the game dict
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("sport", "ref", name="uq_gamecache_sport_ref"),)
