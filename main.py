@@ -1263,6 +1263,36 @@ def _ncaabb_writeup(g):
     return "\n\n".join(paras)
 
 
+def _nhl_writeup(g):
+    """Hockey analysis writeup, honest about scope (no goalie/injury data)."""
+    fav = g["home"] if g["prob_home"] >= 0.5 else g["away"]
+    dog = g["away"] if g["prob_home"] >= 0.5 else g["home"]
+    favp = round((g["prob_home"] if g["prob_home"] >= 0.5 else 1 - g["prob_home"]) * 100)
+    home_side = "at home" if g["prob_home"] >= 0.5 else "on the road"
+    factors = g.get("factors") or []
+    total = g.get("avg_total")
+    paras = []
+    p1 = [f"The model makes {fav['name']} the pick at {favp}% to win, playing {home_side}."]
+    if fav["record"] and dog["record"]:
+        p1.append(f"Records (W-L-OTL): {fav['name']} {fav['record']} versus {dog['name']} {dog['record']}.")
+    paras.append(" ".join(p1))
+
+    xg_fact = next((f for f in factors if "xG model" in f), None)
+    if xg_fact:
+        paras.append("This uses a Poisson goals model: each side's expected goals come from their "
+                     "scoring and goals-against rates against the opponent, with home ice. "
+                     + xg_fact + (f" Projected total: about {total} goals." if total else ""))
+    else:
+        paras.append("Note: team goal stats weren't available for this matchup, so the projection "
+                     "rests on records alone \u2014 treat the edge as lower-confidence.")
+
+    paras.append("Hockey is high-variance \u2014 a hot goalie or an OT bounce swings games \u2014 so weigh the "
+                 "edge accordingly. The model uses team goals-for/against and home ice; it does not "
+                 "yet account for the starting goalie, injuries, or rest, so confirm the projected "
+                 f"starter yourself. Model confidence: {g['confidence']}.")
+    return "\n\n".join(paras)
+
+
 def _team_analysis(g, sport):
     base = _team_writeup(g, sport)
     if LLM_COMPLETE is None:
@@ -1289,6 +1319,8 @@ def team_games(sport: str, date: str | None = None, debug: int = 0):
     # shadowing was the root cause of college baseball never displaying.
     if sport == "ncaabb":
         return ncaabb_games(date=date, debug=debug)
+    if sport == "nhl":
+        return nhl_slate(date=date, debug=debug)
     if sport not in ("nba", "nfl"):
         return []
     target = dt.date.fromisoformat(date) if date else dt.date.today()
@@ -1561,10 +1593,59 @@ def ncaabb_game(game_id: str, date: str | None = None):
     return g
 
 
+@app.get("/api/nhl/games")
+def nhl_slate(date: str | None = None, debug: int = 0):
+    """NHL games for a date: ESPN scoreboard backbone + the Poisson xG model."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    games = []
+    try:
+        from nhl_games import get_games as nhl_get
+        games = nhl_get(target) or []
+    except Exception as e:
+        print(f"[nhl] games failed: {e}")
+    # settle finished games for accuracy
+    try:
+        with SessionLocal() as db:
+            wrote = False
+            for g in games:
+                if g.get("status") == "finished" and g.get("winner") in ("home", "away"):
+                    predicted = "home" if g["prob_home"] >= 0.5 else "away"
+                    _record_result(db, "nhl", g["id"], predicted, g["winner"])
+                    wrote = True
+            if wrote:
+                db.commit()
+    except Exception as e:
+        print(f"[accuracy] nhl log skipped: {e}")
+    _NOCACHE = {"Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache", "Expires": "0"}
+    if debug:
+        return JSONResponse({"count": len(games), "games": games}, headers=_NOCACHE)
+    return JSONResponse(games, headers=_NOCACHE)
+
+
+@app.get("/api/nhl/game/{game_id}")
+def nhl_game(game_id: str, date: str | None = None):
+    """One NHL game with analysis writeup."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        from nhl_games import get_games
+        games = get_games(target)
+    except Exception:
+        games = []
+    g = next((x for x in games if str(x["id"]) == str(game_id)), None)
+    if not g:
+        return {"error": "not found"}
+    g = dict(g)
+    g["analysis"] = _nhl_writeup(g)
+    return g
+
+
 @app.get("/api/{sport}/game/{game_id}")
 def team_game(sport: str, game_id: str, date: str | None = None):
     if sport == "ncaabb":
         return ncaabb_game(game_id=game_id, date=date)
+    if sport == "nhl":
+        return nhl_game(game_id=game_id, date=date)
     if sport not in ("nba", "nfl"):
         return {"error": "bad sport"}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
