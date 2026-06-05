@@ -370,6 +370,39 @@ def _match_row(db, m):
     }
 
 
+@app.get("/api/tennis/debug")
+def tennis_debug(date: str | None = None):
+    """Read-only diagnostic: what does the tennis API actually return for a date?
+    Shows raw fixture count, the event-type breakdown, and how _classify_tier
+    sorts them — so we can tell 'no data yet' from 'filtered out' from 'error'."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    out = {"date": target.isoformat()}
+    try:
+        if not hasattr(provider, "_call"):
+            return {"error": "not using the live API-Tennis provider", **out}
+        from collections import Counter
+        d = target.strftime("%Y-%m-%d")
+        raw = provider._call("get_fixtures", date_start=d, date_stop=d)
+        out["raw_fixtures"] = len(raw)
+        out["event_types"] = dict(Counter((f.get("event_type_type") or "?") for f in raw))
+        try:
+            from apitennis import _classify_tier
+            tiers = Counter()
+            for f in raw:
+                tiers[_classify_tier(f) or "EXCLUDED"] += 1
+            out["classified"] = dict(tiers)
+        except Exception as e:
+            out["classify_error"] = str(e)
+        out["sample"] = [{"tournament": f.get("tournament_name"),
+                          "type": f.get("event_type_type"),
+                          "date": f.get("event_date"),
+                          "a": f.get("event_first_player"),
+                          "b": f.get("event_second_player")} for f in raw[:10]]
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
 @app.get("/api/matches")
 def list_matches(date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
