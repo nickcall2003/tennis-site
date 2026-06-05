@@ -1,0 +1,21 @@
+{
+  "_comment": "Warren Nolan RPI for college baseball super regionals. 'name' matches the matchup labels on the site so the model's lookup hits exactly. 'rpi_rank' from warrennolan.com/baseball/2026/rpi-live. Edit + redeploy to refresh; RPI only moves after games finish so once a day is plenty.",
+  "teams": [
+    {"name": "Cal Poly", "rpi_rank": 62},
+    {"name": "West Virginia", "rpi_rank": 17},
+    {"name": "USC", "rpi_rank": 8},
+    {"name": "North Carolina", "rpi_rank": 4},
+    {"name": "Ole Miss", "rpi_rank": 13},
+    {"name": "Auburn", "rpi_rank": 5},
+    {"name": "Mississippi State", "rpi_rank": 9},
+    {"name": "Georgia", "rpi_rank": 7},
+    {"name": "Oklahoma", "rpi_rank": 20},
+    {"name": "Kansas", "rpi_rank": 15},
+    {"name": "Oregon", "rpi_rank": 12},
+    {"name": "Texas", "rpi_rank": 3},
+    {"name": "Saint John's", "rpi_rank": 86},
+    {"name": "Little Rock", "rpi_rank": 69},
+    {"name": "Troy", "rpi_rank": 28},
+    {"name": "Alabama", "rpi_rank": 6}
+  ]
+}
