@@ -195,12 +195,20 @@ async def lifespan(app: FastAPI):
     startup_build = os.environ.get("STARTUP_BUILD", "0") == "1"
 
     # Warren Nolan RPI warm-up — light, runs whenever background is on.
-    if USE_REAL and run_bg:
-        try:
-            import warrennolan
-            warrennolan.warm()
-        except Exception as e:
-            print(f"[startup] warrennolan warm failed: {e}")
+        if USE_REAL and run_bg:
+        # Delay the RPI warm-up so the heavy parse doesn't run during the Railway
+        # healthcheck window. The app passes /healthz first; RPI loads ~60s later.
+        def _warm_rpi():
+            import time as _t
+            _t.sleep(60)
+            try:
+                import warrennolan
+                warrennolan.warm()
+            except Exception as e:
+                print(f"[startup] warrennolan warm failed: {e}")
+        import threading as _thr
+        _thr.Thread(target=_warm_rpi, daemon=True).start()
+
 
     # Results backfill — fills the 30-day accuracy by replaying past finished
     # games into PickResults. Own daemon thread, delayed so the app is healthy
