@@ -1,0 +1,21 @@
+{
+  "_comment": "College baseball team stats for the run-expectancy model. 'name' matches your site's matchup labels. 'rpg' = team runs per game, 'era' = team ERA (from ncaa.com/stats/baseball/d1). A team needs at least 'rpg' to activate the run model; otherwise records+RPI fallback. Edit + redeploy to refresh.",
+  "teams": [
+    {"name": "Cal Poly",          "rpg": 6.6, "era": 4.68},
+    {"name": "West Virginia",     "rpg": 7.5, "era": 3.87},
+    {"name": "USC",               "rpg": 7.2, "era": 3.48},
+    {"name": "North Carolina",    "rpg": 8.4, "era": 3.85},
+    {"name": "Ole Miss",          "rpg": 6.8, "era": 4.40},
+    {"name": "Auburn",            "rpg": 7.0, "era": 3.62},
+    {"name": "Mississippi State", "rpg": 8.8, "era": 4.26},
+    {"name": "Georgia",           "rpg": 9.4, "era": 4.78},
+    {"name": "Oklahoma",          "rpg": 6.9, "era": 5.28},
+    {"name": "Kansas",            "rpg": 7.7, "era": 5.31},
+    {"name": "Oregon",            "rpg": 7.2, "era": 3.98},
+    {"name": "Texas",             "rpg": 8.3, "era": 4.10},
+    {"name": "Saint John's",      "rpg": 6.4, "era": 5.39},
+    {"name": "Little Rock",       "rpg": 6.0, "era": 5.00},
+    {"name": "Troy",              "rpg": 7.1, "era": 5.71},
+    {"name": "Alabama",           "rpg": 6.6, "era": 4.22}
+  ]
+}
