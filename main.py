@@ -1823,6 +1823,33 @@ def sport_news(sport: str, date: str | None = None):
     return {"sport": sport, "news": news, "injuries": injuries, "headlines": headlines}
 
 
+@app.get("/api/clv")
+def clv_report(days: int = 30):
+    """Per-sport Closing Line Value over the last N days, from settled picks that
+    captured both a taken and a closing line. CLV only -- no ROI/units."""
+    from models import PickResult
+    from clv import summarize
+    import odds_api
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    persport, allbets = {}, []
+    with SessionLocal() as db:
+        rows = db.query(PickResult).filter(
+            PickResult.settled_date >= since,
+            PickResult.taken_odds.isnot(None)).all()
+    for r in rows:
+        bet = {"odds": r.taken_odds, "won": bool(r.correct), "close_odds": r.close_odds}
+        persport.setdefault(r.sport, []).append(bet)
+        allbets.append(bet)
+    def _clv_only(bets):
+        s = summarize(bets)
+        return {"avg_clv": s["avg_clv"], "beat_close_pct": s["beat_close_pct"],
+                "clv_sample": s["clv_sample"], "beat_close": s["beat_close"]}
+    return {"days": days,
+            "by_sport": {sp: _clv_only(b) for sp, b in persport.items()},
+            "overall": _clv_only(allbets),
+            "odds_enabled": odds_api.enabled()}
+
+
 @app.get("/api/performance")
 def performance(days: int = 30, sport: str | None = None):
     """

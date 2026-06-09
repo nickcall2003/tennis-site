@@ -317,6 +317,7 @@
         <div class="ring" id="acc-ring">&mdash;</div>
         <div class="lab" id="acc-lab">30-day<br>accuracy</div>
         <div class="alltime" id="acc-alltime"></div>
+        <div class="alltime" id="acc-clv" style="display:none"></div>
       </div>
       <div class="menu-wrap">
         <button class="menu-btn" id="menu-btn" aria-label="Switch sport">&#9776;</button>
@@ -429,8 +430,8 @@ async function loadTournaments(){
     it.innerHTML=live+'<span class="tourn" style="flex:1">'+t.name+'</span><span class="cnt">'+t.count+'</span>';
     it.onclick=()=>{tFilter=t.key;render();};el.appendChild(it);});
 }
-let _accData=null;
-async function loadAccuracy(){try{_accData=await getJSON("/api/accuracy?days=30");renderAccuracy();}catch(e){}}
+let _accData=null,_clvData=null;
+async function loadAccuracy(){try{_accData=await getJSON("/api/accuracy?days=30");}catch(e){}try{_clvData=await getJSON("/api/clv?days=30");}catch(e){}renderAccuracy();}
 function renderAccuracy(){if(!_accData)return;
   // On a sport tab, ALWAYS show that sport's own number (never all-sports).
   // If it has no settled picks yet, show its label with a dash rather than
@@ -452,6 +453,17 @@ function renderAccuracy(){if(!_accData)return;
       const w=_accData.overall.alltime_wins,l=_accData.overall.alltime_losses;
       at.textContent=(w+l)?("All-time "+w+"\u2013"+l):"";
     }else{at.textContent="";}
+  }
+  const clvEl=document.getElementById("acc-clv");
+  if(clvEl){
+    let c=null;
+    if(view==="sport"&&_clvData&&_clvData.by_sport)c=_clvData.by_sport[sport];
+    else if(view!=="sport"&&_clvData)c=_clvData.overall;
+    if(c&&c.clv_sample){
+      const sg=(c.avg_clv!=null&&c.avg_clv>0)?"+":"";
+      clvEl.textContent="CLV "+(c.avg_clv!=null?sg+c.avg_clv+"%":"\u2014")+" \u00b7 beat close "+(c.beat_close_pct!=null?c.beat_close_pct+"%":"\u2014")+" (n="+c.clv_sample+")";
+      clvEl.style.display="";
+    }else{clvEl.style.display="none";}
   }
   const badge=document.getElementById("acc-badge");
   if(badge&&stat)badge.title="Model: "+(stat.correct||0)+"/"+(stat.picks||0)+" correct over last 30 days ("+label+")";}
