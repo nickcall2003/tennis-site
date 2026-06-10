@@ -150,6 +150,7 @@
   .pick-conf.high{background:rgba(139,191,122,.16);color:var(--win)}
   .pick-conf.medium{background:rgba(230,116,58,.16);color:var(--clay-bright)}
   .filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.sortwrap{display:inline-flex;gap:6px;margin-left:auto}
   .lines-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:6px}
   @media(max-width:560px){.lines-grid{grid-template-columns:1fr}}
   .line-box{background:var(--panel-3);border:1px solid var(--line);border-radius:10px;padding:12px}
@@ -414,7 +415,7 @@ function wxIcon(txt){const t=(txt||"").toLowerCase();
   return "\u{1f324}\ufe0f";}
 function timeStr(m){if(m.event_time)return m.event_time;const d=new Date(m.scheduled);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 let selected=startOfDay(new Date());
-let tabMode="all",tFilter=null,current=[];
+let tabMode="all",tFilter=null,current=[];let sortMode="featured";
 const byId={};
 let detailId=null,detailTab="analysis",detailTimer=null;
 async function getJSON(u){const sep=u.indexOf("?")>=0?"&":"?";const r=await fetch(u+sep+"_t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;return r.json();}
@@ -485,7 +486,7 @@ function renderDatebar(){const bar=document.getElementById("datebar");bar.innerH
   const next=document.createElement("button");next.className="arrow";next.textContent="\u203A";next.onclick=()=>{selected=addDays(selected,1);reload();};bar.appendChild(next);}
 function renderTabs(){const liveCount=current.filter(m=>m.status==="live").length;const el=document.getElementById("tabs");el.innerHTML="";
   [["all","All matches"],["live","Live "+(liveCount?'<span class="lv">('+liveCount+')</span>':"")]].forEach(p=>{
-    const b=document.createElement("button");b.className="tab"+(tabMode===p[0]?" active":"");b.innerHTML=p[1];b.onclick=()=>{tabMode=p[0];render();};el.appendChild(b);});}
+    const b=document.createElement("button");b.className="tab"+(tabMode===p[0]?" active":"");b.innerHTML=p[1];b.onclick=()=>{tabMode=p[0];render();};el.appendChild(b);});appendSortToggle(el);}
 function renderBubbles(){const s=dayStats(filteredMatches());
   document.getElementById("bubbles").innerHTML='<div class="bubble"><div class="num">'+s.p+'</div><div class="lab">Settled</div></div>'+
     '<div class="bubble won"><div class="num">'+s.c+'</div><div class="lab">Correct</div></div>'+
@@ -504,16 +505,29 @@ function matchCardHTML(m){const sc=m.score||{},fin=m.status==="finished",live=m.
     '<div class="row">'+nm(m.player_a,pickA,servA,wonA)+'<span class="sets">'+(sc.sets_a||[]).join(" ")+'</span><span class="game">'+(live?sc.game_a:"")+'</span></div>'+
     '<div class="row">'+nm(m.player_b,pickB,servB,wonB)+'<span class="sets">'+(sc.sets_b||[]).join(" ")+'</span><span class="game">'+(live?sc.game_b:"")+'</span></div>'+
     (live?'<div style="margin-top:10px">'+predBarHTML(favN,favP,dogN,100-favP,"live")+'</div>':'<div class="pred"><div class="bar a" style="width:'+(pa>=0.5?pa:pb)*100+'%">'+favN+' '+favP+'%</div><div class="bar b" style="width:'+(pa>=0.5?pb:pa)*100+'%">'+(100-favP)+'% '+dogN+'</div></div>');}
+function favPct(x){var p;
+  if(x&&x.prediction&&x.prediction.prob_a!=null)p=x.prediction.prob_a;
+  else if(x&&x.prob_home!=null)p=x.prob_home;else p=0.5;
+  return Math.max(p,1-p);}
+function _byConfidence(a,b){var fa=a.status==="finished",fb=b.status==="finished";
+  if(fa!==fb)return fa?1:-1;return favPct(b)-favPct(a);}
+function appendSortToggle(el){var wrap=document.createElement("span");wrap.className="sortwrap";
+  [["featured","\u2605 Top"],["confidence","Model %"]].forEach(function(pr){
+    var b=document.createElement("button");b.className="tab sortbtn"+(sortMode===pr[0]?" active":"");
+    b.innerHTML=pr[1];b.onclick=function(){sortMode=pr[0];renderCurrent();};wrap.appendChild(b);});
+  el.appendChild(wrap);}
 function render(){renderTabs();renderBubbles();loadTournaments();
   const list=document.getElementById("list");const shown=filteredMatches();
   if(!shown.length){list.innerHTML='<div class="empty">No matches here for this day.</div>';return;}
   list.innerHTML="";
-  if(tabMode==="all"&&tFilter===null){
+  let ordered=shown;
+  if(sortMode==="confidence")ordered=shown.slice().sort(_byConfidence);
+  if(sortMode!=="confidence"&&tabMode==="all"&&tFilter===null){
     const big=shown.filter(m=>m.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
     if(big.length){const h=document.createElement("div");h.className="section-h";h.textContent="\u2605 Biggest matches today";list.appendChild(h);
       big.forEach(m=>{const el=document.createElement("div");el.className="card big"+(m.status==="live"?" live":"");el.innerHTML=matchCardHTML(m);el.onclick=()=>openDetail(m.id);list.appendChild(el);});
       const h2=document.createElement("div");h2.className="section-h";h2.textContent="All matches";list.appendChild(h2);}}
-  shown.forEach(m=>{const el=document.createElement("div");const fin=m.status==="finished";
+  ordered.forEach(m=>{const el=document.createElement("div");const fin=m.status==="finished";
     el.className="card"+(fin?(m.correct?" correct":(m.correct===false?" wrong":"")):m.status==="live"?" live":"");
     el.innerHTML=matchCardHTML(m);el.onclick=()=>openDetail(m.id);list.appendChild(el);});}
 function showView(detail){document.getElementById("main").style.display=detail?"none":"";
@@ -719,7 +733,7 @@ function teamCardHTML(g){const fin=g.status==="finished",live=g.status==="live";
     '<div style="margin-top:11px">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div>';}
 function renderTabsTeam(){const liveCount=teamGames.filter(g=>g.status==="live").length;const el=document.getElementById("tabs");el.innerHTML="";
   [["all","All games"],["live","Live "+(liveCount?'<span class="lv">('+liveCount+')</span>':"")]].forEach(p=>{
-    const b=document.createElement("button");b.className="tab"+(tabMode===p[0]?" active":"");b.innerHTML=p[1];b.onclick=()=>{tabMode=p[0];renderTeam();};el.appendChild(b);});}
+    const b=document.createElement("button");b.className="tab"+(tabMode===p[0]?" active":"");b.innerHTML=p[1];b.onclick=()=>{tabMode=p[0];renderTeam();};el.appendChild(b);});appendSortToggle(el);}
 function renderTeam(){renderDatebar();renderTabsTeam();
   const s=teamDayStats(teamFiltered());
   document.getElementById("bubbles").innerHTML='<div class="bubble"><div class="num">'+teamFiltered().length+'</div><div class="lab">Games</div></div>'+
@@ -735,11 +749,13 @@ function renderTeam(){renderDatebar();renderTabsTeam();
     list.innerHTML='<div class="empty">No '+SPORT_LABEL[sport]+' games for '+ymd(selected)+'. Use the date arrows to find the next slate.<br><span style="opacity:.6;font-size:11px">'+diag+'</span></div>';return;}
   list.innerHTML="";
   const openFn=(sport==="mlb")?openMLBDetail:openTeamDetail;
-  if(tabMode==="all"){const big=shown.filter(g=>g.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
+  let ordered=shown;
+  if(sortMode==="confidence")ordered=shown.slice().sort(_byConfidence);
+  if(sortMode!=="confidence"&&tabMode==="all"){const big=shown.filter(g=>g.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
     if(big.length){const h=document.createElement("div");h.className="section-h";h.textContent="\u2605 Biggest games today";list.appendChild(h);
       big.forEach(g=>{const el=document.createElement("div");el.className="card big"+(g.status==="live"?" live":"");el.innerHTML=teamCardHTML(g);el.onclick=()=>openFn(g.id);list.appendChild(el);});
       const h2=document.createElement("div");h2.className="section-h";h2.textContent="All games";list.appendChild(h2);}}
-  shown.forEach(g=>{const el=document.createElement("div");const fin=g.status==="finished";
+  ordered.forEach(g=>{const el=document.createElement("div");const fin=g.status==="finished";
     let cls="card";if(fin&&g.winner){const pick=g.prob_home>=0.5?"home":"away";cls+=pick===g.winner?" correct":" wrong";}else if(g.status==="live")cls+=" live";
     el.className=cls;el.innerHTML=teamCardHTML(g);el.onclick=()=>openFn(g.id);list.appendChild(el);});}
 async function openMLBDetail(id){detailId="mlb"+id;mlbDetailTab="prediction";mlbMatchups=null;mlbInjuries=null;mlbProps=null;showView(true);location.hash="g"+id;
