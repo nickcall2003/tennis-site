@@ -83,6 +83,15 @@ if USE_REAL:
             this_year = dt.date.today().year
             n = engine.train_from_sackmann(range(this_year - years + 1, this_year + 1))
             print(f"[predictions] trained on {n} matches, {len(engine._by_key)} players")
+            # Cache the trained ratings to disk so we DON'T retrain on every boot.
+            # Point RATINGS_FILE at the persistent volume (e.g. /data/ratings.json)
+            # and the next boot loads this instead of training again.
+            try:
+                _rf = os.environ.get("RATINGS_FILE", "ratings.json")
+                engine.export_ratings(_rf)
+                print(f"[predictions] cached ratings -> {_rf} (skips retraining next boot)")
+            except Exception as _e:
+                print(f"[predictions] could not cache ratings ({_e})")
         except Exception as e:
             print(f"[predictions] history training skipped ({e})")
     else:

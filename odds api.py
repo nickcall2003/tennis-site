@@ -54,6 +54,13 @@ SPORT_KEY = {
     "mlb": "baseball_mlb",
     "nba": "basketball_nba",
     "nfl": "americanfootball_nfl",
+    "nhl": "icehockey_nhl",
+    "ncaaf": "americanfootball_ncaaf",
+    "ncaab": "basketball_ncaab",
+    "ncaabb": "baseball_ncaa",
+    # Note: women's college basketball (wncaab) has no market on The Odds API,
+    # so it is intentionally omitted and stays model-only. The active-season
+    # gate below means a missing/inactive key never costs a quota call anyway.
 }
 
 # Tennis is split into per-tournament sport keys (e.g. tennis_atp_french_open).
@@ -67,6 +74,12 @@ _tennis_odds_cache = {}          # sport_key -> (ts, {match_key: odds})
 _cache = {}        # sport -> (ts, {match_key: {...odds...}})
 _TTL = 900         # 15 min; protects the monthly quota
 _quota = {"remaining": None, "used": None}
+
+# In-season ("active") sport keys, from the free /sports list. Used to avoid
+# spending a paid odds call on an off-season league (e.g. college football in
+# June). Refreshed twice a day; /sports does not count against the quota.
+_active_cache = {"ts": 0.0, "keys": set()}
+_ACTIVE_TTL = 12 * 3600
 
 
 def enabled():
@@ -89,6 +102,29 @@ def american_from_decimal(dec):
     return round(-100 / (dec - 1))
 
 
+def _active_sport_keys():
+    """Set of in-season sport keys from /sports (all=false). This endpoint is
+    free (does NOT count against the quota), so we use it to skip a paid odds
+    call on a league that isn't currently offered. If the list can't be
+    fetched we return whatever we last had (and get_odds will simply proceed)."""
+    if not API_KEY:
+        return set()
+    if time.time() - _active_cache["ts"] < _ACTIVE_TTL and _active_cache["keys"]:
+        return _active_cache["keys"]
+    try:
+        import httpx
+        r = httpx.get(f"{BASE}/sports", params={"apiKey": API_KEY, "all": "false"}, timeout=12)
+        r.raise_for_status()
+        keys = {s.get("key") for s in r.json() if s.get("active")}
+    except Exception as e:
+        print(f"[odds] active-sport list failed: {e}")
+        return _active_cache["keys"]
+    if keys:
+        _active_cache["ts"] = time.time()
+        _active_cache["keys"] = keys
+    return keys
+
+
 def get_odds(sport: str):
     """
     Return {match_key: {home, away, h2h:{home_team, away_team, prices...},
@@ -102,6 +138,13 @@ def get_odds(sport: str):
         return c[1]
     if not _quota_ok():
         return _cache.get(sport, (0, {}))[1]   # serve last cache; protect quota
+    # Don't spend a paid call on an off-season / unoffered league. The /sports
+    # check is free; if it says this league isn't active right now, cache empty
+    # briefly and bail. (When the season starts it reappears and we resume.)
+    active = _active_sport_keys()
+    if active and SPORT_KEY[sport] not in active:
+        _cache[sport] = (time.time(), {})
+        return {}
     url = f"{BASE}/sports/{SPORT_KEY[sport]}/odds"
     params = {"regions": "us", "markets": "h2h,spreads,totals",
               "oddsFormat": "american", "apiKey": API_KEY}
