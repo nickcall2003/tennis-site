@@ -515,8 +515,28 @@ function favPct(x){var p;
   return Math.max(p,1-p);}
 function _byConfidence(a,b){var fa=a.status==="finished",fb=b.status==="finished";
   if(fa!==fb)return fa?1:-1;return favPct(b)-favPct(a);}
+function edgeVal(x){
+  if(x&&x.odds&&(x.odds.ml_home!=null||x.odds.ml_away!=null)){
+    var favHome=x.prob_home>=0.5;
+    var mkt=favHome?x.odds.ml_home:x.odds.ml_away;
+    if(mkt!=null){
+      var modelProb=favHome?x.prob_home:(1-x.prob_home);
+      var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+      return (modelProb-mImp)*100;
+    }
+  }
+  return null;
+}
+function _byEdge(a,b){
+  var fa=a.status==="finished",fb=b.status==="finished";
+  if(fa!==fb)return fa?1:-1;
+  var ea=edgeVal(a),eb=edgeVal(b),na=ea==null,nb=eb==null;
+  if(na!==nb)return na?1:-1;            // items with no market edge sink
+  if(na&&nb)return favPct(b)-favPct(a); // both edgeless -> fall back to model %
+  return eb-ea;                         // biggest edge first
+}
 function appendSortToggle(el){var wrap=document.createElement("span");wrap.className="sortwrap";
-  [["featured","\u2605 Top"],["confidence","Model %"]].forEach(function(pr){
+  [["featured","\u2605 Top"],["confidence","Model %"],["edge","Edge %"]].forEach(function(pr){
     var b=document.createElement("button");b.className="tab sortbtn"+(sortMode===pr[0]?" active":"");
     b.innerHTML=pr[1];b.onclick=function(){sortMode=pr[0];renderCurrent();};wrap.appendChild(b);});
   el.appendChild(wrap);}
@@ -526,7 +546,8 @@ function render(){renderTabs();renderBubbles();loadTournaments();
   list.innerHTML="";
   let ordered=shown;
   if(sortMode==="confidence")ordered=shown.slice().sort(_byConfidence);
-  if(sortMode!=="confidence"&&tabMode==="all"&&tFilter===null){
+  if(sortMode==="edge")ordered=shown.slice().sort(_byEdge);
+  if(sortMode==="featured"&&tabMode==="all"&&tFilter===null){
     const big=shown.filter(m=>m.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
     if(big.length){const h=document.createElement("div");h.className="section-h";h.textContent="\u2605 Biggest matches today";list.appendChild(h);
       big.forEach(m=>{const el=document.createElement("div");el.className="card big"+(m.status==="live"?" live":"");el.innerHTML=matchCardHTML(m);el.onclick=()=>openDetail(m.id);list.appendChild(el);});
@@ -755,7 +776,8 @@ function renderTeam(){renderDatebar();renderTabsTeam();
   const openFn=(sport==="mlb")?openMLBDetail:openTeamDetail;
   let ordered=shown;
   if(sortMode==="confidence")ordered=shown.slice().sort(_byConfidence);
-  if(sortMode!=="confidence"&&tabMode==="all"){const big=shown.filter(g=>g.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
+  if(sortMode==="edge")ordered=shown.slice().sort(_byEdge);
+  if(sortMode==="featured"&&tabMode==="all"){const big=shown.filter(g=>g.status!=="finished").slice().sort((a,b)=>b.prominence-a.prominence).slice(0,3);
     if(big.length){const h=document.createElement("div");h.className="section-h";h.textContent="\u2605 Biggest games today";list.appendChild(h);
       big.forEach(g=>{const el=document.createElement("div");el.className="card big"+(g.status==="live"?" live":"");el.innerHTML=teamCardHTML(g);el.onclick=()=>openFn(g.id);list.appendChild(el);});
       const h2=document.createElement("div");h2.className="section-h";h2.textContent="All games";list.appendChild(h2);}}
