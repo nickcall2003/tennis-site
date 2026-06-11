@@ -1193,7 +1193,7 @@ def free_picks(date: str | None = None):
     strong = ranked[:4]
     out = []
     for p in strong:
-        p["reason"] = _short_reason(p)
+        p["reason"] = _long_reason(p)   # rich standard on every game
         _enrich_odds(p)
         p["result"] = _pick_result_status(p["sport"], str(p["id"]))
         p.pop("score_key", None)
@@ -1222,6 +1222,8 @@ def best_bets(date: str | None = None, sport: str | None = None, min_prob: float
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
     plays = _gather_plays(target)
+    import premium
+    slate = [dict(p) for p in plays]        # stable snapshot for slate ranking
     out = []
     for p in plays:
         if sport and p["sport"] != sport:
@@ -1230,6 +1232,9 @@ def best_bets(date: str | None = None, sport: str | None = None, min_prob: float
             continue
         p["reason"] = _long_reason(p)       # in-depth for Best Bets
         _enrich_odds(p)
+        # premium "why it's a best bet" layer (paywall-ready): standout vs the
+        # day's board, model-derived stake sizing, and the model's track record.
+        p["premium"] = premium.premium_facts(p, slate, SessionLocal)
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
