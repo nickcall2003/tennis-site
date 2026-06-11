@@ -121,32 +121,45 @@ def _ensure_day(day: dt.date) -> None:
         return
     import time as _t
     key = day.isoformat()
-    if key in _built_dates:
+    # Today and future days are still filling in — on grass/clay swing days the
+    # singles main draws post hours after the doubles and qualifying do, so we
+    # must NOT freeze a day on its first partial build. Only PAST days are
+    # immutable once built.
+    is_open = day >= dt.date.today()
+    if key in _built_dates and not is_open:
         return
     start = dt.datetime.combine(day, dt.time.min)
     end = dt.datetime.combine(day, dt.time.max)
-    # Already in the DB (e.g. persisted across a restart)? Mark built, skip the
-    # expensive rebuild. This is what stops the rebuild-on-every-boot loop.
-    try:
-        with SessionLocal() as db:
-            has = db.query(Match.id).filter(Match.scheduled >= start,
-                                            Match.scheduled <= end).first()
-        if has:
-            _built_dates.add(key)
-            return
-    except Exception as e:
-        print(f"[build] db check failed for {key}: {e}")
+    # PAST days: if rows already exist (e.g. persisted across a restart), mark
+    # built and skip the expensive rebuild — this is what stops the
+    # rebuild-on-every-boot loop. We deliberately DON'T take this shortcut for
+    # today/future, so a stale partial slate can refresh into the full one.
+    if not is_open:
+        try:
+            with SessionLocal() as db:
+                has = db.query(Match.id).filter(Match.scheduled >= start,
+                                                Match.scheduled <= end).first()
+            if has:
+                _built_dates.add(key)
+                return
+        except Exception as e:
+            print(f"[build] db check failed for {key}: {e}")
+    # Throttle rebuilds. Open days refresh every TENNIS_REFRESH_MINUTES so new
+    # singles get pulled in through the day; past empty days retry once a minute.
+    throttle = int(os.environ.get("TENNIS_REFRESH_MINUTES", "30")) * 60 if is_open else 60
     last = _build_attempts.get(key, 0)
-    if _t.time() - last < 60:
+    if _t.time() - last < throttle:
         return
     _build_attempts[key] = _t.time()
     try:
         build_day(provider, engine, dt.datetime(day.year, day.month, day.day))
-        with SessionLocal() as db:
-            has = db.query(Match.id).filter(Match.scheduled >= start,
-                                            Match.scheduled <= end).first()
-        if has:
-            _built_dates.add(key)
+        # Only PAST days get permanently marked built; open days stay refreshable.
+        if not is_open:
+            with SessionLocal() as db:
+                has = db.query(Match.id).filter(Match.scheduled >= start,
+                                                Match.scheduled <= end).first()
+            if has:
+                _built_dates.add(key)
     except Exception as e:
         print(f"[build] could not build {key}: {e}")
 
