@@ -146,6 +146,10 @@
   .pick-name{font-size:16px;font-weight:600;margin-bottom:3px}
   .pick-match{color:var(--muted);font-size:12.5px}
   .pick-reason{font-size:13px;color:var(--ink);margin-top:8px;line-height:1.5;opacity:.9}
+  .pick-premium{margin-top:10px;padding:10px 12px;border-radius:10px;background:linear-gradient(180deg,rgba(212,160,80,.10),rgba(212,160,80,.04));border:1px solid rgba(212,160,80,.28)}
+  .prem-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.02em;color:#e7c88a;text-transform:uppercase}
+  .prem-stake{margin-left:auto;background:rgba(212,160,80,.18);color:#f0d6a0;border:1px solid rgba(212,160,80,.4);border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;letter-spacing:0;text-transform:none}
+  .prem-body{font-size:13px;line-height:1.5;color:var(--ink);margin-top:6px;opacity:.95}
   .pick-conf{font-family:"Space Mono",monospace;font-size:10px;text-transform:uppercase;letter-spacing:.06em;padding:2px 7px;border-radius:5px}
   .pick-conf.high{background:rgba(139,191,122,.16);color:var(--win)}
   .pick-conf.medium{background:rgba(230,116,58,.16);color:var(--clay-bright)}
@@ -865,6 +869,27 @@ function teamLinesHTML(g){const L=g.lines;if(!L)return "";const pc=v=>Math.round
     '<div class="line-box"><h5>Projected margin</h5><div class="line-row"><span>'+fav+' by</span><span class="od">'+Math.abs(sp.exp_margin)+'</span></div>'+
       '<div class="line-row" style="opacity:.6;font-size:11px"><span>model line</span><span>own number</span></div></div>'+
     '</div>';}
+function teamFactorsHTML(g,sp){
+  const f=g.factors;if(!f)return "";
+  const aa=g.away.abbr,ah=g.home.abbr;
+  const favAb=((g.exp_margin||0)>=0?ah:aa);
+  const sgn=v=>(v>0?"+":"")+v;
+  let rows="";
+  if(sp==="nba"){
+    rows=facRow("Offensive rating",f.away_off,f.home_off)+
+         facRow("Defensive rating",f.away_def,f.home_def)+
+         facRow("Net rating",sgn(f.away_net),sgn(f.home_net));
+  }else if(sp==="nfl"){
+    rows=facRow("Off EPA/play",sgn(f.away_off_epa),sgn(f.home_off_epa))+
+         facRow("Def EPA/play",sgn(f.away_def_epa),sgn(f.home_def_epa))+
+         facRow("Net EPA/play",sgn(f.away_net_epa),sgn(f.home_net_epa));
+  }else return "";
+  const extra=(sp==="nba"&&f.pace!=null)?" \u00b7 pace "+f.pace:"";
+  const summary='<div class="fac" style="border:none"><span class="va"></span><span class="lab">Proj. '+favAb+' by '+Math.abs(g.exp_margin)+' \u00b7 total '+g.avg_total+extra+'</span><span class="vb"></span></div>';
+  return '<div class="stat-sec">Why \u2014 the factors</div>'+
+    '<div class="fac"><span class="va">'+aa+'</span><span class="lab"></span><span class="vb">'+ah+'</span></div>'+
+    rows+summary;
+}
 function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status==="live";const ph=Math.round(g.prob_home*100),pa=100-ph;
   const sa=g.score&&g.score.away!=null?g.score.away:"",sh=g.score&&g.score.home!=null?g.score.home:"";
   let statTxt=live?'<span class="live-tag"><span class="pulse"></span>'+((g.score&&g.score.detail)||"Live")+'</span>':fin?"Final":(g.event_time||(g.score&&g.score.detail)||"Scheduled");
@@ -881,6 +906,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
   if(teamDetailTab==="props"&&sp!=="ncaabb"&&sp!=="nhl"&&sp!=="ncaaf"&&sp!=="ncaab"&&sp!=="wncaab"){body=propsPanelHTML(teamProps);}
   else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
+    teamFactorsHTML(g,sp)+
     teamLinesHTML(g)+
     '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>';}
   document.getElementById("detail").innerHTML='<button class="back" onclick="closeDetail()">\u2039 Back to games</button>'+head+tabs+body;}
@@ -1110,6 +1136,12 @@ function pickCardHTML(p,isFree){const pct=Math.round(p.prob*100);const slabel=(S
   if(p.result==="win")resultBadge='<span class="pick-result win">\u2713 WIN</span>';
   else if(p.result==="loss")resultBadge='<span class="pick-result loss">\u2717 LOSS</span>';
   else if(isFree)resultBadge='<span class="pick-result pending">PENDING</span>';
+  let premiumBlock="";
+  if(!isFree&&p.premium&&p.premium.text){
+    const st=p.premium.stake||{};
+    const stakeBadge=(st.units!=null&&!st.pass&&st.units>0)?'<span class="prem-stake">'+st.units+'u</span>':"";
+    premiumBlock='<div class="pick-premium"><div class="prem-head">\u{1F451} Best Bet edge'+stakeBadge+'</div><div class="prem-body">'+p.premium.text+'</div></div>';
+  }
   return '<div class="pick-card'+(p.result?" settled-"+p.result:"")+'" data-sport="'+p.sport+'" data-id="'+p.id+'">'+
     '<div class="pick-top"><span class="pick-sport '+p.sport+'">'+slabel+'</span>'+
     '<span class="pick-conf '+p.confidence+'">'+p.confidence+'</span>'+
@@ -1118,7 +1150,7 @@ function pickCardHTML(p,isFree){const pct=Math.round(p.prob*100);const slabel=(S
     '<div class="pick-name">'+p.pick+'</div>'+
     '<div class="pick-match">'+p.match+(p.tournament?" \u00b7 "+p.tournament:"")+(p.event_time?" \u00b7 "+p.event_time:"")+'</div>'+
     oddsLine+
-    '<div class="pick-reason">'+(p.reason||"")+'</div></div>';}
+    '<div class="pick-reason">'+(p.reason||"")+'</div>'+premiumBlock+'</div>';}
 function bindPickCards(){document.querySelectorAll(".pick-card").forEach(c=>{
   c.onclick=()=>{const s=c.dataset.sport,id=c.dataset.id;
     if(s==="mlb"){sport="mlb";openMLBDetail(id);}

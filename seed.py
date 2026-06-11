@@ -15,6 +15,7 @@ from odds import devig_two_way, edge
 from predictions import PredictionEngine
 from mock import MockTennisProvider, demo_schedule
 from weather import get_match_weather
+import datetime as _dt
 
 # Optional: plug your LLM here to get natural-language writeups instead of the
 # deterministic template. Leave as None to use the template (no API key needed).
@@ -136,8 +137,26 @@ def build_day(provider, engine: PredictionEngine, day) -> int:
         # Pre-load which provider ids already exist, in one query, so we don't
         # re-run live scoring/weather for matches we already have.
         existing = {row[0] for row in db.query(Match.provider_match_id).all()}
+        # The day we were asked to build IS the day these fixtures belong to, so
+        # any scheduled date other than `day` is a timezone roll (an evening
+        # European match parsed into the next calendar day). Realign to `day`,
+        # keeping the time of day.
+        day_date = day.date() if isinstance(day, _dt.datetime) else day
+        def _align(scheduled):
+            if scheduled and scheduled.date() != day_date:
+                return _dt.datetime.combine(day_date, scheduled.time())
+            return scheduled
         for info in schedule:
             if info.provider_match_id in existing:
+                # already stored — but fix a mis-dated row in place (no live calls)
+                try:
+                    m = (db.query(Match)
+                           .filter_by(provider_match_id=info.provider_match_id).first())
+                    if m and m.scheduled and m.scheduled.date() != day_date:
+                        m.scheduled = _dt.datetime.combine(day_date, m.scheduled.time())
+                        db.commit()
+                except Exception:
+                    db.rollback()
                 continue  # already stored (idempotent, no live calls)
             try:
                 meta = provider.fixture_meta(info.provider_match_id) if hasattr(provider, "fixture_meta") else {}
@@ -176,7 +195,7 @@ def build_day(provider, engine: PredictionEngine, day) -> int:
                     provider_match_id=info.provider_match_id, tier=info.tier,
                     tournament=info.tournament, surface=info.surface,
                     player_a=info.player_a, player_b=info.player_b,
-                    scheduled=info.scheduled, best_of=info.best_of, status=info.status,
+                    scheduled=_align(info.scheduled), best_of=info.best_of, status=info.status,
                     event_time=meta.get("event_time"),
                     tournament_key=meta.get("tournament_key"),
                     round=meta.get("round"),
