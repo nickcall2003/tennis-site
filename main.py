@@ -239,6 +239,31 @@ async def lifespan(app: FastAPI):
         import threading as _thr_tla
         _thr_tla.Thread(target=_tennis_lookahead, daemon=True).start()
 
+    # AI narration warmer — pre-narrates today's board in the background so user
+    # page loads are instant and fully Claude-written. No-op without a key.
+    if run_bg and LLM_COMPLETE is not None:
+        def _narration_warmer():
+            import time as _t
+            import narrate as _nar, premium as _prem
+            _t.sleep(90)   # pass healthcheck + let the first build settle
+            while True:
+                try:
+                    target = dt.date.today()
+                    plays = _gather_plays(target)
+                    slate = [dict(p) for p in plays]
+                    for p in plays:
+                        _nar.warm(_long_reason(p), kind="reason",
+                                  sport=p["sport"], llm=LLM_COMPLETE)
+                        pf = _prem.premium_facts(p, slate, SessionLocal)
+                        _nar.warm(pf["text"], kind="premium",
+                                  sport=p["sport"], llm=LLM_COMPLETE)
+                except Exception as e:
+                    print(f"[ai] narration warmer failed: {e}")
+                _t.sleep(int(os.environ.get("AI_WARM_INTERVAL", "1800")))
+        import threading as _thr_nw
+        _thr_nw.Thread(target=_narration_warmer, daemon=True).start()
+        print("[ai] narration warmer started")
+
     if USE_REAL and run_bg and startup_build:
         def _startup_bg():
             import time as _t
@@ -1191,9 +1216,12 @@ def free_picks(date: str | None = None):
     # rank by confidence then probability; take the top 4 regardless of threshold
     ranked = sorted(plays, key=lambda p: -(p.get("score_key", p["prob"])))
     strong = ranked[:4]
+    import narrate
+    budget = {"left": int(os.environ.get("AI_MAX_PER_REQUEST", "10"))}
     out = []
     for p in strong:
-        p["reason"] = _long_reason(p)   # rich standard on every game
+        p["reason"] = narrate.prose(_long_reason(p), kind="reason",
+                                    sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
         _enrich_odds(p)
         p["result"] = _pick_result_status(p["sport"], str(p["id"]))
         p.pop("score_key", None)
@@ -1222,19 +1250,24 @@ def best_bets(date: str | None = None, sport: str | None = None, min_prob: float
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
     plays = _gather_plays(target)
-    import premium
+    import premium, narrate
     slate = [dict(p) for p in plays]        # stable snapshot for slate ranking
+    budget = {"left": int(os.environ.get("AI_MAX_PER_REQUEST", "10"))}
     out = []
     for p in plays:
         if sport and p["sport"] != sport:
             continue
         if p["prob"] < min_prob:
             continue
-        p["reason"] = _long_reason(p)       # in-depth for Best Bets
+        p["reason"] = narrate.prose(_long_reason(p), kind="reason",
+                                    sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
         _enrich_odds(p)
         # premium "why it's a best bet" layer (paywall-ready): standout vs the
         # day's board, model-derived stake sizing, and the model's track record.
-        p["premium"] = premium.premium_facts(p, slate, SessionLocal)
+        pf = premium.premium_facts(p, slate, SessionLocal)
+        pf["text"] = narrate.prose(pf["text"], kind="premium",
+                                   sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
+        p["premium"] = pf
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
