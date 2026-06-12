@@ -1827,6 +1827,24 @@ def nhl_game(game_id: str, date: str | None = None):
     return g
 
 
+@app.get("/api/{sport}/boxscore/{game_id}")
+def game_boxscore(sport: str, game_id: str, date: str | None = None):
+    """Live player box score for one game (powers the per-game Live Stats tab)."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        if sport == "ncaabb":
+            from ncaab_baseball import get_boxscore
+            return get_boxscore(target, game_id)
+        if sport == "mlb":
+            from mlb_provider import get_boxscore
+            return get_boxscore(target, int(game_id))
+        from espn_provider import get_boxscore
+        return get_boxscore(sport, target, game_id)
+    except Exception as e:
+        print(f"[{sport}] boxscore failed: {e}")
+        return {"teams": []}
+
+
 @app.get("/api/{sport}/game/{game_id}")
 def team_game(sport: str, game_id: str, date: str | None = None):
     if sport == "ncaabb":
@@ -1855,9 +1873,42 @@ def team_game(sport: str, game_id: str, date: str | None = None):
     return g
 
 
+def _book_props(sport, g):
+    """Resolve real sportsbook player props: SportsGameOdds (free tier includes
+    props) first, then The Odds API. Returns a props list or None."""
+    home, away = g["home"]["name"], g["away"]["name"]
+    try:
+        import sgo_api
+        if sgo_api.enabled():
+            b = sgo_api.get_player_props(sport, home, away)
+            if b:
+                return b
+    except Exception as e:
+        print(f"[{sport}] sgo props failed: {e}")
+    try:
+        import odds_api
+        b = odds_api.get_player_props(sport, home, away)
+        if b:
+            return b
+    except Exception as e:
+        print(f"[{sport}] odds-api props failed: {e}")
+    return None
+
+
 @app.get("/api/mlb/props/{game_id}")
 def mlb_props(game_id: int, date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
+    # 1) real sportsbook lines: SportsGameOdds (free props) then The Odds API
+    try:
+        from mlb_provider import get_game
+        g = get_game(target, game_id)
+        if g:
+            b = _book_props("mlb", g)
+            if b:
+                return {"game_id": game_id, "props": b, "source": "book"}
+    except Exception as e:
+        print(f"[mlb] book props failed: {e}")
+    # 2) fall back to model projections
     try:
         from mlb_provider import get_props
         return get_props(target, game_id)
@@ -1871,6 +1922,17 @@ def team_props(sport: str, game_id: str, date: str | None = None):
     if sport not in ("nba", "nfl"):
         return {"props": []}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
+    # 1) real sportsbook lines: SportsGameOdds (free props) then The Odds API
+    try:
+        from espn_provider import get_game
+        g = get_game(sport, target, game_id)
+        if g:
+            b = _book_props(sport, g)
+            if b:
+                return {"game_id": game_id, "props": b, "source": "book"}
+    except Exception as e:
+        print(f"[{sport}] book props failed: {e}")
+    # 2) fall back to model projections
     try:
         from espn_provider import get_props
         return get_props(sport, target, game_id)
