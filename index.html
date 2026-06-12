@@ -87,7 +87,7 @@
   .pred .a{background:rgba(200,97,47,.26)}.pred .b{background:rgba(255,255,255,.045);color:var(--muted);justify-content:flex-end}
   .lowconf{font-size:9.5px;font-family:"Space Mono",monospace;color:var(--muted-2);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
   .empty{color:var(--muted);text-align:center;padding:46px 0;font-style:italic}
-  .detail{grid-column:1/-1;display:none}
+  .detail{grid-column:1/-1;display:none;overflow-x:hidden}
   .back{display:inline-flex;align-items:center;gap:7px;background:var(--panel-2);border:1px solid var(--line);
     color:var(--ink);padding:8px 14px;border-radius:9px;cursor:pointer;font-size:13px;margin-bottom:18px}
   .d-head{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}
@@ -96,7 +96,7 @@
   .d-pname{font-family:"Fraunces",serif;font-size:22px;font-weight:600}
   .d-sets{font-family:"Space Mono",monospace;font-size:20px;letter-spacing:.2em}
   .d-pred{display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:16px}
-  .d-pred .bar{height:100%;display:flex;align-items:center;padding:0 11px;font-family:"Space Mono",monospace;font-size:12.5px;font-weight:700}
+  .d-pred .bar{height:100%;display:flex;align-items:center;padding:0 11px;font-family:"Space Mono",monospace;font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden}
   .d-pred .a{background:rgba(200,97,47,.28)}.d-pred .b{background:rgba(255,255,255,.05);color:var(--muted);justify-content:flex-end}
   .d-tabs{display:flex;gap:8px;margin-bottom:14px}
   .d-tab{background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 18px;border-radius:9px;cursor:pointer;font-size:13.5px;font-weight:600}
@@ -176,6 +176,37 @@
   .pred-live{margin-top:10px;font-family:"Space Mono",monospace;font-size:12px;color:var(--clay-bright);background:rgba(200,97,47,.10);border:1px solid rgba(200,97,47,.3);border-radius:8px;padding:8px 11px}
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
+  .live-prob-note{display:flex;align-items:center;gap:7px;margin-top:9px;font-family:"Space Mono",monospace;font-size:11px;color:var(--clay-bright);flex-wrap:wrap}
+  .mlb-sit{display:flex;align-items:center;gap:16px;margin-top:14px;padding:12px 14px;background:rgba(255,255,255,.025);border:1px solid var(--line);border-radius:10px}
+  .diamond{width:74px;height:74px;flex:none}
+  .diamond .paths{fill:none;stroke:rgba(255,255,255,.12);stroke-width:2}
+  .diamond .base{fill:rgba(255,255,255,.07);stroke:rgba(255,255,255,.22);stroke-width:1.5}
+  .diamond .base.on{fill:var(--clay-bright);stroke:var(--clay-bright)}
+  .diamond .home{fill:rgba(255,255,255,.28);stroke:none}
+  .sit-info{display:flex;flex-direction:column;gap:6px;font-family:"Space Mono",monospace;font-size:12px;min-width:0}
+  .sit-row{display:flex;align-items:center;gap:8px}
+  .sit-lab{font-size:9px;color:var(--muted-2);letter-spacing:.06em}
+  .outs .o{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--muted-2);display:inline-block;margin-right:3px}
+  .outs .o.on{background:var(--loss);border-color:var(--loss)}
+  .sit-count{color:var(--clay-bright);font-weight:700}
+  .sit-nm{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .nf-wrap{margin-top:14px}
+  .nf-field{display:flex;align-items:stretch;height:46px;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+  .nf-ez{display:flex;align-items:center;justify-content:center;width:30px;font-family:"Space Mono",monospace;font-size:10px;font-weight:700;color:#fff;letter-spacing:.04em}
+  .nf-ez-l{background:rgba(150,70,70,.5)}
+  .nf-ez-r{background:rgba(70,100,140,.5)}
+  .nf-play{position:relative;flex:1;background:repeating-linear-gradient(90deg,rgba(255,255,255,.10) 0 1px,transparent 1px 10%),linear-gradient(180deg,rgba(40,90,55,.9),rgba(30,70,44,.9))}
+  .nf-field.rz .nf-play{background:repeating-linear-gradient(90deg,rgba(255,255,255,.10) 0 1px,transparent 1px 10%),linear-gradient(180deg,rgba(120,45,45,.85),rgba(92,34,34,.85))}
+  .nf-los{position:absolute;top:0;bottom:0;width:2px;background:rgba(90,150,230,.95);transform:translateX(-1px)}
+  .nf-fd{position:absolute;top:0;bottom:0;width:2px;background:rgba(240,200,60,.95);transform:translateX(-1px)}
+  .nf-ball{position:absolute;top:50%;width:11px;height:7px;border-radius:50%;background:#8a4a25;border:1px solid #d8c0a0;transform:translate(-50%,-50%);z-index:2}
+  .nf-dd{margin-top:9px;font-family:"Space Mono",monospace;font-size:12px;color:var(--ink);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .nf-pos{background:var(--clay-bright);color:#1a1a1a;font-weight:700;padding:1px 7px;border-radius:5px}
+  .nf-rz{background:var(--loss);color:#fff;font-weight:700;padding:1px 7px;border-radius:5px;font-size:10px;letter-spacing:.05em}
+  .nf-tos{margin-top:8px;font-family:"Space Mono",monospace;font-size:11px;color:var(--muted);display:flex;align-items:center;gap:5px}
+  .nf-tlab{color:var(--muted-2);font-size:10px}
+  .nf-tos .to{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--muted-2);display:inline-block;margin-right:2px}
+  .nf-tos .to.on{background:var(--win);border-color:var(--win)}
   .wx-chip{font-size:13px;margin-left:6px;cursor:help}
   .rec-banner{display:flex;align-items:center;gap:12px;border-radius:12px;padding:11px 16px;margin:0 0 16px;font-size:13px;border:1px solid var(--line);background:var(--panel-2)}
   .rec-banner b{font-family:"Fraunces",serif;font-size:22px;font-weight:900}
@@ -593,7 +624,7 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
   const head='<div class="d-head"><div class="d-meta"><span class="tier '+tb.cls+'">'+tb.label+'</span><span class="tourn">'+m.tournament+rnd+surf+'</span><span class="status" style="margin-left:auto">'+stat+'</span></div>'+
     '<div class="d-score"><span class="d-pname '+(fin&&sc.winner==="a"?"winner":"")+'">'+m.player_a+'</span><span class="d-sets">'+(sc.sets_a||[]).join(" ")+" "+(live?"<b>"+sc.game_a+"</b>":"")+'</span></div>'+
     '<div class="d-score"><span class="d-pname '+(fin&&sc.winner==="b"?"winner":"")+'">'+m.player_b+'</span><span class="d-sets">'+(sc.sets_b||[]).join(" ")+" "+(live?"<b>"+sc.game_b+"</b>":"")+'</span></div>'+
-    (live?'<div class="d-pred">'+predBarHTML(lastName(m.player_a),Math.round(pa*100),lastName(m.player_b),Math.round((1-pa)*100),"live")+'</div></div>':'<div class="d-pred"><div class="bar a" style="width:'+pa*100+'%">'+lastName(m.player_a)+" "+Math.round(pa*100)+'%</div><div class="bar b" style="width:'+(1-pa)*100+'%">'+Math.round((1-pa)*100)+"% "+lastName(m.player_b)+'</div></div></div>');
+    (live?tennisLiveBarHTML(m)+'</div>':'<div class="d-pred"><div class="bar a" style="width:'+pa*100+'%">'+lastName(m.player_a)+" "+Math.round(pa*100)+'%</div><div class="bar b" style="width:'+(1-pa)*100+'%">'+Math.round((1-pa)*100)+"% "+lastName(m.player_b)+'</div></div></div>');
   const tabs='<div class="d-tabs"><button class="d-tab '+(detailTab==="analysis"?"active":"")+'" onclick="setDetailTab(\'analysis\')">Analysis</button>'+
     '<button class="d-tab '+(detailTab==="stats"?"active":"")+'" onclick="setDetailTab(\'stats\')">Match Stats</button></div>';
   let body;
@@ -715,6 +746,264 @@ function teamColHTML(side,win){const sp=side.starter||{};
     '<div class="tname">'+side.name+'</div>'+(side.record?'<div class="trec">'+side.record+'</div>':"")+sub+'</div>';}
 // Win-probability bar, but once a game is LIVE we stop showing the frozen
 // pregame number (it would be misleading — e.g. a team down 5-0 still at 76%).
+function normCDF(x){
+  var t=1/(1+0.2316419*Math.abs(x));
+  var d=0.3989423*Math.exp(-x*x/2);
+  var p=d*t*(0.3193815+t*(-0.3565638+t*(1.781478+t*(-1.821256+t*1.330274))));
+  return x>0?1-p:p;
+}
+function mlbLivePred(g){
+  // Live win probability anchored to the pregame number, drifting toward a
+  // score-driven estimate as outs run out. Returns {homeWP,frac} or null.
+  if(!g||!g.score||g.score.home==null||g.score.away==null) return null;
+  var n=parseInt(g.score.inning,10); if(!n) return null;
+  var st=(g.score.state||"").toLowerCase(), completed;
+  if(st.indexOf("middle")>=0||st.indexOf("bottom")>=0) completed=(n-1)*2+1;
+  else if(st.indexOf("end")>=0) completed=n*2;
+  else completed=(n-1)*2;                       // Top / unknown -> top half underway
+  var frac=Math.max(0,Math.min(1,(18-completed)/18));
+  var curMargin=(g.score.home||0)-(g.score.away||0);
+  var expMargin=(g.exp_runs_home||0)-(g.exp_runs_away||0);
+  var projMargin=curMargin+expMargin*frac;       // expected final margin (home)
+  var sigma=4.0*Math.sqrt(frac)+0.4;             // remaining-run uncertainty -> 0 late
+  var scoreWP=normCDF(projMargin/sigma);
+  var homeWP=frac*g.prob_home+(1-frac)*scoreWP;   // pregame early -> score late
+  return {homeWP:Math.max(0.01,Math.min(0.99,homeWP)), frac:frac};
+}
+function ncaabbLivePred(g){
+  if(!g||!g.score||g.score.home==null||g.score.away==null) return null;
+  var d=(g.score.detail||"").toLowerCase();
+  var m=d.match(/(\d+)/); if(!m) return null;
+  var n=parseInt(m[1],10); if(!n) return null;
+  var completed;
+  if(d.indexOf("mid")>=0||d.indexOf("bot")>=0) completed=(n-1)*2+1;
+  else if(d.indexOf("end")>=0) completed=n*2;
+  else completed=(n-1)*2;                       // top / unknown -> top half underway
+  var frac=Math.max(0,Math.min(1,(18-completed)/18));
+  var expMargin=g.exp_margin||0, curMargin=(g.score.home||0)-(g.score.away||0);
+  var projMargin=curMargin+expMargin*frac, sigma=4.0*Math.sqrt(frac)+0.4;
+  var scoreWP=normCDF(projMargin/sigma);
+  var homeWP=frac*g.prob_home+(1-frac)*scoreWP;
+  return {homeWP:Math.max(0.01,Math.min(0.99,homeWP)), frac:frac};
+}
+function ncaabbLiveBarHTML(g){
+  var lp=ncaabbLivePred(g);
+  if(!lp) return '<div class="d-pred">'+predBarHTML(g.away.abbr,Math.round((1-g.prob_home)*100),g.home.abbr,Math.round(g.prob_home*100),"upcoming")+'</div>';
+  var ph=Math.round(lp.homeWP*100), pa=100-ph, edgeTxt="";
+  if(g.odds&&(g.odds.ml_home!=null||g.odds.ml_away!=null)){
+    var favHome=lp.homeWP>=0.5, mkt=favHome?g.odds.ml_home:g.odds.ml_away;
+    if(mkt!=null){
+      var modelProb=favHome?lp.homeWP:(1-lp.homeWP);
+      var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+      var edge=Math.round((modelProb-mImp)*1000)/10, ec=edge>=0?"pos":"neg";
+      edgeTxt=' <span class="el-edge '+ec+'" style="padding:1px 7px;border-radius:5px;margin-left:6px">'+(edge>=0?"+":"")+edge+'% edge</span>';
+    }
+  }
+  return '<div class="d-pred"><div class="bar a" style="width:'+pa+'%">'+g.away.abbr+' '+pa+'%</div>'+
+    '<div class="bar b" style="width:'+ph+'%">'+ph+'% '+g.home.abbr+'</div></div>'+
+    '<div class="live-prob-note"><span class="pulse"></span> Live win probability \u2014 updates with the game'+edgeTxt+'</div>';
+}
+function nflLivePred(g){
+  if(!g||!g.score||g.score.home==null||g.score.away==null) return null;
+  var per=g.score.period; if(!per) return null;
+  var secLeft=0, clk=g.score.clock;
+  if(clk&&/\d+:\d+/.test(clk)){var p=clk.split(":");secLeft=parseInt(p[0],10)*60+parseInt(p[1],10);}
+  var rem=(per<=4)?(4-per)*900+secLeft:secLeft;
+  var frac=(per<=4)?rem/3600:Math.min(0.12, secLeft/600*0.12);
+  frac=Math.max(0,Math.min(1,frac));
+  var expMargin=g.exp_margin||0, curMargin=(g.score.home||0)-(g.score.away||0);
+  var projMargin=curMargin+expMargin*frac, sigma=13.5*Math.sqrt(frac)+0.6;
+  var scoreWP=normCDF(projMargin/sigma);
+  var homeWP=frac*g.prob_home+(1-frac)*scoreWP;
+  return {homeWP:Math.max(0.01,Math.min(0.99,homeWP)), frac:frac};
+}
+function nflLiveBarHTML(g){
+  var lp=nflLivePred(g);
+  if(!lp) return '<div class="d-pred">'+predBarHTML(g.away.abbr,Math.round((1-g.prob_home)*100),g.home.abbr,Math.round(g.prob_home*100),"upcoming")+'</div>';
+  var ph=Math.round(lp.homeWP*100), pa=100-ph, edgeTxt="";
+  if(g.odds&&(g.odds.ml_home!=null||g.odds.ml_away!=null)){
+    var favHome=lp.homeWP>=0.5, mkt=favHome?g.odds.ml_home:g.odds.ml_away;
+    if(mkt!=null){
+      var modelProb=favHome?lp.homeWP:(1-lp.homeWP);
+      var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+      var edge=Math.round((modelProb-mImp)*1000)/10, ec=edge>=0?"pos":"neg";
+      edgeTxt=' <span class="el-edge '+ec+'" style="padding:1px 7px;border-radius:5px;margin-left:6px">'+(edge>=0?"+":"")+edge+'% edge</span>';
+    }
+  }
+  return '<div class="d-pred"><div class="bar a" style="width:'+pa+'%">'+g.away.abbr+' '+pa+'%</div>'+
+    '<div class="bar b" style="width:'+ph+'%">'+ph+'% '+g.home.abbr+'</div></div>'+
+    '<div class="live-prob-note"><span class="pulse"></span> Live win probability \u2014 updates with the game'+edgeTxt+'</div>';
+}
+function nflFieldHTML(g){
+  var s=g.situation; if(!s) return "";
+  var has=(s.down!=null)||s.down_distance_text||s.down_distance_short||s.possession||(s.yard_line!=null);
+  if(!has) return "";
+  var yl=(s.yard_line!=null)?Math.max(0,Math.min(100,s.yard_line)):null;
+  var los=(yl!=null)?'<div class="nf-los" style="left:'+yl+'%"></div>':"";
+  var ball=(yl!=null)?'<div class="nf-ball" style="left:'+yl+'%"></div>':"";
+  var fd="";
+  if(yl!=null&&s.distance!=null){
+    var dir=(s.possession==="home")?-1:1;
+    var fx=Math.max(0,Math.min(100,yl+dir*s.distance));
+    fd='<div class="nf-fd" style="left:'+fx+'%"></div>';
+  }
+  var rz=s.is_red_zone?' rz':'';
+  var field='<div class="nf-field'+rz+'"><div class="nf-ez nf-ez-l">'+g.away.abbr+'</div>'+
+    '<div class="nf-play">'+los+fd+ball+'</div>'+
+    '<div class="nf-ez nf-ez-r">'+g.home.abbr+'</div></div>';
+  var ddt=s.down_distance_text||s.down_distance_short||"";
+  var possAbbr=s.possession==="home"?g.home.abbr:s.possession==="away"?g.away.abbr:"";
+  var dd=(ddt||possAbbr)?'<div class="nf-dd">'+(possAbbr?'<span class="nf-pos">'+possAbbr+' ball</span>':'')+
+    (ddt?'<span>'+ddt+'</span>':'')+(s.is_red_zone?'<span class="nf-rz">RED ZONE</span>':'')+'</div>':"";
+  function tos(n){var o="";for(var i=1;i<=3;i++)o+='<span class="to'+(i<=(n==null?3:n)?" on":"")+'"></span>';return o;}
+  var toLine=(s.home_timeouts!=null||s.away_timeouts!=null)?
+    '<div class="nf-tos"><span class="nf-tlab">'+g.away.abbr+'</span><span class="tos">'+tos(s.away_timeouts)+'</span>'+
+    '<span class="nf-tlab" style="margin-left:14px">'+g.home.abbr+'</span><span class="tos">'+tos(s.home_timeouts)+'</span></div>':"";
+  return '<div class="nf-wrap">'+field+dd+toLine+'</div>';
+}
+function _clockWP(g, regPeriods, periodSec, sigmaFull){
+  if(!g||!g.score||g.score.home==null||g.score.away==null) return null;
+  var per=g.score.period; if(!per) return null;
+  var secLeft=0, clk=g.score.clock;
+  if(clk&&/\d+:\d+/.test(clk)){var p=clk.split(":");secLeft=parseInt(p[0],10)*60+parseFloat(p[1]);}
+  else if(clk&&/^\d+(\.\d+)?$/.test(clk)){secLeft=parseFloat(clk);}   // final minute "34.5"
+  var total=regPeriods*periodSec;
+  var rem=(per<=regPeriods)?(regPeriods-per)*periodSec+secLeft:secLeft;
+  var frac=(per<=regPeriods)?rem/total:Math.min(0.10, secLeft/periodSec*0.10);
+  frac=Math.max(0,Math.min(1,frac));
+  var expMargin=g.exp_margin||0, curMargin=(g.score.home||0)-(g.score.away||0);
+  var projMargin=curMargin+expMargin*frac, sigma=sigmaFull*Math.sqrt(frac)+0.5;
+  var scoreWP=normCDF(projMargin/sigma);
+  var homeWP=frac*g.prob_home+(1-frac)*scoreWP;
+  return {homeWP:Math.max(0.01,Math.min(0.99,homeWP)), frac:frac};
+}
+function nbaLivePred(g){ return _clockWP(g,4,720,11.5); }   // 4x12min, ~11.5 pt SD
+function nhlLivePred(g){ return _clockWP(g,3,1200,2.2); }   // 3x20min, ~2.2 goal SD
+function _liveBarHTML(g, lp){
+  if(!lp) return '<div class="d-pred">'+predBarHTML(g.away.abbr,Math.round((1-g.prob_home)*100),g.home.abbr,Math.round(g.prob_home*100),"upcoming")+'</div>';
+  var ph=Math.round(lp.homeWP*100), pa=100-ph, edgeTxt="";
+  if(g.odds&&(g.odds.ml_home!=null||g.odds.ml_away!=null)){
+    var favHome=lp.homeWP>=0.5, mkt=favHome?g.odds.ml_home:g.odds.ml_away;
+    if(mkt!=null){
+      var modelProb=favHome?lp.homeWP:(1-lp.homeWP);
+      var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+      var edge=Math.round((modelProb-mImp)*1000)/10, ec=edge>=0?"pos":"neg";
+      edgeTxt=' <span class="el-edge '+ec+'" style="padding:1px 7px;border-radius:5px;margin-left:6px">'+(edge>=0?"+":"")+edge+'% edge</span>';
+    }
+  }
+  return '<div class="d-pred"><div class="bar a" style="width:'+pa+'%">'+g.away.abbr+' '+pa+'%</div>'+
+    '<div class="bar b" style="width:'+ph+'%">'+ph+'% '+g.home.abbr+'</div></div>'+
+    '<div class="live-prob-note"><span class="pulse"></span> Live win probability \u2014 updates with the game'+edgeTxt+'</div>';
+}
+function nbaLiveBarHTML(g){ return _liveBarHTML(g, nbaLivePred(g)); }
+function nhlLiveBarHTML(g){ return _liveBarHTML(g, nhlLivePred(g)); }
+function ncaabLivePred(g){ return _clockWP(g,2,1200,12.0); }   // men's: 2x20min halves
+function wncaabLivePred(g){ return _clockWP(g,4,600,12.0); }   // women's: 4x10min quarters
+function ncaabLiveBarHTML(g){ return _liveBarHTML(g, ncaabLivePred(g)); }
+function wncaabLiveBarHTML(g){ return _liveBarHTML(g, wncaabLivePred(g)); }
+function mlbLiveBarHTML(g){
+  var lp=mlbLivePred(g);
+  if(!lp) return '<div class="d-pred">'+predBarHTML(g.away.abbr,Math.round((1-g.prob_home)*100),g.home.abbr,Math.round(g.prob_home*100),"upcoming")+'</div>';
+  var ph=Math.round(lp.homeWP*100), pa=100-ph, edgeTxt="";
+  if(g.odds&&(g.odds.ml_home!=null||g.odds.ml_away!=null)){
+    var favHome=lp.homeWP>=0.5, mkt=favHome?g.odds.ml_home:g.odds.ml_away;
+    if(mkt!=null){
+      var modelProb=favHome?lp.homeWP:(1-lp.homeWP);
+      var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+      var edge=Math.round((modelProb-mImp)*1000)/10, ec=edge>=0?"pos":"neg";
+      edgeTxt=' <span class="el-edge '+ec+'" style="padding:1px 7px;border-radius:5px;margin-left:6px">'+(edge>=0?"+":"")+edge+'% edge</span>';
+    }
+  }
+  return '<div class="d-pred"><div class="bar a" style="width:'+pa+'%">'+g.away.abbr+' '+pa+'%</div>'+
+    '<div class="bar b" style="width:'+ph+'%">'+ph+'% '+g.home.abbr+'</div></div>'+
+    '<div class="live-prob-note"><span class="pulse"></span> Live win probability \u2014 updates with the game'+edgeTxt+'</div>';
+}
+function mlbSituationHTML(g){
+  var s=g.score&&g.score.situation; if(!s) return "";
+  var has=(s.outs!=null)||s.batter||s.pitcher||s.on1||s.on2||s.on3;
+  if(!has) return "";
+  var on=function(b){return b?" on":"";};
+  var outs=s.outs!=null?s.outs:0, dots="";
+  for(var i=1;i<=3;i++)dots+='<span class="o'+(i<=outs?" on":"")+'"></span>';
+  var count=(s.balls!=null&&s.strikes!=null)?'<span class="sit-count">'+s.balls+'-'+s.strikes+'</span>':"";
+  return '<div class="mlb-sit">'+
+    '<svg viewBox="0 0 100 100" class="diamond">'+
+      '<polygon points="50,80 80,50 50,20 20,50" class="paths"/>'+
+      '<rect class="base'+on(s.on2)+'" x="42" y="12" width="16" height="16" rx="2" transform="rotate(45 50 20)"/>'+
+      '<rect class="base'+on(s.on3)+'" x="12" y="42" width="16" height="16" rx="2" transform="rotate(45 20 50)"/>'+
+      '<rect class="base'+on(s.on1)+'" x="72" y="42" width="16" height="16" rx="2" transform="rotate(45 80 50)"/>'+
+      '<rect class="base home" x="42" y="72" width="16" height="16" rx="2" transform="rotate(45 50 80)"/>'+
+    '</svg>'+
+    '<div class="sit-info">'+
+      '<div class="sit-row"><span class="sit-lab">OUTS</span><span class="outs">'+dots+'</span>'+count+'</div>'+
+      (s.batter?'<div class="sit-nm"><span class="sit-lab">AB</span> <b>'+s.batter+'</b></div>':"")+
+      (s.pitcher?'<div class="sit-nm"><span class="sit-lab">P</span> <b>'+s.pitcher+'</b></div>':"")+
+    '</div></div>';
+}
+function _tnsSetFromGames(ga,gb,pg){
+  var memo={};
+  function rec(a,b){
+    if(a>=6&&a-b>=2) return 1;
+    if(b>=6&&b-a>=2) return 0;
+    if(a>=7) return 1;
+    if(b>=7) return 0;
+    if(a===6&&b===6) return pg;
+    var k=a+","+b; if(memo[k]!=null) return memo[k];
+    var v=pg*rec(a+1,b)+(1-pg)*rec(a,b+1); memo[k]=v; return v;
+  }
+  return rec(ga,gb);
+}
+function _tnsRace(i,j,s,memo){
+  if(i<=0) return 1; if(j<=0) return 0; memo=memo||{};
+  var k=i+","+j; if(memo[k]!=null) return memo[k];
+  var v=s*_tnsRace(i-1,j,s,memo)+(1-s)*_tnsRace(i,j-1,s,memo); memo[k]=v; return v;
+}
+function _tnsSolveSet(matchProb,need){
+  var lo=0.001,hi=0.999;
+  for(var i=0;i<50;i++){var s=(lo+hi)/2; if(_tnsRace(need,need,s,{})<matchProb) lo=s; else hi=s;}
+  return (lo+hi)/2;
+}
+function _tnsSolveGame(s){
+  var lo=0.001,hi=0.999;
+  for(var i=0;i<50;i++){var pg=(lo+hi)/2; if(_tnsSetFromGames(0,0,pg)<s) lo=pg; else hi=pg;}
+  return (lo+hi)/2;
+}
+function tennisLivePred(m){
+  var sc=m.score; if(!sc) return null;
+  var sa=sc.sets_a||[], sb=sc.sets_b||[];
+  if(!sa.length&&!sb.length) return null;
+  var probA=(m.prediction&&m.prediction.prob_a!=null)?m.prediction.prob_a:0.5;
+  var need=(m.best_of===5)?3:2;
+  var wa=0,wb=0,ga=0,gb=0, n=Math.max(sa.length,sb.length);
+  for(var i=0;i<n;i++){var a=sa[i]||0,b=sb[i]||0;
+    if((a>=6&&a-b>=2)||a>=7) wa++;
+    else if((b>=6&&b-a>=2)||b>=7) wb++;
+    else { ga=a; gb=b; }}
+  if(wa>=need) return {probA:0.99}; if(wb>=need) return {probA:0.01};
+  var s=_tnsSolveSet(probA,need), pg=_tnsSolveGame(s);
+  var cs=_tnsSetFromGames(ga,gb,pg), needA=need-wa, needB=need-wb;
+  var matchP=cs*_tnsRace(needA-1,needB,s,{})+(1-cs)*_tnsRace(needA,needB-1,s,{});
+  return {probA:Math.max(0.01,Math.min(0.99,matchP))};
+}
+function tennisLiveBarHTML(m){
+  var aN=lastName(m.player_a), bN=lastName(m.player_b);
+  var lp=tennisLivePred(m);
+  if(!lp){ var p0=(m.prediction&&m.prediction.prob_a!=null)?m.prediction.prob_a:0.5;
+    return predBarHTML(aN,Math.round(p0*100),bN,Math.round((1-p0)*100),"live"); }
+  var pa=Math.round(lp.probA*100), pb=100-pa, edgeTxt="";
+  if(m.odds&&(m.odds.ml_a!=null||m.odds.ml_b!=null)){
+    var favA=lp.probA>=0.5, mkt=favA?m.odds.ml_a:m.odds.ml_b;
+    if(mkt!=null){
+      var modelProb=favA?lp.probA:(1-lp.probA);
+      var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+      var edge=Math.round((modelProb-mImp)*1000)/10, ec=edge>=0?"pos":"neg";
+      edgeTxt=' <span class="el-edge '+ec+'" style="padding:1px 7px;border-radius:5px;margin-left:6px">'+(edge>=0?"+":"")+edge+'% edge</span>';
+    }
+  }
+  return '<div class="d-pred"><div class="bar a" style="width:'+pa+'%">'+aN+' '+pa+'%</div>'+
+    '<div class="bar b" style="width:'+pb+'%">'+pb+'% '+bN+'</div></div>'+
+    '<div class="live-prob-note"><span class="pulse"></span> Live win probability \u2014 updates with the match'+edgeTxt+'</div>';
+}
 function predBarHTML(leftLabel,leftPct,rightLabel,rightPct,status){
   if(status==="live"){
     const favLab=leftPct>=rightPct?leftLabel:rightLabel,favPct=Math.max(leftPct,rightPct);
@@ -839,7 +1128,7 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
     '<div class="mlb-vs">'+((fin||live)?'<div class="rs">'+g.score.away+" - "+g.score.home+'</div>':"@")+(live?'<div class="inn">'+(g.score.state||"")+" "+(g.score.inning||"")+'</div>':"")+'</div>'+
     '<img src="'+(g.home.logo||"")+'" onerror="this.style.visibility=\'hidden\'"></div>'+
     '<div class="proj-line"><span class="pr">'+g.away.abbr+' <b>'+g.exp_runs_away+'</b></span> projected runs <span class="pr"><b>'+g.exp_runs_home+'</b> '+g.home.abbr+'</span></div>'+
-    '<div class="d-pred">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div></div>';
+    (g.status==="live"?mlbLiveBarHTML(g):'<div class="d-pred">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div>')+(g.status==="live"?mlbSituationHTML(g):"")+'</div>';
   const tabs='<div class="d-tabs"><button class="d-tab '+(mlbDetailTab==="prediction"?"active":"")+'" onclick="setMLBTab(\'prediction\')">Prediction</button>'+
     '<button class="d-tab '+(mlbDetailTab==="props"?"active":"")+'" onclick="setMLBTab(\'props\')">Props</button>'+
     '<button class="d-tab '+(mlbDetailTab==="matchups"?"active":"")+'" onclick="setMLBTab(\'matchups\')">Matchups</button>'+
@@ -921,7 +1210,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     '<img src="'+(g.home.logo||"")+'" onerror="this.style.visibility=\'hidden\'"></div>'+
     '<div class="d-score"><span>'+g.away.name+(g.away.record?' &middot; '+g.away.record:"")+'</span></div>'+
     '<div class="d-score"><span>'+g.home.name+(g.home.record?' &middot; '+g.home.record:"")+'</span></div>'+
-    '<div class="d-pred">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div></div>';
+    ((g.status==="live"&&sp==="ncaabb")?ncaabbLiveBarHTML(g):(g.status==="live"&&(sp==="nfl"||sp==="ncaaf"))?nflLiveBarHTML(g):(g.status==="live"&&sp==="nba")?nbaLiveBarHTML(g):(g.status==="live"&&sp==="nhl")?nhlLiveBarHTML(g):(g.status==="live"&&sp==="ncaab")?ncaabLiveBarHTML(g):(g.status==="live"&&sp==="wncaab")?wncaabLiveBarHTML(g):g.status==="live"?predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status):'<div class="d-pred">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div>')+((g.status==="live"&&(sp==="nfl"||sp==="ncaaf"))?nflFieldHTML(g):"")+'</div>';
   const tabs=(sp==="ncaabb"||sp==="nhl"||sp==="ncaaf"||sp==="ncaab"||sp==="wncaab")?'':('<div class="d-tabs"><button class="d-tab '+(teamDetailTab==="prediction"?"active":"")+'" onclick="setTeamTab(\'prediction\')">Prediction</button>'+
     '<button class="d-tab '+(teamDetailTab==="props"?"active":"")+'" onclick="setTeamTab(\'props\')">Props</button></div>');
   let body;

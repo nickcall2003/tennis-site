@@ -603,10 +603,28 @@ def match_detail(match_id: int):
         except Exception as e:
             print(f"[detail] lines failed: {e}")
 
+        tns_odds = None
+        try:
+            import odds_api
+            if odds_api.enabled():
+                book = odds_api.get_tennis_odds()
+                from odds_api import _norm
+                rec = book.get(_norm(m.player_a) + "|" + _norm(m.player_b))
+                if rec:
+                    if _norm(rec["a"]) == _norm(m.player_a):
+                        dec_a, dec_b = rec.get("odds_a"), rec.get("odds_b")
+                    else:
+                        dec_a, dec_b = rec.get("odds_b"), rec.get("odds_a")
+                    tns_odds = {"ml_a": odds_api.american_from_decimal(dec_a) if dec_a else None,
+                                "ml_b": odds_api.american_from_decimal(dec_b) if dec_b else None}
+        except Exception as e:
+            print(f"[detail] tennis odds failed: {e}")
+
         return {
             "id": m.id, "tier": m.tier, "tournament": m.tournament, "round": m.round,
             "surface": m.surface, "player_a": m.player_a, "player_b": m.player_b,
             "event_time": m.event_time, "status": m.status,
+            "best_of": m.best_of, "odds": tns_odds,
             "prediction": {"prob_a": prob_a, "confidence": confidence},
             "analysis": writeup,
             "h2h": h2h, "form_a": fa, "form_b": fb,
@@ -653,6 +671,29 @@ def _attach_odds(sport, games):
     except Exception as e:
         print(f"[odds] attach {sport} skipped: {e}")
     return games
+
+
+def _attach_odds_one(sport, g):
+    """Attach market odds to a single detail game so the live edge can render.
+    Unlike _attach_odds this does NOT snapshot (the board already drives CLV
+    snapshots); it is a pure read so opening a detail page has no side effects.
+    No-op when no odds key / no book / no team match."""
+    try:
+        import odds_api
+        if not odds_api.enabled():
+            return g
+        book = odds_api.get_odds(sport)
+        if not book:
+            return g
+        from odds_api import _norm
+        o = book.get(_norm(g["home"]["name"]) + "|" + _norm(g["away"]["name"]))
+        if o:
+            g["odds"] = {"ml_home": o["ml_home"], "ml_away": o["ml_away"],
+                         "spread_home": o["spread_home"], "total": o["total"],
+                         "books": o["books"]}
+    except Exception as e:
+        print(f"[odds] detail attach {sport} skipped: {e}")
+    return g
 
 
 def _snapshot_odds(sport, ref, side, odds):
@@ -909,6 +950,7 @@ def mlb_game(game_id: int, date: str | None = None):
         g["lines"] = mlb_lines(g["exp_runs_home"], g["exp_runs_away"])
     except Exception as e:
         print(f"[mlb] lines failed: {e}")
+    g = _attach_odds_one("mlb", g)
     return g
 
 
@@ -1728,6 +1770,7 @@ def ncaabb_game(game_id: str, date: str | None = None):
         return {"error": "not found"}
     g = dict(g)
     g["analysis"] = _ncaabb_writeup(g)
+    g = _attach_odds_one("ncaabb", g)
     return g
 
 
@@ -1780,6 +1823,7 @@ def nhl_game(game_id: str, date: str | None = None):
         return {"error": "not found"}
     g = dict(g)
     g["analysis"] = _nhl_writeup(g)
+    g = _attach_odds_one("nhl", g)
     return g
 
 
@@ -1807,6 +1851,7 @@ def team_game(sport: str, game_id: str, date: str | None = None):
         g["lines"] = team_lines(g["prob_home"], g["exp_margin"], sport)
     except Exception as e:
         print(f"[{sport}] lines failed: {e}")
+    g = _attach_odds_one(sport, g)
     return g
 
 

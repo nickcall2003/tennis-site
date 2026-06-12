@@ -22,13 +22,14 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import os
 
 from db import SessionLocal
 from models import LiveState, Match, StatSnapshot
 from base import LiveScore, MatchStats, TennisProvider
 from ws import manager
 
-POLL_SECONDS = 20          # gentle on a single CPU; real feeds don't need 1.5s
+POLL_SECONDS = int(os.environ.get("LIVE_POLL_SECONDS", "20"))  # lower for snappier updates if quota allows
 STATS_EVERY_N_TICKS = 5     # snapshot stats less often than score
 
 # Only matches scheduled within this window are polled. This is the key fix:
@@ -39,7 +40,12 @@ STATS_EVERY_N_TICKS = 5     # snapshot stats less often than score
 # live match.
 POLL_PAST_HOURS = 24        # a match could have started up to ~a day ago
 POLL_FUTURE_HOURS = 3       # slack for timezone differences in stored start times
-MAX_POLL_PER_TICK = 60      # hard ceiling so one giant slate can't peg the CPU
+MAX_POLL_PER_TICK = int(os.environ.get("LIVE_MAX_POLL_PER_TICK", "60"))  # ceiling per tick
+# A tennis match cannot credibly still be in play after this many hours. Any
+# match still flagged "live" past it is a zombie (the feed never sent a final
+# status). Zombies show as "live" forever AND eat the poll budget, so we retire
+# them each tick.
+ZOMBIE_HOURS = int(os.environ.get("LIVE_ZOMBIE_HOURS", "12"))
 
 
 def _score_to_dict(s: LiveScore) -> dict:
@@ -94,13 +100,34 @@ class LiveEngine:
         now = dt.datetime.utcnow()
         lo = now - dt.timedelta(hours=POLL_PAST_HOURS)
         hi = now + dt.timedelta(hours=POLL_FUTURE_HOURS)
+        zlo = now - dt.timedelta(hours=ZOMBIE_HOURS)
         with SessionLocal() as db:
+            # Retire zombies first: matches stuck "live" long past any real match
+            # length. Unreaped, they show as "live" forever AND consume the
+            # per-tick budget below, starving today's actual in-play matches.
+            stale = (db.query(Match)
+                       .filter(Match.status == "live", Match.scheduled < zlo)
+                       .all())
+            for m in stale:
+                m.status = "finished"
+            if stale:
+                db.commit()
+                print(f"[live] retired {len(stale)} stale 'live' match(es)")
+
             rows = (db.query(Match)
                       .filter(Match.status != "finished")
                       .filter((Match.status == "live") |
                               ((Match.scheduled >= lo) & (Match.scheduled <= hi)))
-                      .order_by(Match.scheduled)
                       .all())
+            # Prioritise the matches we most need fresh: anything actually "live"
+            # first (most-recently-scheduled first), THEN upcoming by how soon it
+            # starts. The old code ordered purely by scheduled-ascending, so on a
+            # busy slate the cap below chopped off exactly the in-play matches and
+            # kept stale/early ones.
+            def _prio(m):
+                ts = m.scheduled.timestamp() if m.scheduled else 0.0
+                return (0, -ts) if m.status == "live" else (1, ts)
+            rows.sort(key=_prio)
             active = [(m.id, m.provider_match_id, m.player_a, m.player_b, m.tier) for m in rows]
 
         # Nothing live to poll -> don't touch the network at all. This keeps the
@@ -108,9 +135,9 @@ class LiveEngine:
         if not active:
             return
 
-        # Safety ceiling: even with the window filter, never make more than
-        # MAX_POLL_PER_TICK blocking calls in a single tick. The rest get picked
-        # up on the next tick. Live matches sort first via the query order.
+        # Safety ceiling: never make more than MAX_POLL_PER_TICK blocking calls
+        # in a single tick. Live matches are ordered first (see _prio above), so
+        # the cap can only ever drop not-yet-started matches, never in-play ones.
         if len(active) > MAX_POLL_PER_TICK:
             active = active[:MAX_POLL_PER_TICK]
 
