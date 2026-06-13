@@ -1089,18 +1089,23 @@ def _gather_plays_uncached(target: dt.date):
         for g in soccer_provider.get_today(target):
             if g.get("status") == "finished":
                 continue
-            ph, pa = g["prob_home"], g["prob_away"]
-            side = "home" if ph >= pa else "away"
-            prob = ph if side == "home" else pa
-            pick = g["home"]["name"] if side == "home" else g["away"]["name"]
-            opp = g["away"]["name"] if side == "home" else g["home"]["name"]
-            conf = "high" if prob >= 0.58 else "medium" if prob >= 0.47 else "low"
+            ph, pdw, pa = g["prob_home"], (g.get("prob_draw") or 0.0), g["prob_away"]
+            probs = {"home": ph, "draw": pdw, "away": pa}
+            side = max(probs, key=probs.get)
+            prob = probs[side]
             od = g.get("odds") or {}
+            if side == "home":
+                pick = f"{g['home']['name']} to win"; opp = g["away"]["name"]
+            elif side == "away":
+                pick = f"{g['away']['name']} to win"; opp = g["home"]["name"]
+            else:
+                pick = "Draw"; opp = f"{g['away']['name']} / {g['home']['name']}"
+            conf = "high" if prob >= 0.55 else "medium" if prob >= 0.42 else "low"
             plays.append({
                 "sport": "soccer", "id": g["id"], "league": g["league"], "kind": "moneyline",
                 "match": f"{g['away']['name']} @ {g['home']['name']}",
                 "tournament": g.get("league_label", ""),
-                "pick": f"{pick} to win", "prob": round(prob, 3),
+                "pick": pick, "prob": round(prob, 3),
                 "confidence": conf, "event_time": g.get("event_time"),
                 "ctx": {"pick_side": side, "opponent": opp,
                         "prob_home": g["prob_home"], "prob_draw": g.get("prob_draw"),
@@ -1141,14 +1146,14 @@ def _enrich_odds(p):
         sctx = p.get("ctx") or {}
         mh, md, ma = sctx.get("market_home"), sctx.get("market_draw"), sctx.get("market_away")
         side = sctx.get("pick_side")
-        pick_ml = mh if side == "home" else ma
+        pick_ml = md if side == "draw" else mh if side == "home" else ma
         if pick_ml is not None:
             p["market_odds"] = pick_ml
             ih = american_to_prob(mh) if mh is not None else None
             idr = american_to_prob(md) if md is not None else None
             ia = american_to_prob(ma) if ma is not None else None
             tot = sum(x for x in (ih, idr, ia) if x is not None)
-            side_imp = ih if side == "home" else ia
+            side_imp = idr if side == "draw" else ih if side == "home" else ia
             if tot and side_imp is not None:
                 p["edge_pct"] = round((p["prob"] - side_imp / tot) * 100, 1)
         # market odds: team sports via snapshot, tennis via per-tournament feed
@@ -1200,17 +1205,19 @@ def _dec_to_amer(d):
     return round((d - 1) * 100) if d >= 2 else -round(100 / (d - 1))
 
 
-@app.get("/api/parlays")
-def parlays(date: str | None = None):
-    """Auto-built parlays from the model's best plays, one leg per game.
-    Three flavors: Safe (most likely), Value (best edge), Longshot (bigger
-    payout). Combined odds + model probability + EV are computed per parlay."""
-    target = dt.date.fromisoformat(date) if date else dt.date.today()
+STAKE_BY_LEGS = {2: 1.0, 3: 0.75, 4: 0.5}
+# Skip parlay legs that are heavier favorites than this (American). Stacking
+# -1400 chalk yields a -700 two-leg with no value; this keeps real payouts.
+PARLAY_LEG_FLOOR = int(os.environ.get("PARLAY_MIN_LEG_ODDS", "-350"))
+
+
+def _build_parlays(target):
+    """Build (but do NOT persist) the day's parlays from the best plays."""
     try:
         plays = [dict(p) for p in _gather_plays(target)]
     except Exception as e:
         print(f"[parlays] gather failed: {e}")
-        return {"parlays": []}
+        return []
     cands = []
     for p in plays:
         try:
@@ -1226,16 +1233,19 @@ def parlays(date: str | None = None):
             odds = p.get("fair_odds")
         if odds is None:
             continue
+        if int(odds) < PARLAY_LEG_FLOOR:
+            continue                          # too chalky to add value
         edge = p.get("edge_pct")
         cands.append({
             "sport": p["sport"], "game_id": str(p.get("id")),
+            "league": p.get("league"),
             "match": p.get("match", ""), "pick": p.get("pick", ""),
             "odds": int(odds), "prob": round(prob, 3),
             "edge": edge, "priced": priced, "event_time": p.get("event_time"),
             "_score": (edge if edge is not None else 0.0) + prob * 10,
         })
     if len(cands) < 2:
-        return {"parlays": [], "date": target.isoformat()}
+        return []
 
     def pick_legs(n, key, min_odds=None):
         chosen, seen = [], set()
@@ -1244,7 +1254,7 @@ def parlays(date: str | None = None):
                 continue
             if min_odds is not None and c["odds"] < min_odds:
                 continue
-            chosen.append(c)
+            chosen.append({k: v for k, v in c.items() if k != "_score"})
             seen.add(c["game_id"])
             if len(chosen) == n:
                 break
@@ -1258,11 +1268,13 @@ def parlays(date: str | None = None):
             prob *= L["prob"]
             if L["priced"] == "model":
                 any_model = True
-        return {"name": name, "blurb": blurb, "legs": legs,
+        n = len(legs)
+        return {"name": name, "blurb": blurb, "legs": legs, "leg_count": n,
+                "stake_units": STAKE_BY_LEGS.get(n, 0.5),
                 "decimal": round(dec, 2), "american": _dec_to_amer(dec),
                 "model_prob": round(prob, 3), "payout_10": round(10 * dec, 2),
                 "ev_pct": round((prob * dec - 1) * 100, 1),
-                "any_model_priced": any_model}
+                "any_model_priced": any_model, "result": "pending", "units_pl": None}
 
     out = []
     safe = pick_legs(2, lambda c: c["prob"])
@@ -1280,7 +1292,189 @@ def parlays(date: str | None = None):
         out.append(make(longshot,
                         "Longshot " + ("Four" if len(longshot) == 4 else "Three"),
                         "A bigger-payout stack of edge plays at longer prices."))
-    return {"parlays": out, "date": target.isoformat()}
+    return out
+
+
+_parlay_table_ready = False
+
+
+def _ensure_parlay_table():
+    global _parlay_table_ready
+    if _parlay_table_ready:
+        return
+    try:
+        from models import ParlaySlip
+        with SessionLocal() as db:
+            bind = db.get_bind()
+        ParlaySlip.__table__.create(bind=bind, checkfirst=True)
+        _parlay_table_ready = True
+    except Exception as e:
+        print(f"[parlays] ensure table failed: {e}")
+
+
+def _load_slips(target):
+    """Locked parlays for a date as full parlay dicts (with result + units), or []."""
+    _ensure_parlay_table()
+    from models import ParlaySlip
+    d0 = dt.datetime.combine(target, dt.time.min)
+    d1 = dt.datetime.combine(target, dt.time.max)
+    out = []
+    try:
+        with SessionLocal() as db:
+            rows = (db.query(ParlaySlip)
+                      .filter(ParlaySlip.slip_date >= d0, ParlaySlip.slip_date <= d1)
+                      .order_by(ParlaySlip.id).all())
+            for r in rows:
+                try:
+                    p = json.loads(r.legs_json)
+                except Exception:
+                    continue
+                p["result"] = r.result
+                p["units_pl"] = r.units_pl
+                p["stake_units"] = r.stake_units
+                out.append(p)
+    except Exception as e:
+        print(f"[parlays] load failed: {e}")
+    return out
+
+
+def _save_slips(target, parlays):
+    _ensure_parlay_table()
+    from models import ParlaySlip
+    d = dt.datetime.combine(target, dt.time.min)
+    try:
+        with SessionLocal() as db:
+            for p in parlays:
+                if db.query(ParlaySlip).filter_by(slip_date=d, name=p["name"]).first():
+                    continue
+                db.add(ParlaySlip(
+                    slip_date=d, name=p["name"], leg_count=p["leg_count"],
+                    stake_units=p["stake_units"], decimal_odds=p["decimal"],
+                    american=p.get("american"), model_prob=p["model_prob"],
+                    legs_json=json.dumps(p), result="pending"))
+            db.commit()
+    except Exception as e:
+        print(f"[parlays] save failed: {e}")
+
+
+def _settle_parlays():
+    """Grade pending slips once every leg has a settled game result. Soccer legs
+    are graded on demand here (other sports settle via their own boards)."""
+    _ensure_parlay_table()
+    from models import ParlaySlip, PickResult
+    try:
+        with SessionLocal() as db:
+            pend = db.query(ParlaySlip).filter(ParlaySlip.result == "pending").all()
+            pend_data = [(s.slip_date, json.loads(s.legs_json).get("legs", [])) for s in pend]
+    except Exception as e:
+        print(f"[parlays] settle load failed: {e}")
+        return
+    if not pend_data:
+        return
+    # grade any soccer legs that aren't settled yet (targeted, cheap)
+    try:
+        import soccer_provider
+        with SessionLocal() as db:
+            have = {str(r.ref) for r in
+                    db.query(PickResult).filter(PickResult.sport == "soccer").all()}
+            touched = False
+            for sdate, legs in pend_data:
+                for L in legs:
+                    if L.get("sport") != "soccer":
+                        continue
+                    gid = str(L.get("game_id"))
+                    if gid in have:
+                        continue
+                    try:
+                        g = soccer_provider.get_game(sdate.date(), gid, L.get("league") or "epl")
+                    except Exception:
+                        g = None
+                    if g and g.get("status") == "finished" and g.get("winner"):
+                        _sp = {"home": g["prob_home"], "draw": (g.get("prob_draw") or 0.0),
+                               "away": g["prob_away"]}
+                        predicted = max(_sp, key=_sp.get)
+                        _record_result(db, "soccer", gid, predicted, g["winner"])
+                        have.add(gid)
+                        touched = True
+            if touched:
+                db.commit()
+    except Exception as e:
+        print(f"[parlays] soccer leg settle failed: {e}")
+    # grade the slips themselves
+    try:
+        with SessionLocal() as db:
+            pend = db.query(ParlaySlip).filter(ParlaySlip.result == "pending").all()
+            res = {(r.sport, str(r.ref)): r for r in
+                   db.query(PickResult).filter(
+                       PickResult.settled_date >= dt.datetime.now() - dt.timedelta(days=60)).all()}
+            changed = False
+            for slip in pend:
+                try:
+                    legs = json.loads(slip.legs_json).get("legs", [])
+                except Exception:
+                    continue
+                rows = [res.get((L.get("sport"), str(L.get("game_id")))) for L in legs]
+                if not rows or any(r is None for r in rows):
+                    continue                       # not fully settled yet
+                won = all(bool(r.correct) for r in rows)
+                slip.result = "win" if won else "loss"
+                slip.settled_date = dt.datetime.now()
+                slip.units_pl = (round(slip.stake_units * (slip.decimal_odds - 1), 3)
+                                 if won else -slip.stake_units)
+                changed = True
+            if changed:
+                db.commit()
+    except Exception as e:
+        print(f"[parlays] settle grade failed: {e}")
+
+
+@app.get("/api/parlays")
+def parlays(date: str | None = None):
+    """Locked daily parlays — frozen on first view so they don't drift through
+    the day — each with its stake (units), settled result, and unit P&L."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    _settle_parlays()
+    stored = _load_slips(target)
+    if stored:
+        return {"parlays": stored, "date": target.isoformat(), "locked": True}
+    today = dt.date.today()
+    built = _build_parlays(target) if target >= today else []
+    if built and target == today:
+        _save_slips(target, built)
+        return {"parlays": _load_slips(target) or built,
+                "date": target.isoformat(), "locked": True}
+    return {"parlays": built, "date": target.isoformat(), "locked": False}
+
+
+@app.get("/api/parlays/record")
+def parlays_record(days: int = 30):
+    """Rolling W/L and unit P&L across the locked parlays."""
+    _settle_parlays()
+    _ensure_parlay_table()
+    from models import ParlaySlip
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    wins = losses = pending = 0
+    units_pl = units_staked = 0.0
+    try:
+        with SessionLocal() as db:
+            rows = db.query(ParlaySlip).filter(ParlaySlip.slip_date >= since).all()
+        for r in rows:
+            if r.result == "win":
+                wins += 1
+            elif r.result == "loss":
+                losses += 1
+            else:
+                pending += 1
+                continue
+            units_staked += (r.stake_units or 0)
+            units_pl += (r.units_pl or 0)
+    except Exception as e:
+        print(f"[parlays] record failed: {e}")
+    decided = wins + losses
+    return {"days": days, "wins": wins, "losses": losses, "pending": pending,
+            "win_pct": round(100 * wins / decided, 1) if decided else None,
+            "units_pl": round(units_pl, 2), "units_staked": round(units_staked, 2),
+            "roi_pct": round(100 * units_pl / units_staked, 1) if units_staked else None}
 
 
 def _short_reason(p):
@@ -1372,6 +1566,27 @@ def _long_reason(p):
                      "— lower confidence.")
         s.append(f"Confidence: {p['confidence']}. Hockey is high-variance, and this model doesn't "
                  f"include the starting goalie or injuries — confirm the projected starter yourself.")
+    elif p["sport"] == "soccer" and ctx.get("pick_side") == "draw":
+        home = ctx.get("home_name", "the home side")
+        away = ctx.get("away_name", "the away side")
+        lg = ctx.get("league_label", "this competition")
+        ph = round((ctx.get("prob_home") or 0) * 100)
+        pa = round((ctx.get("prob_away") or 0) * 100)
+        s.append(f"In {lg}, the model's edge is on the DRAW at {pct}% — it reads "
+                 f"{home} vs {away} as tight and evenly matched, with {home} at {ph}% "
+                 f"and {away} at {pa}%.")
+        eh, ea = ctx.get("exp_goals_home"), ctx.get("exp_goals_away")
+        if eh is not None and ea is not None:
+            s.append(f"Projected goals are close ({eh} vs {ea}) — the profile that most "
+                     f"often finishes level.")
+        hr, ar = ctx.get("home_record"), ctx.get("away_record")
+        if hr or ar:
+            s.append(f"Form and standing: {home} {hr or 'n/a'}, {away} {ar or 'n/a'}.")
+        if ctx.get("status") == "live":
+            sh, sa, mn = ctx.get("score_home"), ctx.get("score_away"), ctx.get("minute")
+            s.append(f"Live at {mn}': {away} {sa}–{sh} {home}; the model still leans level.")
+        s.append(f"Confidence: {p['confidence']}. The draw is a genuine 3-way market play, "
+                 f"usually at a longer price than either side.")
     elif p["sport"] == "soccer":
         is_home = ctx.get("pick_side") == "home"
         home = ctx.get("home_name", "the home side")
@@ -1653,11 +1868,34 @@ def _team_analysis(g, sport):
         return base
 
 
+# Active months per sport (1-12). Out-of-season sports are hidden from the home
+# grid + menu and reappear when their season window opens (windows are generous
+# on the front edge so a sport returns ahead of its first games).
+SPORT_SEASON = {
+    "tennis": set(range(1, 13)),
+    "soccer": set(range(1, 13)),
+    "mlb":    {2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
+    "nba":    {10, 11, 12, 1, 2, 3, 4, 5, 6},
+    "nhl":    {9, 10, 11, 12, 1, 2, 3, 4, 5, 6},
+    "ncaabb": {2, 3, 4, 5, 6},
+    "nfl":    {8, 9, 10, 11, 12, 1, 2},
+    "ncaaf":  {8, 9, 10, 11, 12, 1},
+    "ncaab":  {11, 12, 1, 2, 3, 4},
+    "wncaab": {11, 12, 1, 2, 3, 4},
+}
+
+
 @app.get("/api/sports")
 def sports_meta():
     """Registry metadata so the frontend builds its tabs/tiles/labels/colors
-    dynamically. Adding a sport in sports.py surfaces it here automatically."""
-    return sports.public_meta()
+    dynamically. Adding a sport in sports.py surfaces it here automatically.
+    Each entry carries an `active` flag (in-season) so the UI can hide
+    out-of-season sports."""
+    meta = sports.public_meta()
+    mo = dt.date.today().month
+    for entry in meta:
+        entry["active"] = mo in SPORT_SEASON.get(entry["key"], set(range(1, 13)))
+    return meta
 
 
 # ----------------------------- SOCCER (multi-league) -----------------------
@@ -1669,15 +1907,34 @@ def soccer_leagues():
     return {"leagues": soccer_provider.leagues()}
 
 
+def _settle_soccer(games):
+    """Grade finished soccer matches into PickResult (home/away/draw). A draw
+    means a moneyline 'to win' pick was wrong."""
+    try:
+        with SessionLocal() as db:
+            for g in games:
+                if g.get("status") != "finished" or not g.get("winner"):
+                    continue
+                _sp = {"home": g["prob_home"], "draw": (g.get("prob_draw") or 0.0),
+                       "away": g["prob_away"]}
+                predicted = max(_sp, key=_sp.get)
+                _record_result(db, "soccer", g["id"], predicted, g["winner"])
+            db.commit()
+    except Exception as e:
+        print(f"[soccer] settle failed: {e}")
+
+
 @app.get("/api/soccer/games")
 def soccer_games(date: str | None = None, league: str | None = None):
     import soccer_provider
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     lg = league or "all"
     if lg in ("all", "today"):
-        return {"games": soccer_provider.get_today(target), "league": "all",
-                "leagues": soccer_provider.leagues()}
-    return {"games": soccer_provider.get_games(target, lg), "league": lg,
+        games = soccer_provider.get_today(target)
+    else:
+        games = soccer_provider.get_games(target, lg)
+    _settle_soccer(games)
+    return {"games": games, "league": ("all" if lg in ("all", "today") else lg),
             "leagues": soccer_provider.leagues()}
 
 

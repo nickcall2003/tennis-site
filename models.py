@@ -186,3 +186,28 @@ class GameCache(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (UniqueConstraint("sport", "ref", name="uq_gamecache_sport_ref"),)
+
+
+class ParlaySlip(Base):
+    """
+    A LOCKED parlay for a given day. Built once (on first view) and frozen so
+    the legs/odds don't drift through the day. Graded once every leg's game has
+    settled (all legs win => parlay wins). Stake is by leg count: 2 legs = 1.0u,
+    3 legs = 0.75u, 4 legs = 0.5u. units_pl is the realized unit P&L.
+    """
+    __tablename__ = "parlay_slips"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slip_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    name: Mapped[str] = mapped_column(String(24))                  # "Safe Two" etc
+    leg_count: Mapped[int] = mapped_column()
+    stake_units: Mapped[float] = mapped_column()
+    decimal_odds: Mapped[float] = mapped_column()
+    american: Mapped[int | None] = mapped_column(nullable=True)
+    model_prob: Mapped[float] = mapped_column()
+    legs_json: Mapped[str] = mapped_column(Text)                   # full frozen parlay dict
+    result: Mapped[str] = mapped_column(String(8), default="pending", index=True)  # pending|win|loss
+    units_pl: Mapped[float | None] = mapped_column(nullable=True)
+    settled_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (UniqueConstraint("slip_date", "name", name="uq_parlay_day_name"),)
