@@ -18,9 +18,11 @@ Endpoints:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import datetime as dt
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -1947,6 +1949,24 @@ def soccer_game(game_id: str, date: str | None = None, league: str | None = None
     return g or {"error": "not found"}
 
 
+@app.get("/api/soccer/props/{game_id}")
+def soccer_props(game_id: str, date: str | None = None,
+                 league: str | None = None):
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    lg = league or soccer_provider.DEFAULT_LEAGUE
+    try:
+        g = soccer_provider.get_game(target, game_id, lg)
+        if g:
+            b = _book_props("soccer", g)
+            if b:
+                return _enrich_props("soccer", game_id, target,
+                                     {"game_id": game_id, "props": b,
+                                      "source": "book"}, g.get("status"), lg)
+    except Exception as e:
+        print(f"[soccer] props failed: {e}")
+    return {"props": []}
+
+
 @app.get("/api/soccer/boxscore/{game_id}")
 def soccer_boxscore(game_id: str, date: str | None = None, league: str | None = None):
     import soccer_provider
@@ -2349,16 +2369,28 @@ def team_game(sport: str, game_id: str, date: str | None = None):
 
 def _book_props(sport, g):
     """Resolve real sportsbook player props: SportsGameOdds (free tier includes
-    props) first, then The Odds API. Returns a props list or None."""
+    props) first, then The Odds API. Returns a props list or None. Soccer
+    passes its per-match league (one of 15) to SportsGameOdds."""
     home, away = g["home"]["name"], g["away"]["name"]
+    sgo_league = None
+    if sport == "soccer":
+        try:
+            import sgo_api
+            sgo_league = sgo_api.SGO_SOCCER.get(g.get("league"))
+        except Exception:
+            sgo_league = None
+        if not sgo_league:
+            return None
     try:
         import sgo_api
         if sgo_api.enabled():
-            b = sgo_api.get_player_props(sport, home, away)
+            b = sgo_api.get_player_props(sport, home, away, league=sgo_league)
             if b:
                 return b
     except Exception as e:
         print(f"[{sport}] sgo props failed: {e}")
+    if sport == "soccer":
+        return None                       # no Odds-API soccer player props
     try:
         import odds_api
         b = odds_api.get_player_props(sport, home, away)
@@ -2369,23 +2401,325 @@ def _book_props(sport, g):
     return None
 
 
+# ===== NEW PROP FORMAT: actual / hit grading from the box score =====
+# Map a prop's stat -> (box-score group hint, [candidate column labels]).
+# group hint None = search every group. Column match is case-insensitive and
+# prefix-tolerant; multi-column entries are summed (combo props like PRA).
+_BOX_COLS = {
+    "mlb": {
+        "strikeouts": ("pitching", [["K", "SO"]]),
+        "pitcher strikeouts": ("pitching", [["K", "SO"]]),
+        "hits allowed": ("pitching", [["H"]]),
+        "earned runs": ("pitching", [["ER"]]),
+        "walks": ("pitching", [["BB"]]),
+        "hits": ("batting", [["H"]]),
+        "total bases": ("batting", [["TB"]]),
+        "home runs": ("batting", [["HR"]]),
+        "rbis": ("batting", [["RBI"]]),
+        "runs": ("batting", [["R"]]),
+        "stolen bases": ("batting", [["SB"]]),
+    },
+    "nba": {
+        "points": (None, [["PTS"]]),
+        "rebounds": (None, [["REB"]]),
+        "assists": (None, [["AST"]]),
+        "threes": (None, [["3PT"]]),
+        "3-pt made": (None, [["3PT"]]),
+        "three pointers": (None, [["3PT"]]),
+        "steals": (None, [["STL"]]),
+        "blocks": (None, [["BLK"]]),
+        "turnovers": (None, [["TO"]]),
+        "points + rebounds + assists": (None, [["PTS"], ["REB"], ["AST"]]),
+        "pts + reb + ast": (None, [["PTS"], ["REB"], ["AST"]]),
+        "points + rebounds": (None, [["PTS"], ["REB"]]),
+        "points + assists": (None, [["PTS"], ["AST"]]),
+        "rebounds + assists": (None, [["REB"], ["AST"]]),
+    },
+    "nfl": {
+        "passing yards": ("passing", [["YDS"]]),
+        "pass yards": ("passing", [["YDS"]]),
+        "passing touchdowns": ("passing", [["TD"]]),
+        "passing tds": ("passing", [["TD"]]),
+        "interceptions": ("passing", [["INT"]]),
+        "completions": ("passing", [["C/ATT", "COMP"]]),
+        "rushing yards": ("rushing", [["YDS"]]),
+        "rush yards": ("rushing", [["YDS"]]),
+        "rushing attempts": ("rushing", [["CAR", "ATT"]]),
+        "carries": ("rushing", [["CAR", "ATT"]]),
+        "receiving yards": ("receiving", [["YDS"]]),
+        "rec yards": ("receiving", [["YDS"]]),
+        "receptions": ("receiving", [["REC"]]),
+    },
+    "soccer": {
+        "shots": (None, [["totalshots", "shots"]]),
+        "total shots": (None, [["totalshots", "shots"]]),
+        "shots on target": (None, [["shotsontarget", "shotsongoal"]]),
+        "shots on goal": (None, [["shotsontarget", "shotsongoal"]]),
+        "goals": (None, [["totalgoals", "goals"]]),
+        "assists": (None, [["goalassists", "assists"]]),
+        "goals + assists": (None, [["totalgoals", "goals"], ["goalassists", "assists"]]),
+        "saves": (None, [["saves"]]),
+        "passes": (None, [["totalpasses", "passes"]]),
+        "tackles": (None, [["totaltackles", "tackles"]]),
+        "fouls": (None, [["foulscommitted", "fouls"]]),
+        "tackles won": (None, [["effectivetackles", "totaltackles"]]),
+    },
+}
+
+
+def _box_num(raw):
+    """Parse a box-score cell to a number. 'made-att' / 'comp/att' -> first part."""
+    if raw is None:
+        raise ValueError("none")
+    s = str(raw).strip()
+    if not s or s in ("-", "--"):
+        raise ValueError("blank")
+    for sep in ("-", "/"):
+        if sep in s:
+            s = s.split(sep)[0]
+    return float(s)
+
+
+def _norm_name(s):
+    import re
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s or "").encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z ]", "", s.lower()).strip()
+
+
+def _name_match(box_name, prop_name):
+    a, b = _norm_name(box_name).split(), _norm_name(prop_name).split()
+    if not a or not b:
+        return False
+    if " ".join(a) == " ".join(b):
+        return True
+    return a[-1] == b[-1] and a[0][:1] == b[0][:1]   # last name + first initial
+
+
+def _actual_from_box(box, player, stat, sport):
+    """Best-effort: a player's actual value for a stat from a parsed box score."""
+    if not box or not box.get("teams"):
+        return None
+    spec = (_BOX_COLS.get(sport) or {}).get((stat or "").lower())
+    if not spec:
+        return None
+    grp_hint, col_names = spec
+    for team in box["teams"]:
+        for grp in team.get("groups", []):
+            if grp_hint and grp_hint not in (grp.get("title") or "").lower():
+                continue
+            cols = [str(c).lower() for c in (grp.get("columns") or [])]
+            idxs = []
+            for aliases in col_names:          # each term: match ANY alias, then SUM terms
+                ci = None
+                for cn in aliases:
+                    cn = cn.lower()
+                    ci = next((i for i, c in enumerate(cols)
+                               if c == cn or c.startswith(cn)), None)
+                    if ci is not None:
+                        break
+                if ci is None:
+                    idxs = None
+                    break
+                idxs.append(ci)
+            if not idxs:
+                continue
+            for row in grp.get("rows", []):
+                if not _name_match(row.get("name", ""), player or ""):
+                    continue
+                stats = row.get("stats") or []
+                try:
+                    return round(sum(_box_num(stats[i]) for i in idxs), 1)
+                except (IndexError, ValueError, TypeError):
+                    return None
+    return None
+
+
+def _grade_prop(p):
+    """Set hit (over/under/push) vs line and whether the model's lean was right."""
+    line, actual = p.get("line"), p.get("actual")
+    if line is None or actual is None:
+        return
+    try:
+        line, actual = float(line), float(actual)
+    except (ValueError, TypeError):
+        return
+    p["hit"] = "push" if actual == line else ("over" if actual > line else "under")
+    lean = p.get("lean")
+    if p["hit"] == "push":
+        p["model_correct"] = None
+    elif lean in ("over", "under"):
+        p["model_correct"] = (lean == p["hit"])
+
+
+_proj_cache = {}          # (sport, player, stat) -> (ts, projection)
+_PROJ_TTL = 3 * 3600
+
+
+def _project_from_games(games):
+    """Recency-weighted projection from a last-N game log. Sorts by date
+    (most recent first) when dates are usable; linear weights give the newest
+    game ~N x the oldest. Falls back to a flat average when order is unknown."""
+    vals = [g.get("value") for g in (games or [])
+            if isinstance(g.get("value"), (int, float))]
+    if not vals:
+        return None
+    dated = [(g.get("date") or "", g.get("value")) for g in games
+             if isinstance(g.get("value"), (int, float))]
+    if all(d for d, _ in dated) and len({d for d, _ in dated}) > 1:
+        try:
+            dated.sort(key=lambda x: x[0], reverse=True)   # most recent first
+            ordered = [v for _, v in dated]
+            n = len(ordered)
+            acc = wsum = 0.0
+            for i, v in enumerate(ordered):
+                w = n - i
+                acc += w * v
+                wsum += w
+            if wsum:
+                return round(acc / wsum, 1)
+        except Exception:
+            pass
+    return round(sum(vals) / len(vals), 1)
+
+
+def _prop_log(sport, game_id, date, player, stat, line, league=None):
+    try:
+        if sport == "soccer":
+            import soccer_provider
+            return soccer_provider.get_prop_history(
+                date, game_id, player, stat, line,
+                league or soccer_provider.DEFAULT_LEAGUE)
+        if sport == "mlb":
+            from mlb_provider import get_prop_history
+            return get_prop_history(date, int(game_id), player, stat, line)
+        if sport in ("nba", "nfl"):
+            from espn_provider import get_prop_history
+            return get_prop_history(sport, date, game_id, player, stat, line)
+    except Exception:
+        return None
+    return None
+
+
+def _projection_for(sport, game_id, date, player, stat, line, league=None):
+    key = (sport, (player or "").lower(), (stat or "").lower())
+    c = _proj_cache.get(key)
+    if c and time.time() - c[0] < _PROJ_TTL:
+        return c[1]
+    h = _prop_log(sport, game_id, date, player, stat, line, league)
+    proj = _project_from_games((h or {}).get("games") or []) if h else None
+    _proj_cache[key] = (time.time(), proj)
+    return proj
+
+
+def _enrich_projections(sport, game_id, date, props, league=None):
+    """Best-effort, time-boxed parallel fill of `projection` for props that
+    lack one (book lines). Cached per player+stat; whatever doesn't finish in
+    the budget is filled lazily on the client instead."""
+    if sport not in ("mlb", "nba", "nfl", "soccer"):
+        return
+    need = [p for p in props if p.get("projection") is None][:30]
+    if not need:
+        return
+    ex = None
+    try:
+        ex = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+        futs = {ex.submit(_projection_for, sport, game_id, date,
+                          p.get("player"), p.get("stat") or p.get("label"),
+                          p.get("line"), league): p for p in need}
+        deadline = time.time() + 7.0
+        for fut in concurrent.futures.as_completed(
+                futs, timeout=max(0.1, deadline - time.time())):
+            p = futs[fut]
+            try:
+                pr = fut.result()
+                if pr is not None:
+                    p["projection"] = pr
+            except Exception:
+                pass
+            if time.time() >= deadline:
+                break
+    except Exception:
+        pass
+    finally:
+        if ex is not None:
+            try:
+                ex.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+
+
+def _props_boxscore(sport, game_id, date, league=None):
+    if sport == "soccer":
+        import soccer_provider
+        return soccer_provider.get_player_boxscore(
+            date, game_id, league or soccer_provider.DEFAULT_LEAGUE)
+    if sport == "mlb":
+        from mlb_provider import get_boxscore
+        return get_boxscore(date, int(game_id))
+    if sport == "ncaabb":
+        from ncaab_baseball import get_boxscore
+        return get_boxscore(date, game_id)
+    from espn_provider import get_boxscore
+    return get_boxscore(sport, date, game_id)
+
+
+_LIVE_OR_FINAL = ("live", "final", "finished", "in", "post",
+                  "in_progress", "completed", "closed")
+
+
+def _enrich_props(sport, game_id, date, result, status, league=None):
+    """Grade each prop's actual vs the line from the box score (cheap: one
+    fetch). Pre-game props simply keep actual=None. Projection is passed
+    through if the model already set it; book props get theirs lazily on the
+    client via prop-history."""
+    props = (result or {}).get("props") or []
+    if not props:
+        return result
+    box = None
+    if sport in ("mlb", "nba", "nfl", "soccer") and status and str(status).lower() in _LIVE_OR_FINAL:
+        try:
+            box = _props_boxscore(sport, game_id, date, league)
+        except Exception as e:
+            print(f"[{sport}] props boxscore failed: {e}")
+            box = None
+    _enrich_projections(sport, game_id, date, props, league)
+    for p in props:
+        if box is not None and p.get("actual") is None:
+            try:
+                a = _actual_from_box(box, p.get("player"),
+                                     p.get("stat") or p.get("label"), sport)
+                if a is not None:
+                    p["actual"] = a
+            except Exception:
+                pass
+        _grade_prop(p)
+    result["graded"] = (box is not None)
+    return result
+
+
 @app.get("/api/mlb/props/{game_id}")
 def mlb_props(game_id: int, date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
+    status = None
     # 1) real sportsbook lines: SportsGameOdds (free props) then The Odds API
     try:
         from mlb_provider import get_game
         g = get_game(target, game_id)
         if g:
+            status = g.get("status")
             b = _book_props("mlb", g)
             if b:
-                return {"game_id": game_id, "props": b, "source": "book"}
+                return _enrich_props("mlb", game_id, target,
+                                     {"game_id": game_id, "props": b,
+                                      "source": "book"}, status)
     except Exception as e:
         print(f"[mlb] book props failed: {e}")
     # 2) fall back to model projections
     try:
         from mlb_provider import get_props
-        return get_props(target, game_id)
+        return _enrich_props("mlb", game_id, target,
+                             get_props(target, game_id), status)
     except Exception as e:
         print(f"[mlb] props failed: {e}")
         return {"props": []}
@@ -2396,23 +2730,42 @@ def team_props(sport: str, game_id: str, date: str | None = None):
     if sport not in ("nba", "nfl"):
         return {"props": []}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
+    status = None
     # 1) real sportsbook lines: SportsGameOdds (free props) then The Odds API
     try:
         from espn_provider import get_game
         g = get_game(sport, target, game_id)
         if g:
+            status = g.get("status")
             b = _book_props(sport, g)
             if b:
-                return {"game_id": game_id, "props": b, "source": "book"}
+                return _enrich_props(sport, game_id, target,
+                                     {"game_id": game_id, "props": b,
+                                      "source": "book"}, status)
     except Exception as e:
         print(f"[{sport}] book props failed: {e}")
     # 2) fall back to model projections
     try:
         from espn_provider import get_props
-        return get_props(sport, target, game_id)
+        return _enrich_props(sport, game_id, target,
+                             get_props(sport, target, game_id), status)
     except Exception as e:
         print(f"[{sport}] props failed: {e}")
         return {"props": []}
+
+
+@app.get("/api/soccer/prop-history/{game_id}")
+def soccer_prop_history(game_id: str, player: str, stat: str, line: float,
+                        date: str | None = None, league: str | None = None):
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        import soccer_provider
+        return soccer_provider.get_prop_history(
+            target, game_id, player, stat, line,
+            league or soccer_provider.DEFAULT_LEAGUE)
+    except Exception as e:
+        print(f"[soccer] prop-history failed: {e}")
+        return {"games": []}
 
 
 @app.get("/api/mlb/prop-history/{game_id}")
