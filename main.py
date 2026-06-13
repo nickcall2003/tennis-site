@@ -1138,6 +1138,100 @@ def _enrich_odds(p):
         pass
 
 
+def _amer_to_dec(a):
+    a = float(a)
+    return 1 + (a / 100 if a > 0 else 100 / (-a))
+
+
+def _dec_to_amer(d):
+    if d <= 1:
+        return None
+    return round((d - 1) * 100) if d >= 2 else -round(100 / (d - 1))
+
+
+@app.get("/api/parlays")
+def parlays(date: str | None = None):
+    """Auto-built parlays from the model's best plays, one leg per game.
+    Three flavors: Safe (most likely), Value (best edge), Longshot (bigger
+    payout). Combined odds + model probability + EV are computed per parlay."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    try:
+        plays = [dict(p) for p in _gather_plays(target)]
+    except Exception as e:
+        print(f"[parlays] gather failed: {e}")
+        return {"parlays": []}
+    cands = []
+    for p in plays:
+        try:
+            _enrich_odds(p)
+        except Exception:
+            pass
+        prob = p.get("prob")
+        if prob is None or prob < 0.5 or prob > 0.97:
+            continue
+        odds = p.get("market_odds")
+        priced = "market" if odds is not None else "model"
+        if odds is None:
+            odds = p.get("fair_odds")
+        if odds is None:
+            continue
+        edge = p.get("edge_pct")
+        cands.append({
+            "sport": p["sport"], "game_id": str(p.get("id")),
+            "match": p.get("match", ""), "pick": p.get("pick", ""),
+            "odds": int(odds), "prob": round(prob, 3),
+            "edge": edge, "priced": priced, "event_time": p.get("event_time"),
+            "_score": (edge if edge is not None else 0.0) + prob * 10,
+        })
+    if len(cands) < 2:
+        return {"parlays": [], "date": target.isoformat()}
+
+    def pick_legs(n, key, min_odds=None):
+        chosen, seen = [], set()
+        for c in sorted(cands, key=key, reverse=True):
+            if c["game_id"] in seen:
+                continue
+            if min_odds is not None and c["odds"] < min_odds:
+                continue
+            chosen.append(c)
+            seen.add(c["game_id"])
+            if len(chosen) == n:
+                break
+        return chosen
+
+    def make(legs, name, blurb):
+        dec, prob = 1.0, 1.0
+        any_model = False
+        for L in legs:
+            dec *= _amer_to_dec(L["odds"])
+            prob *= L["prob"]
+            if L["priced"] == "model":
+                any_model = True
+        return {"name": name, "blurb": blurb, "legs": legs,
+                "decimal": round(dec, 2), "american": _dec_to_amer(dec),
+                "model_prob": round(prob, 3), "payout_10": round(10 * dec, 2),
+                "ev_pct": round((prob * dec - 1) * 100, 1),
+                "any_model_priced": any_model}
+
+    out = []
+    safe = pick_legs(2, lambda c: c["prob"])
+    if len(safe) == 2:
+        out.append(make(safe, "Safe Two",
+                        "The two highest-confidence model picks, in different games."))
+    value = pick_legs(3, lambda c: c["_score"])
+    if len(value) == 3:
+        out.append(make(value, "Value Three",
+                        "The three best model-edge plays across the slate."))
+    longshot = pick_legs(4, lambda c: c["_score"], min_odds=-160)
+    if len(longshot) < 3:
+        longshot = pick_legs(4, lambda c: c["_score"])
+    if len(longshot) >= 3:
+        out.append(make(longshot,
+                        "Longshot " + ("Four" if len(longshot) == 4 else "Three"),
+                        "A bigger-payout stack of edge plays at longer prices."))
+    return {"parlays": out, "date": target.isoformat()}
+
+
 def _short_reason(p):
     pct = round(p["prob"] * 100)
     name = p["pick"].replace(" to win", "")
