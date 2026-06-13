@@ -22,6 +22,7 @@ import concurrent.futures
 import datetime as dt
 import json
 import os
+import re
 import time
 from contextlib import asynccontextmanager
 
@@ -645,56 +646,95 @@ def match_detail(match_id: int):
 _recorded_refs = set()   # in-memory guard: skip results we've already logged this run
 
 
+def _norm_team(s):
+    return "".join(c for c in (s or "").lower() if c.isalnum())
+
+
+def _odds_rec_sides(home_name, o):
+    """Map an odds_api record's prices to OUR home/away by team name (The Odds
+    API's home/away designation can be the reverse of ESPN's)."""
+    if _norm_team(home_name) == _norm_team(o.get("home_team", "")):
+        return o.get("ml_home"), o.get("ml_away")
+    return o.get("ml_away"), o.get("ml_home")
+
+
 def _attach_odds(sport, games):
     """Attach real market odds to each game and snapshot the pick's line.
-    No-op (returns games unchanged) when no odds key is configured."""
+    Tries The Odds API first, then SportsGameOdds (free) as a fallback so the
+    model-vs-market edge can render even without an Odds API plan."""
+    book = {}
     try:
         import odds_api
-        if not odds_api.enabled():
-            return games
-        book = odds_api.get_odds(sport)
-        if not book:
-            return games
-        from odds_api import _norm
-        from clv import american_to_prob
-        for g in games:
-            hk = _norm(g["home"]["name"]) + "|" + _norm(g["away"]["name"])
-            o = book.get(hk)
-            if not o:
-                continue
-            g["odds"] = {"ml_home": o["ml_home"], "ml_away": o["ml_away"],
-                         "spread_home": o["spread_home"], "total": o["total"],
-                         "books": o["books"]}
-            # snapshot the line on the side we pick
-            side = "home" if g["prob_home"] >= 0.5 else "away"
-            taken = o["ml_home"] if side == "home" else o["ml_away"]
-            if taken is not None:
-                _snapshot_odds(sport, str(g["id"]), side, int(round(taken)))
+        if odds_api.enabled():
+            book = odds_api.get_odds(sport) or {}
     except Exception as e:
-        print(f"[odds] attach {sport} skipped: {e}")
+        print(f"[odds] odds-api {sport} skipped: {e}")
+    sgo = None
+    try:
+        import sgo_api
+        if sgo_api.enabled():
+            sgo = sgo_api
+    except Exception:
+        sgo = None
+    for g in games:
+        if g.get("odds"):
+            continue                          # provider already attached (soccer)
+        o = book.get(_norm_team(g["home"]["name"]) + "|" + _norm_team(g["away"]["name"])) if book else None
+        if o:
+            mlh, mla = _odds_rec_sides(g["home"]["name"], o)
+            g["odds"] = {"ml_home": mlh, "ml_away": mla,
+                         "spread_home": o.get("spread_home"), "total": o.get("total"),
+                         "books": o.get("books")}
+        elif sgo is not None:
+            try:
+                so = sgo.get_game_odds(sport, g["home"]["name"], g["away"]["name"])
+            except Exception:
+                so = None
+            if so and (so.get("ml_home") is not None or so.get("ml_away") is not None):
+                g["odds"] = {"ml_home": so.get("ml_home"), "ml_away": so.get("ml_away"),
+                             "spread_home": None, "total": None,
+                             "books": ["SportsGameOdds"]}
+        if g.get("odds"):                     # snapshot the side we pick (CLV)
+            side = "home" if g["prob_home"] >= 0.5 else "away"
+            taken = g["odds"]["ml_home"] if side == "home" else g["odds"]["ml_away"]
+            if taken is not None:
+                try:
+                    _snapshot_odds(sport, str(g["id"]), side, int(round(taken)))
+                except Exception:
+                    pass
     return games
 
 
 def _attach_odds_one(sport, g):
     """Attach market odds to a single detail game so the live edge can render.
-    Unlike _attach_odds this does NOT snapshot (the board already drives CLV
-    snapshots); it is a pure read so opening a detail page has no side effects.
-    No-op when no odds key / no book / no team match."""
+    Odds API first, then SportsGameOdds (free) fallback. Pure read (no CLV
+    snapshot); no-op when nothing matches."""
+    if g.get("odds"):
+        return g
+    o = None
     try:
         import odds_api
-        if not odds_api.enabled():
-            return g
-        book = odds_api.get_odds(sport)
-        if not book:
-            return g
-        from odds_api import _norm
-        o = book.get(_norm(g["home"]["name"]) + "|" + _norm(g["away"]["name"]))
-        if o:
-            g["odds"] = {"ml_home": o["ml_home"], "ml_away": o["ml_away"],
-                         "spread_home": o["spread_home"], "total": o["total"],
-                         "books": o["books"]}
+        if odds_api.enabled():
+            book = odds_api.get_odds(sport) or {}
+            o = book.get(_norm_team(g["home"]["name"]) + "|" + _norm_team(g["away"]["name"]))
     except Exception as e:
         print(f"[odds] detail attach {sport} skipped: {e}")
+    if o:
+        mlh, mla = _odds_rec_sides(g["home"]["name"], o)
+        g["odds"] = {"ml_home": mlh, "ml_away": mla,
+                     "spread_home": o.get("spread_home"), "total": o.get("total"),
+                     "books": o.get("books")}
+        return g
+    try:
+        import sgo_api
+        if sgo_api.enabled():
+            so = sgo_api.get_game_odds(sport, g["home"]["name"], g["away"]["name"])
+            if so and (so.get("ml_home") is not None or so.get("ml_away") is not None):
+                g["odds"] = {"ml_home": so.get("ml_home"), "ml_away": so.get("ml_away"),
+                             "spread_home": None, "total": None,
+                             "books": ["SportsGameOdds"]}
+    except Exception as e:
+        print(f"[odds] detail sgo {sport} skipped: {e}")
     return g
 
 
@@ -1402,6 +1442,35 @@ def _settle_parlays():
                 db.commit()
     except Exception as e:
         print(f"[parlays] soccer leg settle failed: {e}")
+    # grade any tennis legs not settled yet (mirror the soccer path so parlays
+    # don't hang waiting for someone to open the tennis board)
+    try:
+        with SessionLocal() as db:
+            have_t = {str(r.ref) for r in
+                      db.query(PickResult).filter(PickResult.sport == "tennis").all()}
+            touched = False
+            for sdate, legs in pend_data:
+                for L in legs:
+                    if L.get("sport") != "tennis":
+                        continue
+                    mid = str(L.get("game_id"))
+                    if mid in have_t or not mid.isdigit():
+                        continue
+                    mt = db.query(Match).filter(Match.id == int(mid)).first()
+                    if not mt:
+                        continue
+                    row = _match_row(db, mt)
+                    sc = row.get("score") or {}
+                    if (row.get("status") == "finished" and row.get("predicted_winner")
+                            and sc.get("winner") in ("a", "b")):
+                        _record_result(db, "tennis", row["id"],
+                                       row["predicted_winner"], sc["winner"])
+                        have_t.add(mid)
+                        touched = True
+            if touched:
+                db.commit()
+    except Exception as e:
+        print(f"[parlays] tennis leg settle failed: {e}")
     # grade the slips themselves
     try:
         with SessionLocal() as db:
@@ -2385,6 +2454,9 @@ def _book_props(sport, g):
         import sgo_api
         if sgo_api.enabled():
             b = sgo_api.get_player_props(sport, home, away, league=sgo_league)
+            if sport == "mlb" and b:
+                b = [p for p in b
+                     if (p.get("stat") or "").strip().lower() != "points"]
             if b:
                 return b
     except Exception as e:
@@ -2407,17 +2479,31 @@ def _book_props(sport, g):
 # prefix-tolerant; multi-column entries are summed (combo props like PRA).
 _BOX_COLS = {
     "mlb": {
+        # SportsGameOdds labels (lowercased) -> (box group hint, [columns])
+        "batting basesonballs": ("batting", [["BB"]]),
+        "batting doubles": ("batting", [["2B"]]),
+        "batting hits": ("batting", [["H"]]),
+        "batting homeruns": ("batting", [["HR"]]),
+        "batting rbi": ("batting", [["RBI"]]),
+        "batting stolenbases": ("batting", [["SB"]]),
+        "batting strikeouts": ("batting", [["K"]]),
+        "batting totalbases": ("batting", [["TB"]]),
+        "batting triples": ("batting", [["3B"]]),
+        "batting hits+runs+rbi": ("batting", [["H"], ["R"], ["RBI"]]),
+        "pitching basesonballs": ("pitching", [["BB"]]),
+        "pitching earnedruns": ("pitching", [["ER"]]),
+        "pitching hits": ("pitching", [["H"]]),
+        "pitching outs": ("pitching", [["OUT", "IP"]]),
+        "pitching strikeouts": ("pitching", [["K", "SO"]]),
+        # legacy / canonical aliases
         "strikeouts": ("pitching", [["K", "SO"]]),
-        "pitcher strikeouts": ("pitching", [["K", "SO"]]),
-        "hits allowed": ("pitching", [["H"]]),
-        "earned runs": ("pitching", [["ER"]]),
-        "walks": ("pitching", [["BB"]]),
         "hits": ("batting", [["H"]]),
         "total bases": ("batting", [["TB"]]),
         "home runs": ("batting", [["HR"]]),
         "rbis": ("batting", [["RBI"]]),
         "runs": ("batting", [["R"]]),
         "stolen bases": ("batting", [["SB"]]),
+        "walks": ("pitching", [["BB"]]),
     },
     "nba": {
         "points": (None, [["PTS"]]),
@@ -2612,6 +2698,58 @@ def _projection_for(sport, game_id, date, player, stat, line, league=None):
     return proj
 
 
+_STAT_SYN = {
+    "ks": "strikeouts", "k": "strikeouts", "so": "strikeouts",
+    "pitcher strikeouts": "strikeouts", "strikeout": "strikeouts",
+    "pts": "points", "reb": "rebounds", "rebound": "rebounds",
+    "ast": "assists", "assist": "assists", "rbis": "rbi",
+    "hr": "home runs", "homerun": "home runs", "homeruns": "home runs",
+    "tb": "total bases", "rush yds": "rushing yards", "rec yds": "receiving yards",
+    "pass yds": "passing yards", "3 pointers": "threes", "3pt made": "threes",
+    "three pointers made": "threes", "passing tds": "passing touchdowns",
+    "3 pt made": "threes", "3 pointers": "threes", "3pt made": "threes",
+    "3s": "threes", "3 pointers made": "threes", "3 point made": "threes",
+}
+
+
+def _norm_player(s):
+    return "".join(c for c in (s or "").lower() if c.isalnum())
+
+
+def _norm_stat(s):
+    s = (s or "").lower()
+    s = re.sub(r"[^a-z0-9+ ]", " ", s)
+    s = re.sub(r"\b(player|total|o u|over under|prop|alt)\b", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return _STAT_SYN.get(s, s)
+
+
+def _model_projection_map(sport, game_id, date):
+    """{(player_norm, stat_norm): projection} from the model props, used to
+    backfill book props that have no game-log projection (restores the
+    projection that used to show before book lines became the source)."""
+    try:
+        if sport == "mlb":
+            from mlb_provider import get_props
+            mp = get_props(date, int(game_id))
+        elif sport in ("nba", "nfl", "ncaaf", "ncaab", "wncaab"):
+            from espn_provider import get_props
+            mp = get_props(sport, date, game_id)
+        else:
+            return {}
+    except Exception as e:
+        print(f"[{sport}] model projection map failed: {e}")
+        return {}
+    out = {}
+    for p in (mp or {}).get("props", []):
+        proj = p.get("projection")
+        if proj is None:
+            continue
+        out[(_norm_player(p.get("player")),
+             _norm_stat(p.get("label") or p.get("stat")))] = proj
+    return out
+
+
 def _enrich_projections(sport, game_id, date, props, league=None):
     """Best-effort, time-boxed parallel fill of `projection` for props that
     lack one (book lines). Cached per player+stat; whatever doesn't finish in
@@ -2647,6 +2785,16 @@ def _enrich_projections(sport, game_id, date, props, league=None):
                 ex.shutdown(wait=False, cancel_futures=True)
             except Exception:
                 pass
+    # backfill any still-missing projections from the model's own numbers
+    missing = [p for p in props if p.get("projection") is None]
+    if missing and sport in ("mlb", "nba", "nfl"):
+        mm = _model_projection_map(sport, game_id, date)
+        if mm:
+            for p in missing:
+                k = (_norm_player(p.get("player")),
+                     _norm_stat(p.get("stat") or p.get("label")))
+                if k in mm:
+                    p["projection"] = mm[k]
 
 
 def _props_boxscore(sport, game_id, date, league=None):

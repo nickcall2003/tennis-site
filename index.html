@@ -273,6 +273,11 @@
   .pc-log{margin-left:auto;background:transparent;border:1px solid var(--line);color:var(--muted);font-size:10px;padding:4px 9px;border-radius:6px;cursor:pointer}
   .pc-log:hover{color:var(--ink)}
   .pf-load{color:var(--muted-2);font-size:15px}
+  .help-wrap{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+  .help-card{display:flex;gap:12px;align-items:flex-start;background:var(--panel-3);border:1px solid var(--line);border-radius:12px;padding:13px 15px}
+  .help-ic{font-size:22px;line-height:1;flex:0 0 auto;margin-top:1px}
+  .help-t{font-weight:700;font-size:14.5px;margin-bottom:3px}
+  .help-d{color:var(--muted);font-size:12.5px;line-height:1.5}
   .pred-live{margin-top:10px;font-family:"Space Mono",monospace;font-size:12px;color:var(--clay-bright);background:rgba(200,97,47,.10);border:1px solid rgba(200,97,47,.3);border-radius:8px;padding:8px 11px}
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
@@ -470,6 +475,7 @@
         <button class="menu-btn" id="menu-btn" aria-label="Switch sport">&#9776;</button>
         <div class="menu" id="menu">
           <div class="menu-item" data-view="home">&#127968; Home</div>
+          <div class="menu-item" data-view="help">&#10067; How to use</div>
           <div class="menu-sec">Sports</div>
           <div class="menu-item" data-sport="tennis">&#127934; Tennis</div>
           <div class="menu-item" data-sport="mlb">&#9918; MLB</div>
@@ -704,10 +710,10 @@ function render(){renderTabs();renderBubbles();loadTournaments();
 function showView(detail){document.getElementById("main").style.display=detail?"none":"";
   const useSide=(sport==="tennis"||sport==="soccer");
   document.getElementById("side").style.display=(detail||!useSide)?"none":"";document.getElementById("detail").style.display=detail?"block":"none";}
-async function openDetail(id){detailId=id;detailTab="analysis";showView(true);location.hash="m"+id;
+async function openDetail(id){detailId=id;detailTab="analysis";showView(true);
   document.getElementById("detail").innerHTML='<div class="empty">Loading match&hellip;</div>';await refreshDetail();
-  if(detailTimer)clearInterval(detailTimer);detailTimer=setInterval(()=>{if(detailId)refreshDetail(true);},12000);}
-function closeDetail(){detailId=null;if(detailTimer)clearInterval(detailTimer);location.hash="";
+  if(detailTimer)clearInterval(detailTimer);detailTimer=setInterval(()=>{if(detailId)refreshDetail(true);},10000);}
+function closeDetail(){detailId=null;if(detailTimer)clearInterval(detailTimer);
   if(view==="home"){document.getElementById("detail").style.display="none";document.getElementById("home").classList.add("show");return;}
   showView(false);renderCurrent();}
 function renderCurrent(){if(view==="free"||view==="best")renderPicks();else if(view==="parlays")renderParlays();else if(view==="news")renderNews();else if(sport==="soccer")renderSoccer();else if(isTeam(sport))renderTeam();else render();}
@@ -754,7 +760,7 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
     const paras=(m.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel"><div class="analysis">'+paras+'</div>'+meta+'</div>';
   }else{body='<div class="panel">'+statsHTML(m)+'</div>';}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="closeDetail()">\u2039 Back to matches</button>'+head+tabs+body;}
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;}
 function setDetailTab(t){detailTab=t;refreshDetail(true);}
 function statsHTML(m){const s=m.stats;
   if(!s||!s.has_data)return '<div class="stat-na" style="padding:30px 0">Live match stats will appear once the match is underway and the feed reports points.</div>';
@@ -798,11 +804,31 @@ function applySportsMeta(){
   }catch(e){}
 }
 function isTeam(s){return TEAM_SPORTS.indexOf(s)>=0;}
-async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home")return;const tok=++loadToken;const mySport=sport;
+async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
   else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}}
+async function silentReload(){
+  if(detailId||view!=="sport")return;
+  const tok=++loadToken,mySport=sport;
+  if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
+  else if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
+  else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}}
+function hasLiveOnBoard(){try{
+  if(sport==="soccer")return (soccerGames||[]).some(g=>g.status==="live");
+  if(isTeam(sport))return (teamGames||[]).some(g=>g.status==="live");
+  return (current||[]).some(m=>m.status==="live");
+}catch(e){return false;}}
+setInterval(()=>{if(!detailId&&view==="sport"&&hasLiveOnBoard())silentReload();},15000);
+// ---- history-driven back button (works on iOS Safari) ----
+function _trap(){try{history.pushState({_t:1},"");}catch(e){}}
+function goBack(){try{history.back();}catch(e){if(detailId)closeDetail();else openHome();}}
+window.addEventListener("popstate",function(){
+  if(detailId){closeDetail();_trap();return;}
+  if(view!=="home"){openHome();_trap();return;}
+});
+_trap();
 let _wsRetry=0;
 function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";let ws;
   try{ws=new WebSocket(proto+"://"+location.host+"/ws/live");}catch(e){return;}
@@ -823,6 +849,7 @@ function selectMenu(el){
   else if(el.dataset.view==="home"){openHome();}
   else if(el.dataset.view==="news"){openNews();}
   else if(el.dataset.view==="parlays"){openParlays();}
+  else if(el.dataset.view==="help"){openHelp();}
   else if(el.dataset.view){openPicks(el.dataset.view);}
 }
 let loadToken=0;
@@ -1187,9 +1214,9 @@ function renderTeam(){renderDatebar();renderTabsTeam();
   ordered.forEach(g=>{const el=document.createElement("div");const fin=g.status==="finished";
     let cls="card";if(fin&&g.winner){const pick=g.prob_home>=0.5?"home":"away";cls+=pick===g.winner?" correct":" wrong";}else if(g.status==="live")cls+=" live";
     el.className=cls;el.innerHTML=teamCardHTML(g);el.onclick=()=>openFn(g.id);list.appendChild(el);});}
-async function openMLBDetail(id){detailId="mlb"+id;mlbDetailTab="prediction";mlbMatchups=null;mlbInjuries=null;mlbProps=null;mlbBox=null;showView(true);location.hash="g"+id;
+async function openMLBDetail(id){detailId="mlb"+id;mlbDetailTab="prediction";mlbMatchups=null;mlbInjuries=null;mlbProps=null;mlbBox=null;showView(true);
   document.getElementById("detail").innerHTML='<div class="empty">Loading game&hellip;</div>';await refreshMLBDetail(id);
-  if(detailTimer)clearInterval(detailTimer);detailTimer=setInterval(()=>{if(detailId==="mlb"+id)refreshMLBDetail(id);},20000);}
+  if(detailTimer)clearInterval(detailTimer);detailTimer=setInterval(()=>{if(detailId==="mlb"+id)refreshMLBDetail(id);},10000);}
 async function refreshMLBDetail(id){let g;try{g=await getJSON("/api/mlb/game/"+id+"?date="+ymd(selected));}catch(e){return;}if(detailId!=="mlb"+id||g.error)return;mlbGame=g;renderMLBDetail(g);if(mlbDetailTab==="box"&&mlbBox&&mlbBox!=="loading")loadMLBBox(id,true);}
 function setMLBTab(t){mlbDetailTab=t;renderMLBDetail(mlbGame);
   if(t==="matchups"&&mlbMatchups===null)loadMatchups(mlbGame.id);
@@ -1270,9 +1297,9 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
     '<div class="fac" style="border:none"><span class="va"></span><span class="lab">Park '+(g.park_factor||1).toFixed(2)+(g.weather?" \u00b7 "+g.weather:"")+'</span><span class="vb"></span></div>'+
     mlbLinesHTML(g)+
     '<div class="note">Starter is each team\u2019s announced probable; bullpen is the team staff ERA. Park &amp; weather scale the run environment for both sides. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>';}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="closeDetail()">\u2039 Back to games</button>'+head+tabs+body;}
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
 // ===== NBA / NFL DETAIL =====
-async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";teamProps=null;teamBox=null;showView(true);location.hash="t"+id;
+async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";teamProps=null;teamBox=null;showView(true);
   document.getElementById("detail").innerHTML='<div class="empty">Loading game&hellip;</div>';await refreshTeamDetail(id,sport);
   if(detailTimer)clearInterval(detailTimer);const sp=sport;
   detailTimer=setInterval(()=>{
@@ -1280,7 +1307,7 @@ async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";t
     // only poll while a game is actually live; scheduled/finished games are static
     const cur=byId[sp+id];
     if(cur&&cur.status==="live")refreshTeamDetail(id,sp);
-  },25000);}
+  },10000);}
 async function refreshTeamDetail(id,sp){let g;try{g=await getJSON("/api/"+sp+"/game/"+id+"?date="+ymd(selected));}catch(e){return;}if(detailId!==sp+id||g.error)return;teamGame=g;teamGame._sp=sp;renderTeamDetail(g,sp);if(teamDetailTab==="box"&&teamBox&&teamBox!=="loading")loadTeamBox(id,sp,true);}
 function setTeamTab(t){teamDetailTab=t;renderTeamDetail(teamGame,teamGame._sp);
   if(t==="props"&&teamProps===null)loadTeamProps(teamGame.id,teamGame._sp);
@@ -1346,7 +1373,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     teamFactorsHTML(g,sp)+
     teamLinesHTML(g)+
     '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>';}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="closeDetail()">\u2039 Back to games</button>'+head+tabs+body;}
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
 // ===================== SOCCER (multi-league) =====================
 async function loadSoccer(){
   let d;try{d=await getJSON("/api/soccer/games?league="+soccerLeague+"&date="+ymd(selected));}catch(e){d={games:[],leagues:[]};}
@@ -1420,11 +1447,11 @@ function renderSoccer(){
 }
 async function openSoccerDetail(id,league){
   detailId="soccer"+id;soccerDetailTab="prediction";soccerBox=null;soccerProps=null;soccerDetailLeague=league||soccerLeague;
-  showView(true);location.hash="s"+id;
+  showView(true);
   document.getElementById("detail").innerHTML='<div class="empty">Loading match&hellip;</div>';
   await refreshSoccerDetail(id);
   if(detailTimer)clearInterval(detailTimer);
-  detailTimer=setInterval(()=>{if(detailId!=="soccer"+id)return;const cur=byId["soccer"+id];if(cur&&cur.status==="live")refreshSoccerDetail(id);},25000);
+  detailTimer=setInterval(()=>{if(detailId!=="soccer"+id)return;const cur=byId["soccer"+id];if(cur&&cur.status==="live")refreshSoccerDetail(id);},10000);
 }
 async function refreshSoccerDetail(id){
   let g;try{g=await getJSON("/api/soccer/game/"+id+"?league="+(soccerDetailLeague||"epl")+"&date="+ymd(selected));}catch(e){return;}
@@ -1497,7 +1524,7 @@ function renderSoccerDetail(g){
   else if(soccerDetailTab==="events"){body='<div class="panel"><div class="stat-sec">Match events</div>'+soccerEventsHTML(g)+'<div class="note">Goals, cards and substitutions as ESPN posts them, newest feeds may lag a minute or two.</div></div>';}
   else{body='<div class="panel">'+soccerProbExplain(g)+
     '<div class="note">Three-way result probability (home / draw / away) from a Poisson goals model with home advantage, updated live from the score and minute. Not betting advice.</div></div>';}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="closeDetail()">\u2039 Back to matches</button>'+head+tabs+body;
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;
 }
 
 function mlbLinesHTML(g){const L=g.lines;if(!L)return "";
@@ -1551,7 +1578,14 @@ function setPropFilter(s){propStatFilter=s;
 function propsPanelHTML(data){
   if(data==="loading"||data===null)return '<div class="panel"><div class="empty">Loading props&hellip;</div></div>';
   const all=data.props||[];
-  if(!all.length)return '<div class="panel"><div class="empty">No player props available for this game yet.</div><div class="note">Props appear once season stats (and, for baseball, the announced starters) are posted.</div></div>';
+  if(!all.length){
+    const why=propsSport==="soccer"
+      ?"Soccer player props depend on a sportsbook posting them \u2014 typically only for marquee matches and usually close to kickoff."
+      :propsSport==="mlb"
+      ?"Props appear once the starting pitchers and lineups are announced."
+      :"Props appear once the books post lines for the game (usually game-day).";
+    return '<div class="panel"><div class="empty">No player props available for this game yet.</div><div class="note">'+why+'</div></div>';
+  }
   const isBook=(data.source==="book")||all.some(p=>p.source==="book");
   const stats=propStatList(all);
   if(propStatFilter!=="all"&&stats.map(s=>s.toLowerCase()).indexOf(propStatFilter.toLowerCase())<0)propStatFilter="all";
@@ -1758,6 +1792,37 @@ function renderPicksDatebar(){const bar=document.getElementById("datebar");bar.i
     const lab=o===0?"Today":o===-1?"Yest.":o===1?"Tom.":DOW[d.getDay()];
     b.innerHTML=lab+'<span class="d2">'+MON[d.getMonth()]+" "+d.getDate()+'</span>';b.onclick=()=>{selected=d;renderPicksDatebar();_picksRefresh();};bar.appendChild(b);}
   const next=document.createElement("button");next.className="arrow";next.textContent="\u203A";next.onclick=()=>{selected=addDays(selected,1);renderPicksDatebar();_picksRefresh();};bar.appendChild(next);}
+function openHelp(){view="help";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";
+  document.getElementById("detail").style.display="none";
+  document.getElementById("side").style.display="none";
+  document.getElementById("acc-badge").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("sport-tag").textContent="How to";
+  document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="help"));
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";document.getElementById("datebar").innerHTML="";
+  toggleMenu(false);renderHelp();}
+function renderHelp(){
+  const items=[
+    ["\u{1F3DF}\uFE0F","The board","Pick a sport from the menu or the home grid. Each game shows the model\u2019s predicted winner, a win-probability bar, and the projected score. A pulsing \u201CLive\u201D tag means it\u2019s in progress."],
+    ["\u{1F4CA}","Model \u00b7 Market \u00b7 Edge","Every game shows the model\u2019s fair price, the sportsbook market price, how many books are in, and the edge (model % minus the market\u2019s implied %). A positive edge means the model likes the side more than the market does. \u201CNo market line yet\u201D means no book has posted odds."],
+    ["\u2b50","Free Picks &amp; Best Bets","Free Picks are the day\u2019s few highest-confidence plays. Best Bets is the fuller board with deeper AI write-ups. Both show a green check or red x as games finish, plus a rolling 30-day record."],
+    ["\u{1F3AB}","Parlays","One locked set of model parlays per day \u2014 a safer two-leg, a value three-leg, and a longshot. Each shows its stake in units and settles win/loss, with a 30-day unit profit/loss and ROI. They lock when first viewed so they don\u2019t drift."],
+    ["\u{1F3AF}","Player props","Open a game and tap Props. Each row shows Projected (model) \u00b7 Line (book) \u00b7 Actual (after the game), a HIT/MISS badge, and the model\u2019s over/under lean. Use the stat buttons to filter (Points, Strikeouts, Rushing Yds\u2026) and tap a row for the player\u2019s last-10 game log."],
+    ["\u26A1","Live scores","Scores and win probabilities refresh automatically every ~10\u201315 seconds while a game is live \u2014 no need to reload. Open a live game for the fastest updates."],
+    ["\u{1F50E}","Game detail","Tap any game for its detail page: Prediction (why the model leans a side), Live Stats (box score), Match Events (soccer), and Props."],
+    ["\u{1F4C5}","Dates","Use the date bar to look back at finished games and their results, or ahead to upcoming slates."],
+    ["\u{1F4C8}","Accuracy","The 30-day model accuracy appears on the home screen and per sport, built from graded picks as games finish."],
+    ["\u26BD","Soccer leagues","On the soccer board, pick a league \u2014 or \u26A1 Live Today \u2014 from the panel on the left."],
+    ["\u{1F4F0}","News &amp; Injuries","Headlines and the injury report for the day\u2019s games, by sport."],
+  ];
+  const cards=items.map(it=>'<div class="help-card"><div class="help-ic">'+it[0]+'</div><div class="help-body"><div class="help-t">'+it[1]+'</div><div class="help-d">'+it[2]+'</div></div></div>').join("");
+  document.getElementById("list").innerHTML=
+    '<div class="picks-head">\u2753 How to use Line Logic</div>'+
+    '<div class="picks-sub">A quick tour of every feature. Everything here is a model estimate for informational purposes \u2014 not betting advice.</div>'+
+    '<div class="help-wrap">'+cards+'</div>'+
+    '<div class="home-foot">Tip: tap any game to dig into the prediction, props, and live stats. Use the date bar to review how past picks did.</div>';}
 let newsSport="nba";
 function openNews(){view="news";if(detailId)closeDetail();
   selected=startOfDay(new Date());   // reset date on tab switch
@@ -1853,6 +1918,7 @@ function renderHome(){
       '<div class="home-pick-btn" style="background:var(--panel-2)" onclick="openParlays()"><div class="nm">\u{1F3AB} Parlays</div><div class="sub">The day\u2019s locked model parlays with a 30-day unit record.</div></div>'+
       '<div class="home-pick-btn" style="background:var(--panel-2)" onclick="openNews()"><div class="nm">\u{1F4F0} News &amp; Injuries</div><div class="sub">Headlines and the injury report for today\u2019s games.</div></div>'+
     '</div>'+
+    '<div class="home-picks" style="margin-top:13px"><div class="home-pick-btn" style="grid-column:1/-1;background:var(--panel-2)" onclick="openHelp()"><div class="nm">\u2753 How to use Line Logic</div><div class="sub">New here? A quick tour of every feature and what the numbers mean.</div></div></div>'+
     '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';}
 async function renderPicks(){
   const list=document.getElementById("list");list.innerHTML='<div class="empty">Loading picks&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
