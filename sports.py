@@ -76,6 +76,12 @@ def _nhl_games(date):
     return get_games(date) or []
 
 
+def _soccer_games(date):
+    # registry default (EPL); the real board uses the league-aware route
+    from soccer_provider import get_games
+    return get_games(date) or []
+
+
 def _find_by_id(games_fn):
     def f(date, gid):
         for g in games_fn(date):
@@ -101,7 +107,7 @@ class Sport:
 
     @property
     def is_team(self) -> bool:
-        return self.kind in ("mlb", "espn", "team")
+        return self.kind in ("mlb", "espn", "team", "soccer")
 
     @property
     def generic_team(self) -> bool:
@@ -148,6 +154,11 @@ SPORTS: dict[str, Sport] = {
         key="wncaab", label="Women's CBB", emoji="\U0001F3C0", color="#c0567e",
         kind="espn", source="ESPN + team-strength model", blurb="D1 women \u00b7 AP-aware",
         games=_espn_games("wncaab"), game=_espn_game("wncaab")),
+    "soccer": Sport(
+        key="soccer", label="Soccer", emoji="\u26BD", color="#2f9e6f",
+        kind="soccer", source="ESPN (multi-league) + Poisson model",
+        blurb="EPL \u00b7 UCL \u00b7 La Liga \u00b7 MLS \u2026",
+        games=_soccer_games, game=_find_by_id(_soccer_games)),
 }
 
 # Convenience views used by the routes/picks loops.

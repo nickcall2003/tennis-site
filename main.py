@@ -1083,6 +1083,42 @@ def _gather_plays_uncached(target: dt.date):
                 })
         except Exception as e:
             print(f"[picks] {_key} gather failed: {e}")
+    # --- soccer (all 15 leagues, live-today aggregate) ---
+    try:
+        import soccer_provider
+        for g in soccer_provider.get_today(target):
+            if g.get("status") == "finished":
+                continue
+            ph, pa = g["prob_home"], g["prob_away"]
+            side = "home" if ph >= pa else "away"
+            prob = ph if side == "home" else pa
+            pick = g["home"]["name"] if side == "home" else g["away"]["name"]
+            opp = g["away"]["name"] if side == "home" else g["home"]["name"]
+            conf = "high" if prob >= 0.58 else "medium" if prob >= 0.47 else "low"
+            od = g.get("odds") or {}
+            plays.append({
+                "sport": "soccer", "id": g["id"], "league": g["league"], "kind": "moneyline",
+                "match": f"{g['away']['name']} @ {g['home']['name']}",
+                "tournament": g.get("league_label", ""),
+                "pick": f"{pick} to win", "prob": round(prob, 3),
+                "confidence": conf, "event_time": g.get("event_time"),
+                "ctx": {"pick_side": side, "opponent": opp,
+                        "prob_home": g["prob_home"], "prob_draw": g.get("prob_draw"),
+                        "prob_away": g["prob_away"],
+                        "exp_goals_home": g.get("exp_goals_home"),
+                        "exp_goals_away": g.get("exp_goals_away"),
+                        "home_name": g["home"]["name"], "away_name": g["away"]["name"],
+                        "home_record": g["home"].get("record"),
+                        "away_record": g["away"].get("record"),
+                        "league_label": g.get("league_label"), "venue": g.get("venue"),
+                        "minute": g.get("minute"), "status": g["status"],
+                        "score_home": g["score"]["home"], "score_away": g["score"]["away"],
+                        "market_home": od.get("ml_home"), "market_draw": od.get("ml_draw"),
+                        "market_away": od.get("ml_away")},
+                "score_key": prob + 0.05 * _confidence_rank(conf),
+            })
+    except Exception as e:
+        print(f"[picks] soccer gather failed: {e}")
     plays.sort(key=lambda p: -p["score_key"])
     return plays
 
@@ -1100,7 +1136,22 @@ def _enrich_odds(p):
         else:
             fair = round(100 * (1 - prob) / prob)
         p["fair_odds"] = fair
-    # market odds: team sports via snapshot, tennis via per-tournament feed
+    # soccer: ESPN 3-way moneylines (carried in ctx) -> market price + de-vigged edge
+    if p["sport"] == "soccer":
+        sctx = p.get("ctx") or {}
+        mh, md, ma = sctx.get("market_home"), sctx.get("market_draw"), sctx.get("market_away")
+        side = sctx.get("pick_side")
+        pick_ml = mh if side == "home" else ma
+        if pick_ml is not None:
+            p["market_odds"] = pick_ml
+            ih = american_to_prob(mh) if mh is not None else None
+            idr = american_to_prob(md) if md is not None else None
+            ia = american_to_prob(ma) if ma is not None else None
+            tot = sum(x for x in (ih, idr, ia) if x is not None)
+            side_imp = ih if side == "home" else ia
+            if tot and side_imp is not None:
+                p["edge_pct"] = round((p["prob"] - side_imp / tot) * 100, 1)
+        # market odds: team sports via snapshot, tennis via per-tournament feed
     try:
         import odds_api
         if odds_api.enabled() and p["sport"] in ("mlb", "nba", "nfl"):
@@ -1321,6 +1372,40 @@ def _long_reason(p):
                      "— lower confidence.")
         s.append(f"Confidence: {p['confidence']}. Hockey is high-variance, and this model doesn't "
                  f"include the starting goalie or injuries — confirm the projected starter yourself.")
+    elif p["sport"] == "soccer":
+        is_home = ctx.get("pick_side") == "home"
+        home = ctx.get("home_name", "the home side")
+        away = ctx.get("away_name", "the away side")
+        opp = ctx.get("opponent", "the opponent")
+        lg = ctx.get("league_label", "this competition")
+        pdw = round((ctx.get("prob_draw") or 0) * 100)
+        opp_pct = round(((ctx.get("prob_away") if is_home else ctx.get("prob_home")) or 0) * 100)
+        where = "at home" if is_home else "on the road"
+        s.append(f"In {lg}, the model makes {name} a {pct}% pick to win {where}, "
+                 f"with the draw at {pdw}% and {opp} at {opp_pct}%.")
+        eh, ea = ctx.get("exp_goals_home"), ctx.get("exp_goals_away")
+        if eh is not None and ea is not None:
+            mine, theirs = (eh, ea) if is_home else (ea, eh)
+            tail = (" plus a quantified home-field bump." if is_home
+                    else f" — and {name} keep the expected-goals edge even away from home.")
+            s.append(f"The goals model projects about {mine} for {name} versus {theirs} for "
+                     f"{opp}, from each side's scoring and conceding rates{tail}")
+        if is_home:
+            s.append(f"Home advantage is a real, measured edge here — familiar pitch, the "
+                     f"crowd, and no travel — stacked on top of {name}'s underlying form.")
+        else:
+            s.append(f"Being favored on the road means {name} grade out clearly stronger than "
+                     f"{home}; the model only tilts away when that gap is large enough to beat home edge.")
+        hr, ar = ctx.get("home_record"), ctx.get("away_record")
+        if hr or ar:
+            s.append(f"Form and standing: {home} {hr or 'n/a'}, {away} {ar or 'n/a'}.")
+        if ctx.get("status") == "live":
+            sh, sa, mn = ctx.get("score_home"), ctx.get("score_away"), ctx.get("minute")
+            s.append(f"Live at {mn}': {away} {sa}–{sh} {home}. The win probability already "
+                     f"reflects the current scoreline and the time left to play.")
+        s.append(f"Confidence: {p['confidence']}. Soccer carries genuine draw risk, so this is a "
+                 f"moneyline lean rather than a lock — the three-way split shows how much the "
+                 f"draw absorbs.")
     else:  # nba / nfl
         league = p["sport"].upper()
         s.append(f"The model makes {name} a {pct}% {league} favorite.")
@@ -1573,6 +1658,44 @@ def sports_meta():
     """Registry metadata so the frontend builds its tabs/tiles/labels/colors
     dynamically. Adding a sport in sports.py surfaces it here automatically."""
     return sports.public_meta()
+
+
+# ----------------------------- SOCCER (multi-league) -----------------------
+# Defined BEFORE the generic /api/{sport}/... routes so these literal paths win
+# route matching and the league query param is honored.
+@app.get("/api/soccer/leagues")
+def soccer_leagues():
+    import soccer_provider
+    return {"leagues": soccer_provider.leagues()}
+
+
+@app.get("/api/soccer/games")
+def soccer_games(date: str | None = None, league: str | None = None):
+    import soccer_provider
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    lg = league or "all"
+    if lg in ("all", "today"):
+        return {"games": soccer_provider.get_today(target), "league": "all",
+                "leagues": soccer_provider.leagues()}
+    return {"games": soccer_provider.get_games(target, lg), "league": lg,
+            "leagues": soccer_provider.leagues()}
+
+
+@app.get("/api/soccer/game/{game_id}")
+def soccer_game(game_id: str, date: str | None = None, league: str | None = None):
+    import soccer_provider
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    lg = league or soccer_provider.DEFAULT_LEAGUE
+    g = soccer_provider.get_game(target, game_id, lg)
+    return g or {"error": "not found"}
+
+
+@app.get("/api/soccer/boxscore/{game_id}")
+def soccer_boxscore(game_id: str, date: str | None = None, league: str | None = None):
+    import soccer_provider
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    lg = league or soccer_provider.DEFAULT_LEAGUE
+    return soccer_provider.get_boxscore(target, game_id, lg)
 
 
 @app.get("/api/{sport}/games")
