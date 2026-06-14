@@ -73,10 +73,17 @@ def get_table(league_key):
     html = _get(url)
     table = {}
     if html:
-        m = re.search(r"var\s+teamsData\s*=\s*JSON\.parse\('(.*?)'\)", html, re.S)
+        m = (re.search(r"var\s+teamsData\s*=\s*JSON\.parse\('(.*?)'\)", html, re.S)
+             or re.search(r"teamsData\s*=\s*JSON\.parse\('(.*?)'\)", html, re.S)
+             or re.search(r"teamsData\s*=\s*JSON\.parse\(\"(.*?)\"\)", html, re.S))
         if m:
             try:
-                data = json.loads(m.group(1).encode("utf-8").decode("unicode_escape"))
+                blob = m.group(1)
+                try:
+                    blob = blob.encode("utf-8").decode("unicode_escape")
+                except Exception:
+                    pass
+                data = json.loads(blob)
                 for td in data.values():
                     hist = td.get("history", [])
                     mp = len(hist)
@@ -123,6 +130,12 @@ def xg_bars(league_key, home_name, away_name):
 
 def diag(league_key="epl"):
     table = get_table(league_key)
-    return {"enabled": enabled(), "supported": supported(league_key),
+    info = {"enabled": enabled(), "supported": supported(league_key),
             "league": league_key, "season": _season_year(), "teams": len(table),
-            "sample": list(table.items())[:2], "fetch": _last}
+            "sample": list(table.items())[:2], "fetch": dict(_last)}
+    if league_key in LEAGUE:
+        html = _get(f"https://understat.com/league/{LEAGUE[league_key]}/{_season_year()}")
+        info["has_teamsData"] = ("teamsData" in html)
+        info["title_in_page"] = ("Understat" in html or "understat" in html)
+        info["snippet"] = html[:240]
+    return info

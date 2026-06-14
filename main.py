@@ -2207,7 +2207,8 @@ def soccer_game(game_id: str, date: str | None = None, league: str | None = None
     if g:
         try:
             import espn_depth, understat
-            d = espn_depth.match_depth("soccer", g["home"]["name"], g["away"]["name"], league=lg)
+            slug = soccer_provider._SLUG.get(lg, lg)
+            d = espn_depth.match_depth("soccer", g["home"]["name"], g["away"]["name"], league=slug)
             xg = understat.xg_bars(lg, g["home"]["name"], g["away"]["name"])
             if d and xg:
                 d["bars"] = xg + d["bars"]
@@ -2227,8 +2228,8 @@ def soccer_game(game_id: str, date: str | None = None, league: str | None = None
 def _soccer_stats_diag(league: str | None = None):
     try:
         lg = league or "epl"
-        import espn_depth, understat
-        esp = espn_depth.diag("soccer", lg)
+        import espn_depth, understat, soccer_provider
+        esp = espn_depth.diag("soccer", soccer_provider._SLUG.get(lg, lg))
         und = understat.diag(lg)
         return JSONResponse({"league": lg, "espn": esp, "understat": und},
                             headers={"Cache-Control": "no-store"})

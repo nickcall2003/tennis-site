@@ -28,6 +28,7 @@ _HEADERS = {
     "Referer": "https://www.google.com/",
 }
 _last = {"url": None, "status": None, "bytes": 0, "error": None}
+_attempts = []
 _cache = {}          # url -> (ts, html)
 _resolve = {}        # normalized name -> (ts, fighter_url|None)
 _stats = {}          # fighter_url -> (ts, stats dict)
@@ -95,12 +96,15 @@ def _fighter_url(name):
             cands.append(f"{BASE}/statistics/fighters?char={fi}&page=all")
         cands.append(SEARCH + "?query=" + quote(parts[-1]))
     url = None
+    _attempts.clear()
     for u in cands:
         html = _get(u, ttl=_TTL)
-        if not html:
-            continue
-        url = _resolve_from(html, toks)
-        if url:
+        n_links = len(re.findall(r"fighter-details/[a-zA-Z0-9]+", html or ""))
+        hit = _resolve_from(html, toks) if html else None
+        _attempts.append({"url": u, "bytes": len(html or ""), "links_seen": n_links,
+                          "matched": hit})
+        if hit:
+            url = hit
             break
     _resolve[key] = (time.time(), url)
     return url
@@ -164,6 +168,7 @@ def diag(name="Ilia Topuria"):
         "enabled": enabled(),
         "query": name,
         "resolved_url": url,
+        "attempts": _attempts,
         "stats_found": list((stats or {}).keys()),
         "stats": stats,
         "fetch": _last,
