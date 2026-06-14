@@ -2150,6 +2150,28 @@ def ufc_game(game_id: str, date: str | None = None):
     return g or {"error": "not found"}
 
 
+@app.get("/api/mma/raw/{endpoint}")
+def _mma_raw(endpoint: str, date: str | None = None, id: str | None = None,
+             fight: str | None = None):
+    """Inspect raw API-Sports MMA responses (for locking field mappings):
+      /api/mma/raw/fights?date=YYYY-MM-DD
+      /api/mma/raw/fighters?id=<fighterId>
+      /api/mma/raw/statistics?fight=<fightId>
+    """
+    import apisports_mma
+    if endpoint == "fights":
+        params = {"date": date or dt.date.today().isoformat()}
+        body = apisports_mma.raw_get("/fights", params)
+    elif endpoint == "fighters":
+        body = apisports_mma.raw_get("/fighters", {"id": id} if id else {})
+    elif endpoint == "statistics":
+        body = apisports_mma.raw_get("/fights/statistics/fighters",
+                                     {"fight": fight} if fight else {})
+    else:
+        body = {"error": "endpoint must be: fights | fighters | statistics"}
+    return JSONResponse(body, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/mma/diag")
 def _mma_diag():
     try:
