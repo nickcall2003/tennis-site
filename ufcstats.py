@@ -35,7 +35,7 @@ _stats = {}          # fighter_url -> (ts, stats dict)
 
 
 def enabled() -> bool:
-    return os.environ.get("UFCSTATS_ENABLED", "1") == "1"
+    return os.environ.get("UFCSTATS_ENABLED", "0") == "1"
 
 
 def _norm(s):

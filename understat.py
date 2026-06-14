@@ -27,7 +27,7 @@ _ALIAS = {"utd": "united", "wolves": "wolverhampton", "spurs": "tottenham"}
 
 
 def enabled() -> bool:
-    return os.environ.get("UNDERSTAT_ENABLED", "1") == "1"
+    return os.environ.get("UNDERSTAT_ENABLED", "0") == "1"
 
 
 def supported(league_key):
