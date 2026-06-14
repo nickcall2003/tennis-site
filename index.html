@@ -1479,7 +1479,7 @@ function renderUFCDetail(g){
   let tale="";
   if(g.tale&&g.tale.fighters&&g.tale.fighters.length===2){
     const F=g.tale.fighters;  // [away, home]
-    const bio=[["Record","record"],["Nickname","nickname"],["Height","height"],["Reach","reach"],["Stance","stance"],["Weight","weight"],["Age","age"]];
+    const bio=[["Record","record"],["Nickname","nickname"],["Height","height"],["Reach","reach"],["Stance","stance"],["Weight","weight"],["Team","team"],["Age","age"]];
     const cell=v=>'<div class="tv">'+(v!=null&&v!==""?v:"\u2014")+'</div>';
     let body=bio.map(r=>{const a=F[0][r[1]],h=F[1][r[1]];if((a==null||a==="")&&(h==null||h===""))return "";
       return '<div class="tale-row">'+cell(a)+'<div class="tk">'+r[0]+'</div>'+cell(h)+'</div>';}).join("");
