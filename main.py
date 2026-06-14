@@ -1758,27 +1758,96 @@ def _log_shown_picks(view, target, picks):
 
 @app.get("/api/picks/free")
 def free_picks(date: str | None = None):
-    """The FOUR best (highest-confidence) plays of the day. Always 4 when
-    available, each showing its settled win/loss result once the game finishes."""
+    """The FOUR best plays of the day, LOCKED once chosen so the same picks stay
+    listed all day (each showing its win/loss as games finish) and the record
+    matches exactly what's shown — they no longer drop off when a game ends."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
-    plays = _gather_plays(target)
-    # rank by confidence then probability; take the top 4 regardless of threshold
-    ranked = sorted(plays, key=lambda p: -(p.get("score_key", p["prob"])))
-    strong = ranked[:4]
-    import narrate
-    budget = {"left": int(os.environ.get("AI_MAX_PER_REQUEST", "10"))}
-    out = []
-    for p in strong:
-        p["reason"] = narrate.prose(_long_reason(p), kind="reason",
-                                    sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
-        _enrich_odds(p)
+    from models import LockedPickSet
+    d0 = dt.datetime.combine(target, dt.time.min)
+
+    locked = None
+    try:
+        with SessionLocal() as db:
+            row = db.query(LockedPickSet).filter_by(view="free", pick_date=d0).first()
+            if row:
+                locked = json.loads(row.payload)
+    except Exception as e:
+        print(f"[free] lock load failed: {e}")
+
+    if locked is None:
+        plays = _gather_plays(target)
+        ranked = sorted(plays, key=lambda p: -(p.get("score_key", p["prob"])))
+        strong = ranked[:4]
+        import narrate
+        budget = {"left": int(os.environ.get("AI_MAX_PER_REQUEST", "10"))}
+        out = []
+        for p in strong:
+            p["reason"] = narrate.prose(_long_reason(p), kind="reason",
+                                        sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
+            _enrich_odds(p)
+            p["pick_side"] = (p.get("ctx") or {}).get("pick_side")   # keep for settling
+            p.pop("score_key", None)
+            p.pop("ctx", None)
+            out.append(p)
+        if out:                                   # lock the set for the day (once)
+            try:
+                with SessionLocal() as db:
+                    if not db.query(LockedPickSet).filter_by(view="free", pick_date=d0).first():
+                        db.add(LockedPickSet(view="free", pick_date=d0,
+                                             payload=json.dumps(out, default=str)))
+                        db.commit()
+            except Exception as e:
+                print(f"[free] lock save failed: {e}")
+            _log_shown_picks("free", target, out)
+        locked = out
+
+    # each load: settle any finished locked games + refresh win/loss badges
+    for p in locked:
+        _settle_locked_pick(p, target)
         p["result"] = _pick_result_status(p["sport"], str(p["id"]))
-        p.pop("score_key", None)
-        p.pop("ctx", None)
-        out.append(p)
-    _log_shown_picks("free", target, out)
-    return {"date": target.isoformat(), "picks": out}
+    return {"date": target.isoformat(), "picks": locked, "locked": True}
+
+
+def _settle_locked_pick(p, target):
+    """Best-effort settle of a locked pick's game so its W/L shows even if that
+    sport's board was never opened. No-op once a result already exists."""
+    sport, ref = p.get("sport"), str(p.get("id"))
+    side = p.get("pick_side")
+    if not sport or not side or sport == "tennis":
+        return
+    from models import PickResult
+    try:
+        with SessionLocal() as db:
+            if db.query(PickResult).filter_by(sport=sport, ref=ref).first():
+                return
+    except Exception:
+        return
+    g = None
+    try:
+        if sport == "soccer":
+            import soccer_provider
+            g = soccer_provider.get_game(target, ref, p.get("league") or "epl")
+        elif sport == "ufc":
+            import ufc_provider
+            g = ufc_provider.get_game(target, ref)
+        elif sport == "mlb":
+            import mlb_provider
+            g = mlb_provider.get_game(target, int(ref))
+        else:
+            sp = sports.get(sport)
+            if sp and sp.game:
+                g = sp.game(target, ref)
+    except Exception:
+        g = None
+    if not g or g.get("status") != "finished" or not g.get("winner"):
+        return
+    try:
+        with SessionLocal() as db:
+            _record_result(db, sport, ref, side, g["winner"])
+            db.commit()
+    except Exception as e:
+        print(f"[free] settle {sport}:{ref} failed: {e}")
 
 
 def _pick_result_status(sport, ref):
@@ -1983,6 +2052,7 @@ SPORT_SEASON = {
     "ncaaf":  {8, 9, 10, 11, 12, 1},
     "ncaab":  {11, 12, 1, 2, 3, 4},
     "wncaab": {11, 12, 1, 2, 3, 4},
+    "ufc":    set(range(1, 13)),
 }
 
 
@@ -2037,6 +2107,56 @@ def soccer_games(date: str | None = None, league: str | None = None):
     _settle_soccer(games)
     return {"games": games, "league": ("all" if lg in ("all", "today") else lg),
             "leagues": soccer_provider.leagues()}
+
+
+def _settle_ufc(games):
+    """Grade finished bouts into PickResult (predicted = higher win prob)."""
+    try:
+        with SessionLocal() as db:
+            for g in games:
+                if g.get("status") != "finished" or not g.get("winner"):
+                    continue
+                predicted = "home" if g["prob_home"] >= g["prob_away"] else "away"
+                _record_result(db, "ufc", g["id"], predicted, g["winner"])
+            db.commit()
+    except Exception as e:
+        print(f"[ufc] settle failed: {e}")
+
+
+@app.get("/api/ufc/games")
+def ufc_games(date: str | None = None):
+    import ufc_provider
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    games = ufc_provider.get_games(target)
+    _attach_odds("ufc", games)
+    _settle_ufc(games)
+    label = games[0]["event_label"] if games else "UFC"
+    return {"games": games, "event": label}
+
+
+@app.get("/api/ufc/game/{game_id}")
+def ufc_game(game_id: str, date: str | None = None):
+    import ufc_provider
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    g = ufc_provider.get_game(target, game_id)
+    if g:
+        _attach_odds_one("ufc", g)
+        try:
+            tale = ufc_provider.fighter_tale(target, g)   # API-Sports (lazy, cached)
+            if tale:
+                g["tale"] = tale
+        except Exception as e:
+            print(f"[ufc] tale failed: {e}")
+    return g or {"error": "not found"}
+
+
+@app.get("/api/mma/diag")
+def _mma_diag():
+    try:
+        import apisports_mma
+        return JSONResponse(apisports_mma.diag(), headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 @app.get("/api/soccer/game/{game_id}")

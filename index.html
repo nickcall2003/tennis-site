@@ -285,6 +285,19 @@
   .help-t{font-weight:700;font-size:14.5px;margin-bottom:3px}
   .help-d{color:var(--muted);font-size:12.5px;line-height:1.5}
   .pc-res.push{color:var(--muted);background:var(--panel-3);border:1px solid var(--line)}
+  .ufc-mini{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 3px;border-top:1px solid var(--line);cursor:pointer}
+  .ufc-mini:active{opacity:.6}
+  .ufc-mini .um-n{font-size:13px;font-weight:600}
+  .ufc-mini .um-w{font-size:11px;color:var(--muted-2);white-space:nowrap}
+  .soc-row.big{padding:6px 0 4px}
+  .detail-wrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:6px}
+  .tale-head{display:flex;justify-content:space-between;font-weight:700;font-size:12px;margin:8px 0 2px;color:var(--fg)}
+  .tale-head span:nth-child(2){flex:0 0 38%}
+  .tale-row{display:flex;align-items:center;padding:6px 0;border-top:1px solid var(--line)}
+  .tale-row .tv{flex:1;text-align:center;font-weight:600;font-size:13px}
+  .tale-row .tk{flex:0 0 38%;text-align:center;color:var(--muted-2);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+  .tale-why{margin-top:9px;color:var(--muted);font-size:12.5px;line-height:1.5}
+  .src{font-size:10px;color:var(--muted-2);font-weight:400;text-transform:none;letter-spacing:0}
   .pred-live{margin-top:10px;font-family:"Space Mono",monospace;font-size:12px;color:var(--clay-bright);background:rgba(200,97,47,.10);border:1px solid rgba(200,97,47,.3);border-radius:8px;padding:8px 11px}
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
@@ -494,6 +507,7 @@
           <div class="menu-item" data-sport="ncaab">&#127936; NCAA Basketball</div>
           <div class="menu-item" data-sport="wncaab">&#127936; Women's CBB</div>
           <div class="menu-item" data-sport="soccer">&#9917; Soccer</div>
+          <div class="menu-item" data-sport="ufc">&#129354; UFC</div>
           <div class="menu-sec">Picks</div>
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
@@ -723,7 +737,7 @@ async function openDetail(id){detailId=id;detailTab="analysis";showView(true);
 function closeDetail(){detailId=null;if(detailTimer)clearInterval(detailTimer);
   if(view==="home"){document.getElementById("detail").style.display="none";document.getElementById("home").classList.add("show");return;}
   showView(false);renderCurrent();}
-function renderCurrent(){if(view==="free"||view==="best")renderPicks();else if(view==="parlays")renderParlays();else if(view==="news")renderNews();else if(sport==="soccer")renderSoccer();else if(isTeam(sport))renderTeam();else render();}
+function renderCurrent(){if(view==="free"||view==="best")renderPicks();else if(view==="parlays")renderParlays();else if(view==="news")renderNews();else if(sport==="soccer")renderSoccer();else if(sport==="ufc")renderUFC();else if(isTeam(sport))renderTeam();else render();}
 async function refreshDetail(){let m;try{m=await getJSON("/api/match/"+detailId);}catch(e){return;}if(detailId!==m.id)return;renderDetail(m);}
 function formPills(arr){if(!arr||!arr.length)return "";return '<span class="form-pills">'+arr.slice(0,5).map(r=>{const w=r[0]==="W";return '<span class="fp '+(w?'w':'l')+'" title="'+r+'">'+r[0]+'</span>';}).join("")+'</span>';}
 function tennisLinesHTML(m){const L=m.lines;if(!L)return "";const pc=v=>Math.round(v*100)+"%";
@@ -784,7 +798,7 @@ function statsHTML(m){const s=m.stats;
   h+=statRow("Total Points Won",a.total_points_won,b.total_points_won,a.total_points_won,b.total_points_won);
   return h;}
 const TEAM_SPORTS=["mlb","nba","nfl","ncaabb","nhl"];
-const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball",nhl:"NHL",soccer:"Soccer"};
+const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball",nhl:"NHL",soccer:"Soccer",ufc:"UFC"};
 let SPORTS_META=[
   {key:"tennis",emoji:"\u{1f3be}",label:"Tennis",blurb:"ATP \u00b7 WTA \u00b7 Challenger",color:"#4f9d6a",team:false},
   {key:"mlb",emoji:"\u26be",label:"MLB",blurb:"Run lines \u00b7 props",color:"#3f7fc4",team:true},
@@ -795,7 +809,8 @@ let SPORTS_META=[
   {key:"ncaaf",emoji:"\u{1f3c8}",label:"NCAA Football",blurb:"FBS \u00b7 AP-aware",color:"#b5651d",team:true},
   {key:"ncaab",emoji:"\u{1f3c0}",label:"NCAA Basketball",blurb:"D1 men \u00b7 AP-aware",color:"#d08c3f",team:true},
   {key:"wncaab",emoji:"\u{1f3c0}",label:"Women's CBB",blurb:"D1 women \u00b7 AP-aware",color:"#c0567e",team:true},
-  {key:"soccer",emoji:"\u26bd",label:"Soccer",blurb:"EPL \u00b7 UCL \u00b7 La Liga \u00b7 MLS \u2026",color:"#2f9e6f",team:true}
+  {key:"soccer",emoji:"\u26bd",label:"Soccer",blurb:"EPL \u00b7 UCL \u00b7 La Liga \u00b7 MLS \u2026",color:"#2f9e6f",team:true},
+  {key:"ufc",emoji:"\u{1f94a}",label:"UFC",blurb:"Fight cards \u00b7 moneyline",color:"#c8412f",team:false}
 ];
 // /api/sports (registry) refreshes SPORTS_META on load; applySportsMeta keeps the
 // derived maps in sync. The defaults above mean a failed fetch = unchanged UI.
@@ -814,16 +829,19 @@ function isTeam(s){return TEAM_SPORTS.indexOf(s)>=0;}
 async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
+  else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
   else if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
   else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}}
 async function silentReload(){
   if(detailId||view!=="sport")return;
   const tok=++loadToken,mySport=sport;
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
+  else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
   else if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
   else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}}
 function hasLiveOnBoard(){try{
   if(sport==="soccer")return (soccerGames||[]).some(g=>g.status==="live");
+  if(sport==="ufc")return (ufcGames||[]).some(g=>g.status==="live");
   if(isTeam(sport))return (teamGames||[]).some(g=>g.status==="live");
   return (current||[]).some(m=>m.status==="live");
 }catch(e){return false;}}
@@ -849,6 +867,7 @@ function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";let ws;
 // ===== SPORTS STATE =====
 let sport="tennis",teamGames=[],mlbDetailTab="prediction",mlbMatchups=null,mlbInjuries=null,mlbProps=null,mlbBox=null,mlbGame=null;
 let soccerGames=[],soccerLeague="all",soccerLeagues=[],soccerGame=null,soccerDetailTab="prediction",soccerBox=null,soccerProps=null,soccerDetailLeague="all";
+let ufcGames=[],ufcEvent="UFC",ufcGame=null;
 let teamProps=null,teamBox=null,teamDetailTab="prediction",teamGame=null;
 let view="sport";  // "sport" | "free" | "best"
 function selectMenu(el){
@@ -1382,6 +1401,99 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>';}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
 // ===================== SOCCER (multi-league) =====================
+async function loadUFC(){
+  let d;try{d=await getJSON("/api/ufc/games?date="+ymd(selected));}catch(e){d={games:[],event:"UFC"};}
+  ufcGames=d.games||[];ufcEvent=d.event||"UFC";
+  ufcGames.forEach(g=>byId["ufc"+g.id]=g);
+}
+function ufcBarHTML(g){
+  const ph=Math.round(g.prob_home*100);let pa=100-ph;if(pa<0)pa=0;
+  const ha=(g.home&&(g.home.short||g.home.name))||"A",aa=(g.away&&(g.away.short||g.away.name))||"B";
+  const hl=ha.split(" ").pop(),al=aa.split(" ").pop();
+  return '<div class="soc-bar">'+
+    '<div class="seg a" style="width:'+pa+'%">'+(pa>=20?(al+" "):"")+pa+'%</div>'+
+    '<div class="seg h" style="width:'+ph+'%">'+ph+'%'+(ph>=20?(" "+hl):"")+'</div></div>';
+}
+function ufcFighter(f,win){
+  return '<div class="soc-team'+(win?" win":"")+'"><img src="'+((f&&f.img)||"")+'" onerror="this.style.visibility=\'hidden\'">'+
+    '<div class="nm">'+((f&&f.name)||"TBD")+'</div>'+((f&&f.record)?'<div class="rec">'+f.record+'</div>':"")+'</div>';
+}
+function ufcCardHTML(g){
+  const fin=g.status==="finished",live=g.status==="live";
+  let mark="";
+  if(fin&&g.winner){const pick=g.prob_home>=g.prob_away?"home":"away";const ok=pick===g.winner;mark='<span class="mark '+(ok?"ok":"no")+'">'+(ok?"\u2713":"\u2717")+'</span>';}
+  else if(live)mark='<span class="live-tag"><span class="pulse"></span>Live</span>';
+  const winHome=fin&&g.winner==="home",winAway=fin&&g.winner==="away";
+  let mid;
+  if(fin)mid='<div class="rs">def.</div><div class="t">'+(g.method||"Final")+'</div>';
+  else if(live)mid='<div class="rs">vs</div><div class="t live">'+((g.score&&g.score.detail)||"Live")+'</div>';
+  else mid='<div class="rs">vs</div><div class="t">'+(g.event_time||"TBD")+'</div>';
+  const wcTxt=(g.weight_class||"")+(g.is_main?(g.weight_class?" \u00b7 ":"")+"Main Event":"");
+  return '<div class="card-top"><span class="tier" style="background:'+(TIER_COLOR.ufc||"#c8412f")+'">'+(g.event_label||"UFC")+'</span><span class="tourn">'+wcTxt+'</span><span class="status">'+mark+'</span></div>'+
+    '<div class="soc-row">'+ufcFighter(g.away,winAway)+'<div class="soc-mid">'+mid+'</div>'+ufcFighter(g.home,winHome)+'</div>'+
+    ufcBarHTML(g)+edgeLineHTML(g,g.prob_home);
+}
+function renderUFC(){
+  renderDatebar();document.getElementById("tabs").innerHTML="";
+  const live=ufcGames.filter(g=>g.status==="live").length;
+  document.getElementById("bubbles").innerHTML=
+    '<div class="bubble"><div class="num">'+ufcGames.length+'</div><div class="lab">Bouts</div></div>'+
+    '<div class="bubble'+(live?" won":"")+'"><div class="num">'+live+'</div><div class="lab">Live now</div></div>'+
+    '<div class="bubble acc"><div class="num" style="font-size:14px;line-height:1.7">'+(ufcEvent||"UFC")+'</div><div class="lab">Card</div></div>';
+  const list=document.getElementById("list");
+  if(!ufcGames.length){list.innerHTML='<div class="empty">No UFC card for '+ymd(selected)+'. The next card appears here automatically \u2014 try the date arrows.</div>';return;}
+  list.innerHTML="";
+  ufcGames.forEach(g=>{const el=document.createElement("div");let cls="card";
+    if(g.status==="live")cls+=" live";
+    else if(g.status==="finished"&&g.winner){const pick=g.prob_home>=g.prob_away?"home":"away";cls+=pick===g.winner?" correct":" wrong";}
+    el.className=cls;el.innerHTML=ufcCardHTML(g);el.onclick=()=>openUFCDetail(g.id);list.appendChild(el);});
+}
+async function openUFCDetail(id){
+  detailId="ufc"+id;showView(true);
+  document.getElementById("detail").innerHTML='<div class="empty">Loading bout&hellip;</div>';
+  await refreshUFCDetail(id);
+  if(detailTimer)clearInterval(detailTimer);
+  detailTimer=setInterval(()=>{if(detailId!=="ufc"+id)return;const cur=byId["ufc"+id];if(cur&&cur.status==="live")refreshUFCDetail(id);},10000);
+}
+async function refreshUFCDetail(id){
+  let g;try{g=await getJSON("/api/ufc/game/"+id+"?date="+ymd(selected));}catch(e){return;}
+  if(detailId!=="ufc"+id||(g&&g.error))return;
+  ufcGame=g;byId["ufc"+id]=g;renderUFCDetail(g);
+}
+function renderUFCDetail(g){
+  const fin=g.status==="finished";
+  const wcTxt=(g.weight_class||"")+(g.is_main?(g.weight_class?" \u00b7 ":"")+"Main Event":"");
+  const head='<div class="card-top" style="margin-bottom:10px"><span class="tier" style="background:'+(TIER_COLOR.ufc||"#c8412f")+'">'+(g.event_label||"UFC")+'</span><span class="tourn">'+wcTxt+'</span></div>';
+  const winHome=fin&&g.winner==="home",winAway=fin&&g.winner==="away";
+  const mid=fin?('<div class="rs">'+(g.method||"Final")+'</div>'):('<div class="rs">vs</div><div class="t">'+(g.event_time||"TBD")+'</div>');
+  const fighters='<div class="soc-row big">'+ufcFighter(g.away,winAway)+'<div class="soc-mid">'+mid+'</div>'+ufcFighter(g.home,winHome)+'</div>';
+  const edge='<div class="panel" style="margin-top:12px">'+edgeLineHTML(g,g.prob_home)+'</div>';
+  const pickName=(g.prob_home>=g.prob_away?g.home.name:g.away.name),pickPct=Math.round(Math.max(g.prob_home,g.prob_away)*100);
+  const reason='<div class="panel" style="margin-top:12px"><div class="el-lab">Model read</div><div style="margin-top:6px;color:var(--muted);font-size:13px;line-height:1.5">'+
+    (g.odds?("Market-implied from the moneyline, de-vigged. "):("Estimated from career records (no market line posted yet). "))+
+    'Leans <b>'+pickName+'</b> at '+pickPct+'%.</div></div>';
+  let rest="";
+  const others=(ufcGames||[]).filter(b=>String(b.id)!==String(g.id));
+  if(others.length){rest='<div class="panel" style="margin-top:12px"><div class="el-lab">Rest of the card</div>'+
+    others.map(b=>'<div class="ufc-mini" onclick="openUFCDetail(\''+b.id+'\')"><span class="um-n">'+b.away.name+' vs '+b.home.name+'</span><span class="um-w">'+(b.weight_class||"")+'</span></div>').join("")+'</div>';}
+  let tale="";
+  if(g.tale&&g.tale.fighters&&g.tale.fighters.length===2){
+    const F=g.tale.fighters;  // [away, home]
+    const bio=[["Record","record"],["Nickname","nickname"],["Height","height"],["Reach","reach"],["Stance","stance"],["Weight","weight"],["Age","age"]];
+    const cell=v=>'<div class="tv">'+(v!=null&&v!==""?v:"\u2014")+'</div>';
+    let body=bio.map(r=>{const a=F[0][r[1]],h=F[1][r[1]];if((a==null||a==="")&&(h==null||h===""))return "";
+      return '<div class="tale-row">'+cell(a)+'<div class="tk">'+r[0]+'</div>'+cell(h)+'</div>';}).join("");
+    const sa=F[0].stats||{},sh=F[1].stats||{};
+    const keys=Array.from(new Set(Object.keys(sa).concat(Object.keys(sh))));
+    body+=keys.map(k=>{const a=sa[k],h=sh[k];if((a==null||a==="")&&(h==null||h===""))return "";
+      return '<div class="tale-row">'+cell(a)+'<div class="tk">'+String(k).replace(/_/g," ")+'</div>'+cell(h)+'</div>';}).join("");
+    const why=g.tale.why?'<div class="tale-why">'+g.tale.why+'</div>':"";
+    tale='<div class="panel" style="margin-top:12px"><div class="el-lab">Tale of the tape <span class="src">'+(g.tale.source||"")+'</span></div>'+
+      '<div class="tale-head"><span>'+(F[0].name||"")+'</span><span></span><span>'+(F[1].name||"")+'</span></div>'+body+why+'</div>';
+  }
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to card</button>'+
+    '<div class="detail-wrap">'+head+fighters+ufcBarHTML(g)+edge+reason+tale+rest+'</div>';
+}
 async function loadSoccer(){
   let d;try{d=await getJSON("/api/soccer/games?league="+soccerLeague+"&date="+ymd(selected));}catch(e){d={games:[],leagues:[]};}
   soccerGames=d.games||[];

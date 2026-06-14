@@ -144,6 +144,19 @@ class PickLog(Base):
                                        name="uq_view_pick_day"),)
 
 
+
+class LockedPickSet(Base):
+    """The exact set of picks a view (free) locked for a given day, stored as
+    JSON so the list stays stable all day and the recorded W/L matches what is
+    shown — even after the games finish and roll off the live board."""
+    __tablename__ = "locked_pick_set"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    view: Mapped[str] = mapped_column(String(8), index=True)        # free | best
+    pick_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    payload: Mapped[str] = mapped_column(Text)                      # JSON list of picks
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 class OddsSnapshot(Base):
     """
     Captures the market line for a pick over time so we can record the odds we

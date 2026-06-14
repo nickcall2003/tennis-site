@@ -76,6 +76,16 @@ def _nhl_games(date):
     return get_games(date) or []
 
 
+def _ufc_games(date):
+    from ufc_provider import get_games
+    return get_games(date) or []
+
+
+def _ufc_game(date, gid):
+    from ufc_provider import get_game
+    return get_game(date, gid)
+
+
 def _soccer_games(date):
     # registry default (EPL); the real board uses the league-aware route
     from soccer_provider import get_games
@@ -159,6 +169,11 @@ SPORTS: dict[str, Sport] = {
         kind="soccer", source="ESPN (multi-league) + Poisson model",
         blurb="EPL \u00b7 UCL \u00b7 La Liga \u00b7 MLS \u2026",
         games=_soccer_games, game=_find_by_id(_soccer_games)),
+    "ufc": Sport(
+        key="ufc", label="UFC", emoji="\U0001F94A", color="#c8412f",
+        kind="mma", source="ESPN MMA + market model",
+        blurb="Fight cards \u00b7 moneyline",
+        games=_ufc_games, game=_ufc_game),
 }
 
 # Convenience views used by the routes/picks loops.
