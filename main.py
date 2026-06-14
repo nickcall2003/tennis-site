@@ -758,6 +758,14 @@ def _snapshot_odds(sport, ref, side, odds):
         pass
 
 
+def _is_soccer_push(r):
+    """A soccer 'to win' pick whose match ended in a draw is a push: it counts
+    neither for nor against the record (draws don't count against soccer)."""
+    return (getattr(r, "sport", None) == "soccer"
+            and str(getattr(r, "actual", "")) == "draw"
+            and str(getattr(r, "predicted", "")) in ("home", "away"))
+
+
 def _record_result(db, sport, ref, predicted, actual):
     """Upsert a settled pick into the results log (no-op if already recorded).
     If we captured a market line for this pick, store taken (open) and close
@@ -804,6 +812,8 @@ def accuracy(days: int = 30):
     with SessionLocal() as db:
         rows = db.query(PickResult).filter(PickResult.settled_date >= since).all()
         for r in rows:
+            if _is_soccer_push(r):
+                continue                       # draw = push, excluded from record
             s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0})
             s["picks"] += 1
             tot_p += 1
@@ -813,6 +823,8 @@ def accuracy(days: int = 30):
         # all-time record (no date filter), per sport and overall
         allrows = db.query(PickResult).all()
         for r in allrows:
+            if _is_soccer_push(r):
+                continue                       # draw = push, excluded from record
             a = alltime.setdefault(r.sport, {"wins": 0, "losses": 0})
             at_p += 1
             if r.correct:
@@ -1487,11 +1499,26 @@ def _settle_parlays():
                 rows = [res.get((L.get("sport"), str(L.get("game_id")))) for L in legs]
                 if not rows or any(r is None for r in rows):
                     continue                       # not fully settled yet
-                won = all(bool(r.correct) for r in rows)
-                slip.result = "win" if won else "loss"
+                # soccer draws are pushes: the leg is voided, the slip pays on the
+                # remaining legs (draws never sink a parlay).
+                live = [(L, r) for L, r in zip(legs, rows) if not _is_soccer_push(r)]
+                if not live:                       # every leg pushed -> void slip
+                    slip.result = "push"
+                    slip.units_pl = 0.0
+                    slip.settled_date = dt.datetime.now()
+                    changed = True
+                    continue
+                won = all(bool(r.correct) for _, r in live)
+                if won:
+                    dec = 1.0
+                    for L, _ in live:
+                        dec *= (_amer_to_dec(L.get("odds")) or 1.0)
+                    slip.units_pl = round(slip.stake_units * (dec - 1), 3)
+                    slip.result = "win"
+                else:
+                    slip.units_pl = -slip.stake_units
+                    slip.result = "loss"
                 slip.settled_date = dt.datetime.now()
-                slip.units_pl = (round(slip.stake_units * (slip.decimal_odds - 1), 3)
-                                 if won else -slip.stake_units)
                 changed = True
             if changed:
                 db.commit()
@@ -1524,7 +1551,7 @@ def parlays_record(days: int = 30):
     _ensure_parlay_table()
     from models import ParlaySlip
     since = dt.datetime.now() - dt.timedelta(days=days)
-    wins = losses = pending = 0
+    wins = losses = pending = pushes = 0
     units_pl = units_staked = 0.0
     try:
         with SessionLocal() as db:
@@ -1534,6 +1561,9 @@ def parlays_record(days: int = 30):
                 wins += 1
             elif r.result == "loss":
                 losses += 1
+            elif r.result == "push":
+                pushes += 1            # void (a drawn soccer leg): no stake/PL effect
+                continue
             else:
                 pending += 1
                 continue
@@ -1542,7 +1572,7 @@ def parlays_record(days: int = 30):
     except Exception as e:
         print(f"[parlays] record failed: {e}")
     decided = wins + losses
-    return {"days": days, "wins": wins, "losses": losses, "pending": pending,
+    return {"days": days, "wins": wins, "losses": losses, "pending": pending, "pushes": pushes,
             "win_pct": round(100 * wins / decided, 1) if decided else None,
             "units_pl": round(units_pl, 2), "units_staked": round(units_staked, 2),
             "roi_pct": round(100 * units_pl / units_staked, 1) if units_staked else None}
@@ -3016,6 +3046,8 @@ def performance(days: int = 30, sport: str | None = None):
         if sport:
             q = q.filter(PickResult.sport == sport)
         for r in q.all():
+            if _is_soccer_push(r):
+                continue                       # draw = push, excluded from record
             if r.correct:
                 wins += 1
             else:

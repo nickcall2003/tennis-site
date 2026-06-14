@@ -284,6 +284,7 @@
   .help-ic{font-size:22px;line-height:1;flex:0 0 auto;margin-top:1px}
   .help-t{font-weight:700;font-size:14.5px;margin-bottom:3px}
   .help-d{color:var(--muted);font-size:12.5px;line-height:1.5}
+  .pc-res.push{color:var(--muted);background:var(--panel-3);border:1px solid var(--line)}
   .pred-live{margin-top:10px;font-family:"Space Mono",monospace;font-size:12px;color:var(--clay-bright);background:rgba(200,97,47,.10);border:1px solid rgba(200,97,47,.3);border-radius:8px;padding:8px 11px}
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
@@ -1778,6 +1779,7 @@ function parlayCardHTML(p){
   let resBadge;
   if(p.result==="win")resBadge='<span class="pc-res win">\u2713 WON'+(p.units_pl!=null?" +"+p.units_pl.toFixed(2)+"u":"")+'</span>';
   else if(p.result==="loss")resBadge='<span class="pc-res loss">\u2717 LOST'+(p.units_pl!=null?" "+p.units_pl.toFixed(2)+"u":"")+'</span>';
+  else if(p.result==="push")resBadge='<span class="pc-res push">\u21BA PUSH \u00b7 void</span>';
   else resBadge='<span class="pc-res pending">PENDING</span>';
   return '<div class="parlay-card'+(p.result==="win"?" won":p.result==="loss"?" lost":"")+'">'+
     '<div class="pc-top"><div class="pc-name">'+p.name+stake+'</div><div class="pc-odds">'+fmtAm(p.american)+'</div></div>'+
