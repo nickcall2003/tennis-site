@@ -2187,7 +2187,28 @@ def soccer_game(game_id: str, date: str | None = None, league: str | None = None
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     lg = league or soccer_provider.DEFAULT_LEAGUE
     g = soccer_provider.get_game(target, game_id, lg)
+    if g:
+        try:
+            import soccer_stats
+            d = soccer_stats.match_depth(lg, g["home"]["name"], g["away"]["name"])
+            if d:
+                g["depth"] = d
+        except Exception as e:
+            print(f"[soccer] depth failed: {e}")
     return g or {"error": "not found"}
+
+
+@app.get("/api/soccer/stats/diag")
+def _soccer_stats_diag(league: str | None = None):
+    try:
+        import soccer_stats
+        lg = league or "epl"
+        t = soccer_stats.get_table(lg)
+        return JSONResponse({"enabled": soccer_stats.enabled(), "league": lg,
+                             "teams": len(t), "sample": list(t.keys())[:6]},
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 @app.get("/api/soccer/props/{game_id}")

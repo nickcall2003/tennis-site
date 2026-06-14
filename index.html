@@ -298,6 +298,19 @@
   .tale-row .tk{flex:0 0 38%;text-align:center;color:var(--muted-2);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
   .tale-why{margin-top:9px;color:var(--muted);font-size:12.5px;line-height:1.5}
   .src{font-size:10px;color:var(--muted-2);font-weight:400;text-transform:none;letter-spacing:0}
+  .th-a{color:#e0563f}.th-h{color:#4a90e2}
+  .sb-wrap{margin-top:10px}
+  .sb-item{margin:9px 0}
+  .sb-cap{text-align:center;font-size:10px;color:var(--muted-2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+  .sb-line{display:flex;align-items:center;gap:7px}
+  .sb-num{flex:0 0 46px;font-size:12.5px;font-weight:700;color:var(--muted)}
+  .sb-num.l{text-align:right}.sb-num.r{text-align:left}
+  .sb-num.win{color:var(--fg)}
+  .sb-half{flex:1;display:flex;height:8px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden}
+  .sb-half.l{justify-content:flex-end;margin-right:1.5px}
+  .sb-half.r{justify-content:flex-start;margin-left:1.5px}
+  .sb-fill{height:100%;border-radius:5px;transition:width .35s ease}
+  .sb-fill.a{background:#e0563f}.sb-fill.h{background:#4a90e2}
   .pred-live{margin-top:10px;font-family:"Space Mono",monospace;font-size:12px;color:var(--clay-bright);background:rgba(200,97,47,.10);border:1px solid rgba(200,97,47,.3);border-radius:8px;padding:8px 11px}
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
@@ -1484,12 +1497,26 @@ function renderUFCDetail(g){
     let body=bio.map(r=>{const a=F[0][r[1]],h=F[1][r[1]];if((a==null||a==="")&&(h==null||h===""))return "";
       return '<div class="tale-row">'+cell(a)+'<div class="tk">'+r[0]+'</div>'+cell(h)+'</div>';}).join("");
     const sa=F[0].stats||{},sh=F[1].stats||{};
-    const keys=Array.from(new Set(Object.keys(sa).concat(Object.keys(sh))));
-    body+=keys.map(k=>{const a=sa[k],h=sh[k];if((a==null||a==="")&&(h==null||h===""))return "";
-      return '<div class="tale-row">'+cell(a)+'<div class="tk">'+String(k).replace(/_/g," ")+'</div>'+cell(h)+'</div>';}).join("");
+    const STAT_ORDER=["Sig. strikes landed /min","Striking accuracy","Sig. strikes absorbed /min","Striking defense","Takedowns /15 min","Takedown accuracy","Takedown defense","Submissions /15 min"];
+    const allKeys=Array.from(new Set(STAT_ORDER.concat(Object.keys(sa)).concat(Object.keys(sh))));
+    const keys=allKeys.filter(k=>(sa[k]!=null&&sa[k]!=="")||(sh[k]!=null&&sh[k]!==""));
+    const lowerBetter=k=>/absorb/i.test(k);   // SApM: less is better
+    const numOf=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.]/g,""));return isFinite(n)?n:null;};
+    const sbar=(label,av,hv)=>{
+      const an=numOf(av),hn=numOf(hv);
+      const a=an==null?0:an,h=hn==null?0:hn,mx=Math.max(a,h,0.0001);
+      const aw=Math.round(a/mx*100),hw=Math.round(h/mx*100);
+      const better=lowerBetter(label)?(a<h?"a":(h<a?"h":"")):(a>h?"a":(h>a?"h":""));
+      const lv='<div class="sb-num l'+(better==="a"?" win":"")+'">'+(av!=null&&av!==""?av:"\u2014")+'</div>';
+      const rv='<div class="sb-num r'+(better==="h"?" win":"")+'">'+(hv!=null&&hv!==""?hv:"\u2014")+'</div>';
+      return '<div class="sb-item"><div class="sb-cap">'+label+'</div><div class="sb-line">'+lv+
+        '<div class="sb-half l"><div class="sb-fill a" style="width:'+aw+'%"></div></div>'+
+        '<div class="sb-half r"><div class="sb-fill h" style="width:'+hw+'%"></div></div>'+rv+'</div></div>';
+    };
+    const bars=keys.length?'<div class="sb-wrap">'+keys.map(k=>sbar(k,sa[k],sh[k])).join("")+'</div>':"";
     const why=g.tale.why?'<div class="tale-why">'+g.tale.why+'</div>':"";
     tale='<div class="panel" style="margin-top:12px"><div class="el-lab">Tale of the tape <span class="src">'+(g.tale.source||"")+'</span></div>'+
-      '<div class="tale-head"><span>'+(F[0].name||"")+'</span><span></span><span>'+(F[1].name||"")+'</span></div>'+body+why+'</div>';
+      '<div class="tale-head"><span class="th-a">'+(F[0].name||"")+'</span><span></span><span class="th-h">'+(F[1].name||"")+'</span></div>'+body+bars+why+'</div>';
   }
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to card</button>'+
     '<div class="detail-wrap">'+head+fighters+ufcBarHTML(g)+edge+reason+tale+rest+'</div>';
@@ -1623,6 +1650,38 @@ function soccerStatsHTML(box){
   html+='</div><div class="note">Live team stats from ESPN, updating as the match progresses. Not betting advice.</div></div>';
   return html;
 }
+function soccerDepthHTML(g){
+  const d=g.depth; if(!d||(!d.home&&!d.away)) return "";
+  const A=d.away||{}, H=d.home||{};
+  const numOf=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isFinite(n)?n:null;};
+  const fmt=v=>(v==null||v==="")?"\u2014":v;
+  const sbar=(label,av,hv,lowerBetter)=>{
+    const a=numOf(av),h=numOf(hv);
+    const aa=a==null?0:Math.abs(a),hh=h==null?0:Math.abs(h),mx=Math.max(aa,hh,0.0001);
+    let better="";
+    if(a!=null&&h!=null&&a!==h)better=lowerBetter?(a<h?"a":"h"):(a>h?"a":"h");
+    return '<div class="sb-item"><div class="sb-cap">'+label+'</div><div class="sb-line">'+
+      '<div class="sb-num l'+(better==="a"?" win":"")+'">'+fmt(av)+'</div>'+
+      '<div class="sb-half l"><div class="sb-fill a" style="width:'+Math.round(aa/mx*100)+'%"></div></div>'+
+      '<div class="sb-half r"><div class="sb-fill h" style="width:'+Math.round(hh/mx*100)+'%"></div></div>'+
+      '<div class="sb-num r'+(better==="h"?" win":"")+'">'+fmt(hv)+'</div></div></div>';
+  };
+  const rec=t=>(t.w!=null?(t.w+"-"+t.d+"-"+t.l):"");
+  const bioRow=(lab,av,hv)=>{if((av==null||av==="")&&(hv==null||hv===""))return"";
+    return '<div class="tale-row"><div class="tv">'+fmt(av)+'</div><div class="tk">'+lab+'</div><div class="tv">'+fmt(hv)+'</div></div>';};
+  const bio=bioRow("Rank",A.rank!=null?"#"+A.rank:"",H.rank!=null?"#"+H.rank:"")+
+    bioRow("Record",rec(A),rec(H))+bioRow("Form (last 5)",A.form||"",H.form||"");
+  const bars='<div class="sb-wrap">'+
+    sbar("xG / game",A.xg_pg,H.xg_pg,false)+
+    sbar("xGA / game",A.xga_pg,H.xga_pg,true)+
+    sbar("Possession %",A.poss,H.poss,false)+
+    sbar("Points / game",A.ppg,H.ppg,false)+
+    sbar("Goals / game",A.gf_pg,H.gf_pg,false)+'</div>';
+  const why=d.insight?'<div class="tale-why">'+d.insight+'</div>':"";
+  return '<div class="panel" style="margin-top:12px"><div class="el-lab">Season depth <span class="src">'+(d.source||"FBref")+'</span></div>'+
+    '<div class="tale-head"><span class="th-a">'+(A.team||g.away.name)+'</span><span></span><span class="th-h">'+(H.team||g.home.name)+'</span></div>'+
+    bio+bars+why+'<div class="note" style="margin-top:8px">Season xG, possession and form via FBref. xGA / game lower is better.</div></div>';
+}
 function renderSoccerDetail(g){
   const fin=g.status==="finished",live=g.status==="live";
   const sa=g.score&&g.score.away!=null?g.score.away:"",sh=g.score&&g.score.home!=null?g.score.home:"";
@@ -1642,7 +1701,7 @@ function renderSoccerDetail(g){
   else if(soccerDetailTab==="box"){body=soccerStatsHTML(soccerBox);}
   else if(soccerDetailTab==="events"){body='<div class="panel"><div class="stat-sec">Match events</div>'+soccerEventsHTML(g)+'<div class="note">Goals, cards and substitutions as ESPN posts them, newest feeds may lag a minute or two.</div></div>';}
   else{body='<div class="panel">'+soccerProbExplain(g)+
-    '<div class="note">Three-way result probability (home / draw / away) from a Poisson goals model with home advantage, updated live from the score and minute. Not betting advice.</div></div>';}
+    '<div class="note">Three-way result probability (home / draw / away) from a Poisson goals model with home advantage, updated live from the score and minute. Not betting advice.</div></div>'+soccerDepthHTML(g);}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;
 }
 
