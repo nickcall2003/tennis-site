@@ -59,34 +59,49 @@ def _get(url, ttl=_TTL):
         return c[1] if c else ""
 
 
+def _resolve_from(html, toks):
+    """Find the fighter-details URL whose grouped name links contain all tokens."""
+    pairs = re.findall(
+        r'href="(https?://ufcstats\.com/fighter-details/[a-zA-Z0-9]+)"[^>]*>\s*([^<]*?)\s*</a>',
+        html, re.I)
+    groups, order = {}, []
+    for href, txt in pairs:
+        if href not in groups:
+            groups[href] = []
+            order.append(href)
+        groups[href].append(_norm(txt))
+    for href in order:
+        joined = "".join(groups[href])
+        if toks and all(t in joined for t in toks):
+            return href
+    return None
+
+
 def _fighter_url(name):
-    """Resolve a fighter name to their ufcstats fighter-details URL."""
+    """Resolve a fighter to their ufcstats fighter-details URL via the A-Z browse
+    (the ?query= search doesn't return results over GET)."""
     key = _norm(name)
     c = _resolve.get(key)
     if c and time.time() - c[0] < _TTL:
         return c[1]
-    surname = (name or "").split()[-1] if name else ""
-    html = _get(SEARCH + "?query=" + quote(surname), ttl=_TTL)
+    parts = [p for p in (name or "").split() if p]
+    toks = [_norm(p) for p in parts]
+    cands = []
+    if parts:
+        li = parts[-1][0].lower()                       # last-name initial
+        cands.append(f"{BASE}/statistics/fighters?char={li}&page=all")
+        fi = parts[0][0].lower()                         # first-name initial (fallback)
+        if fi != li:
+            cands.append(f"{BASE}/statistics/fighters?char={fi}&page=all")
+        cands.append(SEARCH + "?query=" + quote(parts[-1]))
     url = None
-    if html:
-        target = [_norm(t) for t in (name or "").split() if t]
-        rows = re.findall(r'<tr[^>]*b-statistics__table-row[^>]*>(.*?)</tr>', html, re.S | re.I)
-        first = None
-        for row in rows:
-            links = re.findall(
-                r'href="(http://ufcstats\.com/fighter-details/[a-z0-9]+)"[^>]*>\s*([^<]*?)\s*</a>',
-                row, re.I)
-            if not links:
-                continue
-            u0 = links[0][0]
-            text = _norm(" ".join(t for _, t in links))
-            if first is None:
-                first = u0
-            if target and all(tok in text for tok in target):
-                url = u0
-                break
-        if url is None:
-            url = first        # best-effort: top search hit
+    for u in cands:
+        html = _get(u, ttl=_TTL)
+        if not html:
+            continue
+        url = _resolve_from(html, toks)
+        if url:
+            break
     _resolve[key] = (time.time(), url)
     return url
 

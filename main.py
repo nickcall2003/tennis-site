@@ -2206,8 +2206,16 @@ def soccer_game(game_id: str, date: str | None = None, league: str | None = None
     g = soccer_provider.get_game(target, game_id, lg)
     if g:
         try:
-            import soccer_stats
-            d = soccer_stats.match_depth(lg, g["home"]["name"], g["away"]["name"])
+            import espn_depth, understat
+            d = espn_depth.match_depth("soccer", g["home"]["name"], g["away"]["name"], league=lg)
+            xg = understat.xg_bars(lg, g["home"]["name"], g["away"]["name"])
+            if d and xg:
+                d["bars"] = xg + d["bars"]
+                d["source"] = "ESPN + Understat"
+            elif not d and xg:
+                d = {"source": "Understat",
+                     "away": {"name": g["away"]["name"], "bio": []},
+                     "home": {"name": g["home"]["name"], "bio": []}, "bars": xg}
             if d:
                 g["depth"] = d
         except Exception as e:
@@ -2218,12 +2226,11 @@ def soccer_game(game_id: str, date: str | None = None, league: str | None = None
 @app.get("/api/soccer/stats/diag")
 def _soccer_stats_diag(league: str | None = None):
     try:
-        import soccer_stats
         lg = league or "epl"
-        t = soccer_stats.get_table(lg)
-        return JSONResponse({"enabled": soccer_stats.enabled(), "league": lg,
-                             "teams": len(t), "sample": list(t.keys())[:6],
-                             "fetch": getattr(soccer_stats, "_last", None)},
+        import espn_depth, understat
+        esp = espn_depth.diag("soccer", lg)
+        und = understat.diag(lg)
+        return JSONResponse({"league": lg, "espn": esp, "understat": und},
                             headers={"Cache-Control": "no-store"})
     except Exception as e:
         return JSONResponse({"error": str(e)})
@@ -2621,10 +2628,10 @@ def game_boxscore(sport: str, game_id: str, date: str | None = None):
 
 
 def _attach_depth(sport, g):
-    """Attach season team depth (Sports-Reference) to a team-sport game, lazy."""
+    """Attach season team depth (ESPN standings) to a team-sport game, lazy."""
     try:
-        import team_depth
-        d = team_depth.match_depth(sport, g["home"]["name"], g["away"]["name"])
+        import espn_depth
+        d = espn_depth.match_depth(sport, g["home"]["name"], g["away"]["name"])
         if d:
             g["depth"] = d
     except Exception as e:
@@ -2635,8 +2642,8 @@ def _attach_depth(sport, g):
 @app.get("/api/{sport}/depth/diag")
 def _depth_diag(sport: str):
     try:
-        import team_depth
-        return JSONResponse(team_depth.diag(sport), headers={"Cache-Control": "no-store"})
+        import espn_depth
+        return JSONResponse(espn_depth.diag(sport), headers={"Cache-Control": "no-store"})
     except Exception as e:
         return JSONResponse({"error": str(e)})
 
