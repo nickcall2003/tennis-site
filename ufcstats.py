@@ -21,6 +21,13 @@ _TTL = int(os.environ.get("UFCSTATS_TTL", "86400"))     # 24h
 _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 
+_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.google.com/",
+}
+_last = {"url": None, "status": None, "bytes": 0, "error": None}
 _cache = {}          # url -> (ts, html)
 _resolve = {}        # normalized name -> (ts, fighter_url|None)
 _stats = {}          # fighter_url -> (ts, stats dict)
@@ -40,13 +47,14 @@ def _get(url, ttl=_TTL):
         return c[1]
     try:
         import httpx
-        r = httpx.get(url, headers={"User-Agent": _UA}, timeout=15,
-                      follow_redirects=True)
+        r = httpx.get(url, headers=_HEADERS, timeout=15, follow_redirects=True)
+        _last.update(url=url, status=r.status_code, bytes=len(r.text), error=None)
         r.raise_for_status()
         html = r.text
         _cache[url] = (time.time(), html)
         return html
     except Exception as e:
+        _last.update(url=url, error=str(e))
         print(f"[ufcstats] GET failed {url}: {e}")
         return c[1] if c else ""
 
@@ -131,3 +139,17 @@ def get_stats(name):
     data = data or None
     _stats[url] = (time.time(), data)
     return data
+
+
+def diag(name="Ilia Topuria"):
+    """Resolve a fighter and report what ufcstats returned (for debugging)."""
+    url = _fighter_url(name)
+    stats = get_stats(name) if url else None
+    return {
+        "enabled": enabled(),
+        "query": name,
+        "resolved_url": url,
+        "stats_found": list((stats or {}).keys()),
+        "stats": stats,
+        "fetch": _last,
+    }

@@ -1005,6 +1005,7 @@ def mlb_game(game_id: int, date: str | None = None):
     except Exception as e:
         print(f"[mlb] lines failed: {e}")
     g = _attach_odds_one("mlb", g)
+    _attach_depth("mlb", g)
     return g
 
 
@@ -2181,6 +2182,22 @@ def _mma_diag():
         return JSONResponse({"error": str(e)})
 
 
+@app.get("/api/ufc/tale/diag")
+def _ufc_tale_diag(name: str = "Ilia Topuria"):
+    out = {}
+    try:
+        import ufcstats
+        out["ufcstats"] = ufcstats.diag(name)
+    except Exception as e:
+        out["ufcstats_error"] = str(e)
+    try:
+        import apisports_mma
+        out["apisports"] = apisports_mma.diag()
+    except Exception as e:
+        out["apisports_error"] = str(e)
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/soccer/game/{game_id}")
 def soccer_game(game_id: str, date: str | None = None, league: str | None = None):
     import soccer_provider
@@ -2205,7 +2222,8 @@ def _soccer_stats_diag(league: str | None = None):
         lg = league or "epl"
         t = soccer_stats.get_table(lg)
         return JSONResponse({"enabled": soccer_stats.enabled(), "league": lg,
-                             "teams": len(t), "sample": list(t.keys())[:6]},
+                             "teams": len(t), "sample": list(t.keys())[:6],
+                             "fetch": getattr(soccer_stats, "_last", None)},
                             headers={"Cache-Control": "no-store"})
     except Exception as e:
         return JSONResponse({"error": str(e)})
@@ -2580,6 +2598,7 @@ def nhl_game(game_id: str, date: str | None = None):
     g = dict(g)
     g["analysis"] = _nhl_writeup(g)
     g = _attach_odds_one("nhl", g)
+    _attach_depth("nhl", g)
     return g
 
 
@@ -2599,6 +2618,27 @@ def game_boxscore(sport: str, game_id: str, date: str | None = None):
     except Exception as e:
         print(f"[{sport}] boxscore failed: {e}")
         return {"teams": []}
+
+
+def _attach_depth(sport, g):
+    """Attach season team depth (Sports-Reference) to a team-sport game, lazy."""
+    try:
+        import team_depth
+        d = team_depth.match_depth(sport, g["home"]["name"], g["away"]["name"])
+        if d:
+            g["depth"] = d
+    except Exception as e:
+        print(f"[{sport}] depth failed: {e}")
+    return g
+
+
+@app.get("/api/{sport}/depth/diag")
+def _depth_diag(sport: str):
+    try:
+        import team_depth
+        return JSONResponse(team_depth.diag(sport), headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
 
 
 @app.get("/api/{sport}/game/{game_id}")
@@ -2626,6 +2666,7 @@ def team_game(sport: str, game_id: str, date: str | None = None):
     except Exception as e:
         print(f"[{sport}] lines failed: {e}")
     g = _attach_odds_one(sport, g)
+    _attach_depth(sport, g)
     return g
 
 

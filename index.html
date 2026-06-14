@@ -1335,7 +1335,7 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
     facRow("Runs / game",(g.away.runs_per_game!=null?g.away.runs_per_game:"\u2014"),(g.home.runs_per_game!=null?g.home.runs_per_game:"\u2014"))+
     '<div class="fac" style="border:none"><span class="va"></span><span class="lab">Park '+(g.park_factor||1).toFixed(2)+(g.weather?" \u00b7 "+g.weather:"")+'</span><span class="vb"></span></div>'+
     mlbLinesHTML(g)+
-    '<div class="note">Starter is each team\u2019s announced probable; bullpen is the team staff ERA. Park &amp; weather scale the run environment for both sides. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>';}
+    '<div class="note">Starter is each team\u2019s announced probable; bullpen is the team staff ERA. Park &amp; weather scale the run environment for both sides. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
 // ===== NBA / NFL DETAIL =====
 async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";teamProps=null;teamBox=null;showView(true);
@@ -1411,7 +1411,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
     teamFactorsHTML(g,sp)+
     teamLinesHTML(g)+
-    '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>';}
+    '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
 // ===================== SOCCER (multi-league) =====================
 async function loadUFC(){
@@ -1650,37 +1650,32 @@ function soccerStatsHTML(box){
   html+='</div><div class="note">Live team stats from ESPN, updating as the match progresses. Not betting advice.</div></div>';
   return html;
 }
-function soccerDepthHTML(g){
-  const d=g.depth; if(!d||(!d.home&&!d.away)) return "";
+function depthHTML(g){
+  const d=g.depth; if(!d||!d.bars||!d.bars.length) return "";
   const A=d.away||{}, H=d.home||{};
   const numOf=v=>{const n=parseFloat(String(v==null?"":v).replace(/[^0-9.\-]/g,""));return isFinite(n)?n:null;};
   const fmt=v=>(v==null||v==="")?"\u2014":v;
-  const sbar=(label,av,hv,lowerBetter)=>{
+  const sbar=(label,av,hv,lb)=>{
     const a=numOf(av),h=numOf(hv);
     const aa=a==null?0:Math.abs(a),hh=h==null?0:Math.abs(h),mx=Math.max(aa,hh,0.0001);
     let better="";
-    if(a!=null&&h!=null&&a!==h)better=lowerBetter?(a<h?"a":"h"):(a>h?"a":"h");
+    if(a!=null&&h!=null&&a!==h)better=lb?(a<h?"a":"h"):(a>h?"a":"h");
     return '<div class="sb-item"><div class="sb-cap">'+label+'</div><div class="sb-line">'+
       '<div class="sb-num l'+(better==="a"?" win":"")+'">'+fmt(av)+'</div>'+
       '<div class="sb-half l"><div class="sb-fill a" style="width:'+Math.round(aa/mx*100)+'%"></div></div>'+
       '<div class="sb-half r"><div class="sb-fill h" style="width:'+Math.round(hh/mx*100)+'%"></div></div>'+
       '<div class="sb-num r'+(better==="h"?" win":"")+'">'+fmt(hv)+'</div></div></div>';
   };
-  const rec=t=>(t.w!=null?(t.w+"-"+t.d+"-"+t.l):"");
-  const bioRow=(lab,av,hv)=>{if((av==null||av==="")&&(hv==null||hv===""))return"";
-    return '<div class="tale-row"><div class="tv">'+fmt(av)+'</div><div class="tk">'+lab+'</div><div class="tv">'+fmt(hv)+'</div></div>';};
-  const bio=bioRow("Rank",A.rank!=null?"#"+A.rank:"",H.rank!=null?"#"+H.rank:"")+
-    bioRow("Record",rec(A),rec(H))+bioRow("Form (last 5)",A.form||"",H.form||"");
-  const bars='<div class="sb-wrap">'+
-    sbar("xG / game",A.xg_pg,H.xg_pg,false)+
-    sbar("xGA / game",A.xga_pg,H.xga_pg,true)+
-    sbar("Possession %",A.poss,H.poss,false)+
-    sbar("Points / game",A.ppg,H.ppg,false)+
-    sbar("Goals / game",A.gf_pg,H.gf_pg,false)+'</div>';
+  const abio=A.bio||[], hbio=H.bio||[], n=Math.max(abio.length,hbio.length);
+  let bio="";
+  for(let i=0;i<n;i++){const la=abio[i]||[],lh=hbio[i]||[];const label=la[0]||lh[0]||"";const av=la[1],hv=lh[1];
+    if((av==null||av==="")&&(hv==null||hv===""))continue;
+    bio+='<div class="tale-row"><div class="tv">'+fmt(av)+'</div><div class="tk">'+label+'</div><div class="tv">'+fmt(hv)+'</div></div>';}
+  const bars='<div class="sb-wrap">'+d.bars.map(b=>sbar(b.label,b.away,b.home,b.lower_better)).join("")+'</div>';
   const why=d.insight?'<div class="tale-why">'+d.insight+'</div>':"";
-  return '<div class="panel" style="margin-top:12px"><div class="el-lab">Season depth <span class="src">'+(d.source||"FBref")+'</span></div>'+
-    '<div class="tale-head"><span class="th-a">'+(A.team||g.away.name)+'</span><span></span><span class="th-h">'+(H.team||g.home.name)+'</span></div>'+
-    bio+bars+why+'<div class="note" style="margin-top:8px">Season xG, possession and form via FBref. xGA / game lower is better.</div></div>';
+  return '<div class="panel" style="margin-top:12px"><div class="el-lab">Season depth <span class="src">'+(d.source||"")+'</span></div>'+
+    '<div class="tale-head"><span class="th-a">'+(A.name||(g.away&&g.away.name)||"")+'</span><span></span><span class="th-h">'+(H.name||(g.home&&g.home.name)||"")+'</span></div>'+
+    bio+bars+why+'<div class="note" style="margin-top:8px">Season stats via '+(d.source||"Sports-Reference")+'. Bars flagged lower-is-better (e.g. xGA, defensive rating, ERA) reward the smaller number.</div></div>';
 }
 function renderSoccerDetail(g){
   const fin=g.status==="finished",live=g.status==="live";
@@ -1701,7 +1696,7 @@ function renderSoccerDetail(g){
   else if(soccerDetailTab==="box"){body=soccerStatsHTML(soccerBox);}
   else if(soccerDetailTab==="events"){body='<div class="panel"><div class="stat-sec">Match events</div>'+soccerEventsHTML(g)+'<div class="note">Goals, cards and substitutions as ESPN posts them, newest feeds may lag a minute or two.</div></div>';}
   else{body='<div class="panel">'+soccerProbExplain(g)+
-    '<div class="note">Three-way result probability (home / draw / away) from a Poisson goals model with home advantage, updated live from the score and minute. Not betting advice.</div></div>'+soccerDepthHTML(g);}
+    '<div class="note">Three-way result probability (home / draw / away) from a Poisson goals model with home advantage, updated live from the score and minute. Not betting advice.</div></div>'+depthHTML(g);}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;
 }
 
