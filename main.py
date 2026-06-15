@@ -2192,6 +2192,25 @@ def _mma_raw(endpoint: str, date: str | None = None, id: str | None = None,
     return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/golf/board")
+def golf_board(tour: str = "pga"):
+    import golf_provider
+    b = golf_provider.get_board(tour)
+    return JSONResponse(b, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/golf/schedule")
+def golf_schedule(tour: str = "pga"):
+    import golf_provider
+    return golf_provider.get_schedule(tour)
+
+
+@app.get("/api/golf/raw")
+def golf_raw(tour: str = "pga"):
+    import golf_provider
+    return JSONResponse(golf_provider.raw(tour), headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/mma/diag")
 def _mma_diag():
     try:
