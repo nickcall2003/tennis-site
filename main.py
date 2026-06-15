@@ -180,15 +180,19 @@ def _backfill_results(days: int) -> None:
     import time as _t
     today = dt.date.today()
 
-    # Pass 1: team sports (cheap reads) — settles NCAA / MLB / NBA / NFL.
+    # Pass 1: team sports (cheap reads) — settles NCAA / MLB / NBA / NFL / UFC / soccer.
     for off in range(1, days + 1):
         d = (today - dt.timedelta(days=off)).isoformat()
-        for label in ("ncaabb", "mlb", "nba", "nfl"):
+        for label in ("ncaabb", "mlb", "nba", "nfl", "ufc", "soccer"):
             try:
                 if label == "ncaabb":
                     ncaabb_games(date=d)
                 elif label == "mlb":
                     mlb_games(date=d)
+                elif label == "ufc":
+                    ufc_games(date=d)
+                elif label == "soccer":
+                    soccer_games(date=d, league="all")
                 else:
                     team_games(label, date=d)
             except Exception as e:
@@ -802,11 +806,13 @@ def accuracy(days: int = 30):
     """Per-sport rolling accuracy from the settled-results log (cached 2 min)."""
     import time as _t
     from models import PickResult
-    if _acc_cache["data"] and _t.time() - _acc_cache["ts"] < 120 and _acc_cache["data"]["days"] == days:
+    if _acc_cache["data"] and _t.time() - _acc_cache["ts"] < 30 and _acc_cache["data"]["days"] == days:
         return _acc_cache["data"]
     since = dt.datetime.now() - dt.timedelta(days=days)
+    _today = dt.date.today()
     by_sport = {}
     tot_p = tot_c = 0
+    tot_tp = tot_tc = 0
     alltime = {}
     at_p = at_c = 0
     with SessionLocal() as db:
@@ -814,12 +820,19 @@ def accuracy(days: int = 30):
         for r in rows:
             if _is_soccer_push(r):
                 continue                       # draw = push, excluded from record
-            s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0})
+            s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0, "today_picks": 0, "today_correct": 0})
             s["picks"] += 1
             tot_p += 1
+            is_today = bool(r.settled_date) and r.settled_date.date() == _today
+            if is_today:
+                s["today_picks"] += 1
+                tot_tp += 1
             if r.correct:
                 s["correct"] += 1
                 tot_c += 1
+                if is_today:
+                    s["today_correct"] += 1
+                    tot_tc += 1
         # all-time record (no date filter), per sport and overall
         allrows = db.query(PickResult).all()
         for r in allrows:
@@ -834,6 +847,10 @@ def accuracy(days: int = 30):
                 a["losses"] += 1
     for s, v in by_sport.items():
         v["accuracy"] = round(100 * v["correct"] / v["picks"]) if v["picks"] else None
+        v["wins_30d"] = v["correct"]
+        v["losses_30d"] = v["picks"] - v["correct"]
+        v["today_wins"] = v.get("today_correct", 0)
+        v["today_losses"] = v.get("today_picks", 0) - v.get("today_correct", 0)
         at = alltime.get(s, {"wins": 0, "losses": 0})
         v["alltime_wins"] = at["wins"]
         v["alltime_losses"] = at["losses"]
@@ -843,6 +860,8 @@ def accuracy(days: int = 30):
         "days": days,
         "overall": {"picks": tot_p, "correct": tot_c,
                     "accuracy": round(100 * tot_c / tot_p) if tot_p else None,
+                    "wins_30d": tot_c, "losses_30d": tot_p - tot_c,
+                    "today_wins": tot_tc, "today_losses": tot_tp - tot_tc,
                     "alltime_wins": at_c, "alltime_losses": at_p - at_c,
                     "alltime_pct": round(100 * at_c / at_p) if at_p else None},
         "by_sport": by_sport,

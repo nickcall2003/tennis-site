@@ -628,7 +628,7 @@ function renderAccuracy(){if(!_accData)return;
   // silently falling back to the overall figure (which caused MLB to look wrong).
   let stat,label;
   if(view==="sport"){
-    stat=(_accData.by_sport&&_accData.by_sport[sport])||{accuracy:null,correct:0,picks:0};
+    stat=(_accData.by_sport&&_accData.by_sport[sport])||{accuracy:null,correct:0,picks:0,today_wins:0,today_losses:0,wins_30d:0,losses_30d:0,alltime_wins:0,alltime_losses:0};
     label=SPORT_LABEL[sport]+" \u00b7 30d";
   }else{stat=_accData.overall;label="All sports \u00b7 30d";}
   const ring=document.getElementById("acc-ring"),lab=document.getElementById("acc-lab");
@@ -636,12 +636,14 @@ function renderAccuracy(){if(!_accData)return;
   if(lab)lab.textContent=label;
   const at=document.getElementById("acc-alltime");
   if(at){
-    if(view==="sport"&&stat&&(stat.alltime_wins!=null)){
-      const w=stat.alltime_wins||0,l=stat.alltime_losses||0;
-      at.textContent=(w+l)?("All-time "+w+"\u2013"+l+(stat.alltime_pct!=null?" \u00b7 "+stat.alltime_pct+"%":"")):"All-time 0\u20130";
-    }else if(view!=="sport"&&_accData.overall&&_accData.overall.alltime_wins!=null){
-      const w=_accData.overall.alltime_wins,l=_accData.overall.alltime_losses;
-      at.textContent=(w+l)?("All-time "+w+"\u2013"+l):"";
+    if(stat){
+      const tw=stat.today_wins||0,tl=stat.today_losses||0;
+      const w30=(stat.wins_30d!=null?stat.wins_30d:(stat.correct||0));
+      const l30=(stat.losses_30d!=null?stat.losses_30d:((stat.picks||0)-(stat.correct||0)));
+      const aw=stat.alltime_wins||0,al=stat.alltime_losses||0;
+      const parts=["Today "+tw+"\u2013"+tl,"30d "+w30+"\u2013"+l30];
+      if(aw+al)parts.push("All-time "+aw+"\u2013"+al);
+      at.textContent=parts.join(" \u00b7 ");
     }else{at.textContent="";}
   }
   const clvEl=document.getElementById("acc-clv");
@@ -851,7 +853,9 @@ async function silentReload(){
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
   else if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
-  else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}}
+  else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}
+  loadAccuracy();   // refresh today/30d W-L as live games settle
+}
 function hasLiveOnBoard(){try{
   if(sport==="soccer")return (soccerGames||[]).some(g=>g.status==="live");
   if(sport==="ufc")return (ufcGames||[]).some(g=>g.status==="live");
@@ -1449,9 +1453,12 @@ function ufcCardHTML(g){
 function renderUFC(){
   renderDatebar();document.getElementById("tabs").innerHTML="";
   const live=ufcGames.filter(g=>g.status==="live").length;
+  const s=teamDayStats(ufcGames);
+  const rec=s.p?('<div class="bubble won"><div class="num">'+s.c+'\u2013'+(s.p-s.c)+'</div><div class="lab">Tonight</div></div>'):"";
   document.getElementById("bubbles").innerHTML=
     '<div class="bubble"><div class="num">'+ufcGames.length+'</div><div class="lab">Bouts</div></div>'+
     '<div class="bubble'+(live?" won":"")+'"><div class="num">'+live+'</div><div class="lab">Live now</div></div>'+
+    rec+
     '<div class="bubble acc"><div class="num" style="font-size:14px;line-height:1.7">'+(ufcEvent||"UFC")+'</div><div class="lab">Card</div></div>';
   const list=document.getElementById("list");
   if(!ufcGames.length){list.innerHTML='<div class="empty">No UFC card for '+ymd(selected)+'. The next card appears here automatically \u2014 try the date arrows.</div>';return;}
