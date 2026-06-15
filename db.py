@@ -3,19 +3,30 @@ db.py
 -----
 Database setup. Two modes, chosen automatically:
 
-  1. If DATABASE_URL is set (e.g. you re-attach a Railway Postgres plugin),
-     we use it. Postgres persists on its own.
+  1. If DATABASE_URL is set (e.g. a Neon/Supabase/Railway Postgres), we use it.
+     Postgres persists on its own — this is what you want for real, rolling
+     30-day stats that survive redeploys.
 
   2. Otherwise we use SQLite, and the file lives at DB_PATH. On Railway the
      filesystem is WIPED on every restart/redeploy unless the file is inside a
      mounted Volume. So DB_PATH must point inside your volume mount (e.g.
      /data/linelogic.db). If it doesn't, your accuracy log, pick history and
-     built tennis slates are erased on every restart — which is what caused the
-     rebuild-on-every-boot loop.
+     built tennis slates are erased on every restart.
 
-IMPORTANT: make sure you do NOT have a stale DATABASE_URL variable left over
-from the old Postgres plugin. If one is set and points at a dead database, the
-app will try Postgres and fail to start. Delete that variable to use SQLite.
+For Postgres on a POOLED endpoint (Neon's `-pooler` host runs PgBouncer in
+transaction mode) we:
+  * pool_pre_ping        -> re-validate a connection before use, so Neon's
+                            free-tier auto-suspend doesn't surface as a random
+                            "connection closed" error on the first request back.
+  * pool_recycle=300     -> drop connections older than 5 min.
+  * prepare_threshold=None -> disable psycopg3 server-side prepared statements,
+                            which otherwise collide across pooled backends in
+                            transaction mode ("prepared statement ... does not
+                            exist"). Only applied for the psycopg (v3) driver.
+
+IMPORTANT: with psycopg3 installed (psycopg[binary]), DATABASE_URL must use the
+`postgresql+psycopg://` scheme. A bare `postgresql://` makes SQLAlchemy reach
+for psycopg2 (not installed) and the app will fail to start.
 """
 
 from __future__ import annotations
@@ -36,7 +47,14 @@ if not DATABASE_URL:
     DATABASE_URL = f"sqlite:///{db_path}"
     print(f"[db] using SQLite at {db_path}")
 else:
-    print("[db] using DATABASE_URL from environment")
+    # Accept a bare postgres URL and normalize it to the installed driver
+    # (psycopg v3) so a plain `postgresql://` from Neon's dashboard still works.
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgres://"):]
+    elif DATABASE_URL.startswith("postgresql://"):
+        DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgresql://"):]
+    safe = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+    print(f"[db] using DATABASE_URL from environment (host: {safe.split('/')[0]})")
 
 if DATABASE_URL.startswith("sqlite"):
     engine = create_engine(
@@ -56,7 +74,18 @@ if DATABASE_URL.startswith("sqlite"):
         cur.execute("PRAGMA busy_timeout=5000")
         cur.close()
 else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    # Postgres (Neon/Supabase/Render/Railway). Hardened for a pooled endpoint.
+    connect_args = {}
+    if "+psycopg" in DATABASE_URL:                 # psycopg v3 only
+        connect_args["prepare_threshold"] = None   # disable prepared stmts (PgBouncer-safe)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=5,
+        max_overflow=5,
+        connect_args=connect_args,
+    )
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

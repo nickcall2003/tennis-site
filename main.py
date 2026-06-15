@@ -2101,6 +2101,13 @@ def sports_meta():
     mo = dt.date.today().month
     for entry in meta:
         entry["active"] = mo in SPORT_SEASON.get(entry["key"], set(range(1, 13)))
+    # Golf is served by a dedicated leaderboard view, not the matchup registry,
+    # so it isn't in sports.py SPORTS. Surface it here so the home grid shows it.
+    if not any(e.get("key") == "golf" for e in meta):
+        meta.append({"key": "golf", "label": "Golf", "emoji": "\u26F3",
+                     "color": "#3f9b59", "team": False, "has_props": False,
+                     "blurb": "Leaderboards \u00b7 projections \u00b7 matchups",
+                     "active": True})
     return meta
 
 
