@@ -2192,6 +2192,81 @@ def _mma_raw(endpoint: str, date: str | None = None, id: str | None = None,
     return JSONResponse(body, headers={"Cache-Control": "no-store"})
 
 
+_golf_proj_cache = {}
+
+_golf_edge_cache = {}
+
+@app.get("/api/golf/edge")
+def golf_edge(tour: str = "pga"):
+    c = _golf_edge_cache.get(tour)
+    if c and time.time() - c[0] < 60:
+        return JSONResponse(c[1], headers={"Cache-Control": "no-store"})
+    import golf_provider, golf_model, odds_api
+    out = {"ready": False, "tour": tour}
+    try:
+        if not odds_api.enabled():
+            out["reason"] = "no_odds_key"
+        else:
+            board = golf_provider.get_board(tour)
+            proj = golf_model.project(board)
+            if not proj.get("ready"):
+                out["reason"] = proj.get("reason", "no_projection")
+            else:
+                book = odds_api.get_golf_outrights()
+                mkt = (book or {}).get("players") or {}
+                if not mkt:
+                    out["reason"] = "no_market"
+                    out["note"] = "Outright odds are only offered for the four majors."
+                else:
+                    rows = []
+                    for p in proj["projections"]:
+                        m = mkt.get(odds_api._norm(p["name"]))
+                        if not m:
+                            continue
+                        rows.append({"id": p["id"], "name": p["name"], "total": p["total"],
+                                     "model": p["win"], "market": m["implied"],
+                                     "american": m["american"],
+                                     "edge": round(p["win"] - m["implied"], 1)})
+                    rows.sort(key=lambda x: -x["edge"])
+                    out = {"ready": True, "tour": tour, "event": book.get("event"),
+                           "model_event": proj["event"], "round": proj.get("round"),
+                           "n_sims": proj["n_sims"], "matched": len(rows),
+                           "overround": book.get("overround"), "rows": rows}
+    except Exception as e:
+        out["reason"] = "error"
+        out["error"] = str(e)
+    _golf_edge_cache[tour] = (time.time(), out)
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/golf/matchup")
+def golf_matchup(tour: str = "pga", ids: str = "", scope: str = "tournament"):
+    import golf_provider, golf_model
+    id_list = [x for x in ids.split(",") if x]
+    if len(id_list) < 2:
+        return JSONResponse({"ready": False, "reason": "need_2"})
+    board = golf_provider.get_board(tour)
+    return JSONResponse(golf_model.matchup(board, id_list, scope=scope),
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/golf/projections")
+def golf_projections(tour: str = "pga"):
+    import golf_provider
+    c = _golf_proj_cache.get(tour)
+    if c and time.time() - c[0] < 60:
+        return JSONResponse(c[1], headers={"Cache-Control": "no-store"})
+    try:
+        import golf_model
+        board = golf_provider.get_board(tour)
+        data = golf_model.project(board)
+        data["tour"] = tour
+        _golf_proj_cache[tour] = (time.time(), data)
+        return JSONResponse(data, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"ready": False, "error": str(e)})
+
+
 @app.get("/api/golf/board")
 def golf_board(tour: str = "pga"):
     import golf_provider

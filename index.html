@@ -311,6 +311,70 @@
   .sb-half.r{justify-content:flex-start;margin-left:1.5px}
   .sb-fill{height:100%;border-radius:5px;transition:width .35s ease}
   .sb-fill.a{background:#e0563f}.sb-fill.h{background:#4a90e2}
+  .ltabs{display:flex;gap:6px;overflow-x:auto;padding:8px 0;-webkit-overflow-scrolling:touch}
+  .ltab{flex:0 0 auto;background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:6px 13px;font-size:12.5px;font-weight:600;cursor:pointer}
+  .ltab.on{background:#3f9b59;border-color:#3f9b59;color:#fff}
+  .glf-event{padding:4px 2px 10px}
+  .ge-name{font-weight:700;font-size:16px}
+  .ge-sub{color:var(--muted);font-size:12px;margin-top:2px}
+  .ge-next{margin-top:5px;font-size:12px;color:#3f9b59;font-weight:600}
+  .glf-board{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .glf-head,.glf-row{display:flex;align-items:center;gap:8px;padding:9px 12px}
+  .glf-head{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-2);border-bottom:1px solid var(--line)}
+  .glf-row{border-top:1px solid var(--line);cursor:pointer}
+  .glf-row:first-of-type{border-top:none}
+  .glf-row:active{background:rgba(255,255,255,.04)}
+  .glf-row.cut{opacity:.5}
+  .gp{flex:0 0 38px;font-weight:700;font-size:13px;color:var(--muted)}
+  .gn{flex:1;display:flex;align-items:center;gap:7px;font-weight:600;font-size:13.5px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gflag{width:18px;height:13px;border-radius:2px;object-fit:cover;flex:0 0 auto}
+  .gam{color:var(--muted-2);font-size:11px}
+  .gt{flex:0 0 42px;text-align:center;font-size:13px;font-weight:600}
+  .gth{flex:0 0 40px;text-align:center;font-size:12px;color:var(--muted)}
+  .gtot{flex:0 0 46px;text-align:right;font-weight:800;font-size:14px}
+  .under{color:#3fd07a}.over{color:#e0563f}.even{color:var(--fg)}
+  .gd-head{display:flex;align-items:center;gap:12px;margin-bottom:4px}
+  .gflag-lg{width:34px;height:24px;border-radius:3px;object-fit:cover}
+  .gd-name{font-weight:700;font-size:18px}
+  .gd-sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .gd-stats{display:flex;gap:8px;margin-top:12px}
+  .gd-st{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 4px;text-align:center}
+  .gd-st .v{font-weight:800;font-size:17px}
+  .gd-st .l{color:var(--muted-2);font-size:9.5px;text-transform:uppercase;letter-spacing:.04em;margin-top:3px}
+  .gd-rounds{display:flex;gap:8px;margin-top:6px}
+  .gr-cell{flex:1;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 4px;text-align:center}
+  .gr-n{color:var(--muted-2);font-size:10px}
+  .gr-v{font-weight:700;font-size:15px;margin-top:2px}
+  .gtog{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+  .gtog-b{flex:1 1 auto;min-width:62px;background:var(--panel);border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:8px 4px;font-size:12px;font-weight:600;cursor:pointer}
+  .gtog-b.on{background:#3f9b59;border-color:#3f9b59;color:#fff}
+  .glf-row.proj,.glf-head.proj{gap:4px}
+  .glf-row.proj .gn{font-size:13px}
+  .gpm{color:var(--muted-2);font-size:11px;font-weight:600}
+  .pw{flex:0 0 54px;text-align:right;font-weight:800;font-size:13px;color:#3fd07a}
+  .pc{flex:0 0 42px;text-align:right;font-size:12px;color:var(--muted)}
+  .glf-head.proj .pw{color:var(--muted-2);font-weight:600}
+  .glf-head.proj .pc{color:var(--muted-2)}
+  .rl-strip{display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-bottom:10px}
+  .rl-lab{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-2);font-weight:700;margin-right:2px}
+  .rl-chip{font-size:12px;color:var(--muted);background:var(--bg);border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+  .rl-chip b{color:#3fd07a;margin-left:2px}
+  .mtray{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+  .mchip{background:#3f9b59;color:#fff;border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:600}
+  .mchip b{margin-left:5px;cursor:pointer;opacity:.85;font-size:14px}
+  .mhint{color:var(--muted);font-size:12.5px;margin:8px 0}
+  .mbtn{width:100%;background:#3f9b59;color:#fff;border:none;border-radius:9px;padding:11px;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:10px}
+  .mbtn:disabled{opacity:.6}
+  .mres{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+  .mrow{display:flex;align-items:center;gap:8px;padding:5px 0}
+  .mrow-n{flex:0 0 40%;font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mrow-bar{flex:1;height:8px;background:var(--bg);border-radius:999px;overflow:hidden}
+  .mrow-fill{display:block;height:100%;background:#3fd07a;border-radius:999px}
+  .mrow-p{flex:0 0 46px;text-align:right;font-weight:800;font-size:13px}
+  .msearch{width:100%;box-sizing:border-box;background:var(--panel);border:1px solid var(--line);color:var(--fg);border-radius:9px;padding:10px 12px;font-size:13.5px}
+  .glf-row.mpick{cursor:pointer}
+  .glf-row.mpick.on{background:rgba(63,155,89,.15)}
+  .glf-row.mpick .gp{flex:0 0 22px;color:#3fd07a;font-weight:700}
   .pred-live{margin-top:10px;font-family:"Space Mono",monospace;font-size:12px;color:var(--clay-bright);background:rgba(200,97,47,.10);border:1px solid rgba(200,97,47,.3);border-radius:8px;padding:8px 11px}
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
@@ -521,6 +585,7 @@
           <div class="menu-item" data-sport="wncaab">&#127936; Women's CBB</div>
           <div class="menu-item" data-sport="soccer">&#9917; Soccer</div>
           <div class="menu-item" data-sport="ufc">&#129354; UFC</div>
+          <div class="menu-item" data-sport="golf">&#9971; Golf</div>
           <div class="menu-sec">Picks</div>
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
@@ -752,7 +817,7 @@ async function openDetail(id){detailId=id;detailTab="analysis";showView(true);
 function closeDetail(){detailId=null;if(detailTimer)clearInterval(detailTimer);
   if(view==="home"){document.getElementById("detail").style.display="none";document.getElementById("home").classList.add("show");return;}
   showView(false);renderCurrent();}
-function renderCurrent(){if(view==="free"||view==="best")renderPicks();else if(view==="parlays")renderParlays();else if(view==="news")renderNews();else if(sport==="soccer")renderSoccer();else if(sport==="ufc")renderUFC();else if(isTeam(sport))renderTeam();else render();}
+function renderCurrent(){if(view==="free"||view==="best")renderPicks();else if(view==="parlays")renderParlays();else if(view==="news")renderNews();else if(sport==="soccer")renderSoccer();else if(sport==="ufc")renderUFC();else if(sport==="golf")renderGolf();else if(isTeam(sport))renderTeam();else render();}
 async function refreshDetail(){let m;try{m=await getJSON("/api/match/"+detailId);}catch(e){return;}if(detailId!==m.id)return;renderDetail(m);}
 function formPills(arr){if(!arr||!arr.length)return "";return '<span class="form-pills">'+arr.slice(0,5).map(r=>{const w=r[0]==="W";return '<span class="fp '+(w?'w':'l')+'" title="'+r+'">'+r[0]+'</span>';}).join("")+'</span>';}
 function tennisLinesHTML(m){const L=m.lines;if(!L)return "";const pc=v=>Math.round(v*100)+"%";
@@ -813,7 +878,7 @@ function statsHTML(m){const s=m.stats;
   h+=statRow("Total Points Won",a.total_points_won,b.total_points_won,a.total_points_won,b.total_points_won);
   return h;}
 const TEAM_SPORTS=["mlb","nba","nfl","ncaabb","nhl"];
-const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball",nhl:"NHL",soccer:"Soccer",ufc:"UFC"};
+const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball",nhl:"NHL",soccer:"Soccer",ufc:"UFC",golf:"Golf"};
 let SPORTS_META=[
   {key:"tennis",emoji:"\u{1f3be}",label:"Tennis",blurb:"ATP \u00b7 WTA \u00b7 Challenger",color:"#4f9d6a",team:false},
   {key:"mlb",emoji:"\u26be",label:"MLB",blurb:"Run lines \u00b7 props",color:"#3f7fc4",team:true},
@@ -825,7 +890,8 @@ let SPORTS_META=[
   {key:"ncaab",emoji:"\u{1f3c0}",label:"NCAA Basketball",blurb:"D1 men \u00b7 AP-aware",color:"#d08c3f",team:true},
   {key:"wncaab",emoji:"\u{1f3c0}",label:"Women's CBB",blurb:"D1 women \u00b7 AP-aware",color:"#c0567e",team:true},
   {key:"soccer",emoji:"\u26bd",label:"Soccer",blurb:"EPL \u00b7 UCL \u00b7 La Liga \u00b7 MLS \u2026",color:"#2f9e6f",team:true},
-  {key:"ufc",emoji:"\u{1f94a}",label:"UFC",blurb:"Fight cards \u00b7 moneyline",color:"#c8412f",team:false}
+  {key:"ufc",emoji:"\u{1f94a}",label:"UFC",blurb:"Fight cards \u00b7 moneyline",color:"#c8412f",team:false},
+    {key:"golf",emoji:"\u26f3",label:"Golf",blurb:"Leaderboards \u00b7 tournaments",color:"#3f9b59",team:false}
 ];
 // /api/sports (registry) refreshes SPORTS_META on load; applySportsMeta keeps the
 // derived maps in sync. The defaults above mean a failed fetch = unchanged UI.
@@ -845,6 +911,7 @@ async function reload(){if(detailId)return;if(view==="free"||view==="best"||view
   renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
+  else if(mySport==="golf"){await loadGolf();if(tok!==loadToken||sport!=="golf"||view!=="sport")return;renderGolf();}
   else if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
   else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}}
 async function silentReload(){
@@ -852,6 +919,7 @@ async function silentReload(){
   const tok=++loadToken,mySport=sport;
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
+  else if(mySport==="golf"){await loadGolf();if(tok!==loadToken||sport!=="golf"||view!=="sport")return;renderGolf();}
   else if(isTeam(mySport)){await loadTeam(mySport);if(tok!==loadToken||sport!==mySport||view!=="sport")return;renderTeam();}
   else{await loadDay();if(tok!==loadToken||sport!=="tennis"||view!=="sport")return;render();}
   loadAccuracy();   // refresh today/30d W-L as live games settle
@@ -859,6 +927,7 @@ async function silentReload(){
 function hasLiveOnBoard(){try{
   if(sport==="soccer")return (soccerGames||[]).some(g=>g.status==="live");
   if(sport==="ufc")return (ufcGames||[]).some(g=>g.status==="live");
+  if(sport==="golf")return !!(golfBoard&&golfBoard.event&&golfBoard.event.is_live);
   if(isTeam(sport))return (teamGames||[]).some(g=>g.status==="live");
   return (current||[]).some(m=>m.status==="live");
 }catch(e){return false;}}
@@ -885,6 +954,9 @@ function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";let ws;
 let sport="tennis",teamGames=[],mlbDetailTab="prediction",mlbMatchups=null,mlbInjuries=null,mlbProps=null,mlbBox=null,mlbGame=null;
 let soccerGames=[],soccerLeague="all",soccerLeagues=[],soccerGame=null,soccerDetailTab="prediction",soccerBox=null,soccerProps=null,soccerDetailLeague="all";
 let ufcGames=[],ufcEvent="UFC",ufcGame=null;
+let golfBoard=null,golfTour="pga",golfById={},golfView="board",golfProj=null,golfEdge=null;
+let golfMatchSel=[],golfMatchScope="tournament",golfMatchResult=null,golfMatchQuery="",golfMatchLoading=false;
+const GOLF_TOURS=[["pga","PGA"],["eur","DP World"],["lpga","LPGA"],["champions-tour","Champions"],["liv","LIV"]];
 let teamProps=null,teamBox=null,teamDetailTab="prediction",teamGame=null;
 let view="sport";  // "sport" | "free" | "best"
 function selectMenu(el){
@@ -1449,6 +1521,179 @@ function ufcCardHTML(g){
   return '<div class="card-top"><span class="tier" style="background:'+(TIER_COLOR.ufc||"#c8412f")+'">'+(g.event_label||"UFC")+'</span><span class="tourn">'+wcTxt+'</span><span class="status">'+mark+'</span></div>'+
     '<div class="soc-row">'+ufcFighter(g.away,winAway)+'<div class="soc-mid">'+mid+'</div>'+ufcFighter(g.home,winHome)+'</div>'+
     ufcBarHTML(g)+edgeLineHTML(g,g.prob_home);
+}
+async function loadGolf(){
+  try{golfBoard=await getJSON("/api/golf/board?tour="+golfTour);}catch(e){golfBoard=null;}
+  if(golfView==="proj"){try{golfProj=await getJSON("/api/golf/projections?tour="+golfTour);}catch(e){golfProj=null;}}
+  if(golfView==="edge"){try{golfEdge=await getJSON("/api/golf/edge?tour="+golfTour);}catch(e){golfEdge=null;}}
+}
+async function loadGolfProj(){try{golfProj=await getJSON("/api/golf/projections?tour="+golfTour);}catch(e){golfProj=null;}}
+async function loadGolfEdge(){try{golfEdge=await getJSON("/api/golf/edge?tour="+golfTour);}catch(e){golfEdge=null;}}
+function setGolfView(v){if(v===golfView)return;golfView=v;
+  if(v==="proj"&&!golfProj){renderGolf();loadGolfProj().then(()=>{if(sport==="golf"&&golfView==="proj")renderGolf();});}
+  else if(v==="edge"&&!golfEdge){renderGolf();loadGolfEdge().then(()=>{if(sport==="golf"&&golfView==="edge")renderGolf();});}
+  else renderGolf();}
+function golfParClass(n){return n==null?"":(n<0?"under":(n>0?"over":"even"));}
+function golfDate(iso){if(!iso)return"";try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch(e){return"";}}
+function setGolfTour(t){if(t===golfTour)return;golfTour=t;golfBoard=null;golfProj=null;golfEdge=null;renderGolf();reload();}
+function golfTourTabs(){
+  return '<div class="ltabs">'+GOLF_TOURS.map(t=>'<button class="ltab'+(t[0]===golfTour?" on":"")+'" onclick="setGolfTour(\''+t[0]+'\')">'+t[1]+'</button>').join("")+'</div>';
+}
+function gPct(v){return (v>=99.5)?"\u2713":(v<0.1?"\u2014":v+"%");}
+function golfRowHTML(p){
+  const tc=golfParClass(p.total_num),dc=golfParClass(p.today_num);
+  const flag=p.flag?'<img class="gflag" src="'+p.flag+'" loading="lazy">':'';
+  const cut=p.pos==="CUT";
+  return '<div class="glf-row'+(cut?" cut":"")+'" onclick="openGolfDetail(\''+p.id+'\')">'+
+    '<span class="gp">'+p.pos+'</span>'+
+    '<span class="gn">'+flag+(p.amateur?'<span class="gam">(a)</span> ':'')+p.name+'</span>'+
+    '<span class="gt '+dc+'">'+(cut?"":(p.today||"\u2014"))+'</span>'+
+    '<span class="gth">'+(cut?"\u2014":(p.thru||"\u2014"))+'</span>'+
+    '<span class="gtot '+tc+'">'+p.total+'</span></div>';
+}
+function renderGolfProj(){
+  const pj=golfProj;
+  if(!pj)return '<div class="empty">Loading projections\u2026</div>';
+  if(!pj.ready)return '<div class="empty">'+(pj.reason==="complete"?"Tournament complete \u2014 no live projections.":"Projections begin once play is underway. Check back after tee-off.")+'</div>';
+  const cut=pj.pre_cut,lastLab=cut?"Cut":"T20",lastKey=cut?"make_cut":"top20";
+  const head='<div class="glf-head proj"><span class="gn">Player</span><span class="pw">Win</span><span class="pc">T5</span><span class="pc">T10</span><span class="pc">'+lastLab+'</span></div>';
+  const rows=pj.projections.map(p=>'<div class="glf-row proj" onclick="openGolfDetail(\''+p.id+'\')">'+
+      '<span class="gn">'+p.name+' <span class="gpm">'+(p.total||"")+'</span></span>'+
+      '<span class="pw">'+gPct(p.win)+'</span>'+
+      '<span class="pc">'+gPct(p.top5)+'</span>'+
+      '<span class="pc">'+gPct(p.top10)+'</span>'+
+      '<span class="pc">'+gPct(p[lastKey])+'</span></div>').join("");
+  let rl="";
+  if(pj.live){
+    const top=pj.projections.filter(p=>p.round_leader!=null).slice().sort((a,b)=>b.round_leader-a.round_leader).slice(0,5);
+    if(top.length&&top[0].round_leader>0)
+      rl='<div class="rl-strip"><span class="rl-lab">R'+pj.round+' leader</span>'+
+         top.map(p=>'<span class="rl-chip">'+p.name.split(" ").slice(-1)[0]+' <b>'+gPct(p.round_leader)+'</b></span>').join("")+'</div>';
+  }
+  const note='<div class="ge-sub" style="padding:2px 2px 8px">Live Monte Carlo \u00b7 '+(pj.n_sims||0).toLocaleString()+' sims \u00b7 R'+pj.round+' \u00b7 '+pj.field+' in play'+(pj.round_std?' \u00b7 spread '+pj.round_std:'')+'</div>';
+  return note+rl+'<div class="glf-board">'+head+rows+'</div>';
+}
+function matchListHTML(players){
+  const q=golfMatchQuery.toLowerCase();
+  const f=players.filter(p=>!q||(p.name||"").toLowerCase().includes(q)).slice(0,60);
+  if(!f.length)return '<div class="empty">No players match.</div>';
+  return f.map(p=>{const on=golfMatchSel.includes(p.id);
+    return '<div class="glf-row mpick'+(on?" on":"")+'" onclick="toggleMatchPlayer(\''+p.id+'\')"><span class="gp">'+(on?"\u2713":"")+'</span><span class="gn">'+p.name+'</span><span class="gtot '+golfParClass(p.total_num)+'">'+p.total+'</span></div>';}).join("");
+}
+function onMatchSearch(v){golfMatchQuery=v;const el=document.getElementById("mlist");if(el&&golfBoard)el.innerHTML=matchListHTML((golfBoard.players||[]).filter(p=>p.pos!=="CUT"));}
+function toggleMatchPlayer(id){const i=golfMatchSel.indexOf(id);if(i>=0)golfMatchSel.splice(i,1);else{if(golfMatchSel.length>=3)return;golfMatchSel.push(id);}golfMatchResult=null;renderGolf();}
+function setMatchScope(s){if(s===golfMatchScope)return;golfMatchScope=s;golfMatchResult=null;renderGolf();}
+async function loadGolfMatchup(){
+  if(golfMatchSel.length<2)return;
+  golfMatchLoading=true;renderGolf();
+  try{golfMatchResult=await getJSON("/api/golf/matchup?tour="+golfTour+"&ids="+golfMatchSel.join(",")+"&scope="+golfMatchScope);}
+  catch(e){golfMatchResult={ready:false,reason:"Could not simulate \u2014 try again."};}
+  golfMatchLoading=false;renderGolf();
+}
+function renderGolfMatchup(){
+  const b=golfBoard;
+  if(!b||!b.players||!b.players.length)return '<div class="empty">No field available yet.</div>';
+  if(b.event&&b.event.is_complete)return '<div class="empty">Tournament complete \u2014 matchups are for live/upcoming play.</div>';
+  const live=!!(b.event&&b.event.is_live);
+  const players=b.players.filter(p=>p.pos!=="CUT");
+  const scope='<div class="ltabs" style="padding:2px 0 6px"><button class="ltab'+(golfMatchScope==="tournament"?" on":"")+'" onclick="setMatchScope(\'tournament\')">Tournament</button>'+
+    (live?'<button class="ltab'+(golfMatchScope==="round"?" on":"")+'" onclick="setMatchScope(\'round\')">This round</button>':'')+'</div>';
+  const tray=golfMatchSel.length?
+    '<div class="mtray">'+golfMatchSel.map(id=>{const p=golfById[id]||{};return '<span class="mchip">'+(p.name||id)+' <b onclick="event.stopPropagation();toggleMatchPlayer(\''+id+'\')">\u00d7</b></span>';}).join("")+'</div>'
+    :'<div class="mhint">Tap 2 or 3 players to build a head-to-head matchup.</div>';
+  let action='';
+  if(golfMatchSel.length>=2)action='<button class="mbtn" onclick="loadGolfMatchup()"'+(golfMatchLoading?' disabled':'')+'>'+(golfMatchLoading?"Simulating\u2026":("Compare "+golfMatchSel.length+" players \u2192"))+'</button>';
+  let result='';
+  if(golfMatchResult){
+    if(!golfMatchResult.ready)result='<div class="empty">'+(golfMatchResult.reason||"Not available")+'</div>';
+    else{
+      const max=Math.max.apply(null,golfMatchResult.players.map(p=>p.prob))||1;
+      result='<div class="mres"><div class="ge-sub" style="margin-bottom:8px">'+(golfMatchResult.scope==="round"?("Round "+golfMatchResult.round):"Rest of tournament")+' \u00b7 chance of lowest score</div>'+
+        golfMatchResult.players.map(p=>'<div class="mrow"><span class="mrow-n">'+p.name+' <span class="gpm">'+(p.total||"")+'</span></span><span class="mrow-bar"><span class="mrow-fill" style="width:'+Math.round(p.prob/max*100)+'%"></span></span><span class="mrow-p">'+p.prob+'%</span></div>').join("")+'</div>';
+    }
+  }
+  const search='<input id="gmsearch" class="msearch" placeholder="Search players\u2026" value="'+golfMatchQuery.replace(/"/g,"&quot;")+'" oninput="onMatchSearch(this.value)">';
+  const list='<div id="mlist" class="glf-board" style="margin-top:8px">'+matchListHTML(players)+'</div>';
+  return scope+tray+action+result+search+list;
+}
+function renderGolfEdge(){
+  const e=golfEdge;
+  if(!e)return '<div class="empty">Loading market edge\u2026</div>';
+  if(!e.ready){
+    const msg={no_odds_key:"Odds API key not set \u2014 market edge unavailable.",
+      no_market:"No outright market this week. Book odds are offered only for the four majors \u2014 Masters, PGA, U.S. Open, The Open.",
+      not_started:"Edge compares the model to the market once play is underway. Check back after tee-off.",
+      complete:"Tournament complete.",no_field:"No field yet.",no_projection:"Projections not ready yet."}[e.reason]||(e.note||"Market edge unavailable right now.");
+    return '<div class="empty">'+msg+'</div>';
+  }
+  const head='<div class="glf-head proj"><span class="gn">Player</span><span class="pc">Model</span><span class="pc">Mkt</span><span class="pc">Odds</span><span class="pw">Edge</span></div>';
+  const rows=e.rows.map(r=>{
+    const ecol=r.edge>0?"#3fd07a":(r.edge<0?"#e0563f":"var(--fg)");
+    const am=r.american==null?"\u2014":((r.american>0?"+":"")+r.american);
+    return '<div class="glf-row proj" onclick="openGolfDetail(\''+r.id+'\')">'+
+      '<span class="gn">'+r.name+' <span class="gpm">'+(r.total||"")+'</span></span>'+
+      '<span class="pc">'+r.model+'%</span>'+
+      '<span class="pc">'+r.market+'%</span>'+
+      '<span class="pc">'+am+'</span>'+
+      '<span class="pw" style="color:'+ecol+'">'+(r.edge>0?"+":"")+r.edge+'</span></div>';
+  }).join("");
+  const note='<div class="ge-sub" style="padding:2px 2px 8px">Model win% vs de-vigged market \u00b7 '+(e.event||"")+' \u00b7 '+e.matched+' matched \u00b7 R'+(e.round||"")+'</div>';
+  const legend='<div class="ge-sub" style="padding:0 2px 8px;color:var(--muted-2)">Positive edge = model rates the player higher than the market.</div>';
+  return note+'<div class="glf-board">'+head+rows+'</div>'+legend;
+}
+function renderGolf(){
+  document.getElementById("datebar").innerHTML="";
+  document.getElementById("tabs").innerHTML=golfTourTabs();
+  const b=golfBoard,bub=document.getElementById("bubbles"),list=document.getElementById("list");
+  const tname=(GOLF_TOURS.find(t=>t[0]===golfTour)||[,"Golf"])[1];
+  if(!b||!b.event){
+    const ne=b&&b.next_event;
+    bub.innerHTML='<div class="bubble"><div class="num">\u26f3</div><div class="lab">'+tname+'</div></div>'+
+      (ne?'<div class="bubble acc"><div class="num" style="font-size:12px;line-height:1.9">'+golfDate(ne.start)+'</div><div class="lab">Next up</div></div>':'');
+    list.innerHTML='<div class="empty">No tournament in progress on the '+tname+'.'+(ne?' Next: <b>'+ne.name+'</b> \u2014 '+golfDate(ne.start)+'.':' Try another tour above.')+'</div>';
+    return;
+  }
+  const ev=b.event,players=b.players||[];
+  golfById={};players.forEach(p=>golfById[p.id]=p);
+  const leader=players[0];
+  bub.innerHTML=
+    '<div class="bubble"><div class="num">'+b.field_size+'</div><div class="lab">Field</div></div>'+
+    '<div class="bubble'+(ev.is_live?" won":"")+'"><div class="num">'+(ev.is_complete?"Final":("R"+(ev.round||1)))+'</div><div class="lab">'+(ev.is_live?"Live":"Round")+'</div></div>'+
+    '<div class="bubble acc"><div class="num" style="font-size:13px;line-height:1.8">'+(leader?leader.name.split(" ").slice(-1)[0]:"\u2014")+'</div><div class="lab">Leader</div></div>';
+  let sub=(ev.status||"");
+  if(b.tour_name)sub+=" \u00b7 "+b.tour_name;
+  if(b.cut_line)sub+=" \u00b7 Cut "+b.cut_line;
+  const evhdr='<div class="glf-event"><div class="ge-name">'+ev.name+'</div><div class="ge-sub">'+sub+'</div>'+
+    (ev.is_complete&&b.next_event?'<div class="ge-next">Next: '+b.next_event.name+' \u2014 '+golfDate(b.next_event.start)+'</div>':'')+'</div>';
+  const toggle='<div class="gtog"><button class="gtog-b'+(golfView==="board"?" on":"")+'" onclick="setGolfView(\'board\')">Board</button><button class="gtog-b'+(golfView==="proj"?" on":"")+'" onclick="setGolfView(\'proj\')">Projections</button><button class="gtog-b'+(golfView==="matchup"?" on":"")+'" onclick="setGolfView(\'matchup\')">Matchups</button><button class="gtog-b'+(golfView==="edge"?" on":"")+'" onclick="setGolfView(\'edge\')">Edge</button></div>';
+  if(golfView==="proj"){list.innerHTML=evhdr+toggle+renderGolfProj();return;}
+  if(golfView==="matchup"){list.innerHTML=evhdr+toggle+renderGolfMatchup();return;}
+  if(golfView==="edge"){list.innerHTML=evhdr+toggle+renderGolfEdge();return;}
+  const head='<div class="glf-head"><span class="gp">Pos</span><span class="gn">Player</span><span class="gt">Today</span><span class="gth">Thru</span><span class="gtot">Total</span></div>';
+  list.innerHTML=evhdr+toggle+'<div class="glf-board">'+head+players.map(golfRowHTML).join("")+'</div>';
+}
+function openGolfDetail(id){
+  const p=golfById[id];if(!p)return;
+  detailId="golf"+id;showView(true);
+  document.getElementById("detail").innerHTML=renderGolfDetail(p);
+  _trap();
+}
+function renderGolfDetail(p){
+  const ev=(golfBoard&&golfBoard.event)?golfBoard.event:{};
+  const rounds=(p.rounds||[]).map((r,i)=>'<div class="gr-cell"><div class="gr-n">R'+(i+1)+'</div><div class="gr-v">'+(r!=null?r:"\u2014")+'</div></div>').join("");
+  const flag=p.flag?'<img class="gflag-lg" src="'+p.flag+'">':'';
+  return '<button class="back" onclick="goBack()">\u2039 Leaderboard</button>'+
+    '<div class="detail-wrap">'+
+    '<div class="gd-head">'+flag+'<div><div class="gd-name">'+p.name+(p.amateur?' (a)':'')+'</div><div class="gd-sub">'+(p.country||"")+(ev.name?' \u00b7 '+ev.name:"")+'</div></div></div>'+
+    '<div class="gd-stats">'+
+      '<div class="gd-st"><div class="v '+golfParClass(p.total_num)+'">'+p.total+'</div><div class="l">Total</div></div>'+
+      '<div class="gd-st"><div class="v">'+p.pos+'</div><div class="l">Position</div></div>'+
+      '<div class="gd-st"><div class="v '+golfParClass(p.today_num)+'">'+(p.today||"\u2014")+'</div><div class="l">Today</div></div>'+
+      '<div class="gd-st"><div class="v">'+(p.thru||"\u2014")+'</div><div class="l">Thru</div></div>'+
+    '</div>'+
+    (rounds?'<div class="el-lab" style="margin-top:12px">Rounds</div><div class="gd-rounds">'+rounds+'</div>':'')+
+    (p.tee?'<div class="note" style="margin-top:10px">Latest round tee time: '+p.tee+'</div>':'')+
+    '</div>';
 }
 function renderUFC(){
   renderDatebar();document.getElementById("tabs").innerHTML="";
