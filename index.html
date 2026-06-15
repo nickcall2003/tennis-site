@@ -195,6 +195,8 @@
   .pl-od{font-family:"Space Mono",monospace;font-weight:700;font-size:14px;color:var(--clay-bright)}
   .pl-meta{font-size:11px;color:var(--muted);margin-top:2px}
   .pl-edge{color:var(--win);font-weight:700;margin-left:4px}
+  .acc-u.pos{color:var(--win);font-weight:700}
+  .acc-u.neg{color:var(--loss);font-weight:700}
   .pl-mod{color:var(--muted-2);font-style:italic;margin-left:5px}
   .pc-foot{display:flex;gap:8px;margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
   .pc-stat{flex:1;text-align:center}
@@ -706,9 +708,11 @@ function renderAccuracy(){if(!_accData)return;
       const w30=(stat.wins_30d!=null?stat.wins_30d:(stat.correct||0));
       const l30=(stat.losses_30d!=null?stat.losses_30d:((stat.picks||0)-(stat.correct||0)));
       const aw=stat.alltime_wins||0,al=stat.alltime_losses||0;
-      const parts=["Today "+tw+"\u2013"+tl,"30d "+w30+"\u2013"+l30];
+      const u=stat.units_30d,priced=stat.priced_30d;
+      const uStr=(priced&&u!=null)?' <span class="acc-u '+(u>=0?"pos":"neg")+'" title="Units at flat 1u stake over '+priced+' priced picks (last 30d)">'+(u>=0?"+":"")+u+'u</span>':'';
+      const parts=["Today "+tw+"\u2013"+tl,"30d "+w30+"\u2013"+l30+uStr];
       if(aw+al)parts.push("All-time "+aw+"\u2013"+al);
-      at.textContent=parts.join(" \u00b7 ");
+      at.innerHTML=parts.join(" \u00b7 ");
     }else{at.textContent="";}
   }
   const clvEl=document.getElementById("acc-clv");
@@ -2232,7 +2236,7 @@ function openHelp(){view="help";if(detailId)closeDetail();
 function renderHelp(){
   const items=[
     ["\u{1F3DF}\uFE0F","The board","Pick a sport from the menu or the home grid. Each game shows the model\u2019s predicted winner, a win-probability bar, and the projected score. A pulsing \u201CLive\u201D tag means it\u2019s in progress."],
-    ["\u{1F4CA}","Model \u00b7 Market \u00b7 Edge","Every game shows the model\u2019s fair price, the sportsbook market price, how many books are in, and the edge (model % minus the market\u2019s implied %). A positive edge means the model likes the side more than the market does. \u201CNo market line yet\u201D means no book has posted odds."],
+    ["\u{1F4CA}","Model \u00b7 Market \u00b7 Edge","Every game shows the model\u2019s fair price, the sportsbook market price, how many books are in, and the edge (model % minus the market\u2019s implied %). A positive edge means the model likes the side more than the market does. \u201CAwaiting market\u201D means no book has posted odds."],
     ["\u2b50","Free Picks &amp; Best Bets","Free Picks are the day\u2019s few highest-confidence plays. Best Bets is the fuller board with deeper AI write-ups. Both show a green check or red x as games finish, plus a rolling 30-day record."],
     ["\u{1F3AB}","Parlays","One locked set of model parlays per day \u2014 a safer two-leg, a value three-leg, and a longshot. Each shows its stake in units and settles win/loss, with a 30-day unit profit/loss and ROI. They lock when first viewed so they don\u2019t drift."],
     ["\u{1F3AF}","Player props","Open a game and tap Props. Each row shows Projected (model) \u00b7 Line (book) \u00b7 Actual (after the game), a HIT/MISS badge, and the model\u2019s over/under lean. Use the stat buttons to filter (Points, Strikeouts, Rushing Yds\u2026) and tap a row for the player\u2019s last-10 game log."],
@@ -2399,7 +2403,7 @@ function edgeLineHTML(g,homeWP){
       (nb?'<span class="el-books">'+nb+(nb===1?" book":" books")+'</span>':"")+
       '<span class="el-edge '+ec+'">'+(edge>=0?"+":"")+edge+'% edge</span>';
   }else{
-    parts+='<span class="el-none">No market line yet</span>';
+    parts+='<span class="el-none">Awaiting market</span>';
   }
   return '<div class="edge-line">'+parts+'</div>';}
 function soccerEdgeLineHTML(g){
@@ -2422,7 +2426,7 @@ function soccerEdgeLineHTML(g){
     parts+='<span class="el-lab">Market</span><span class="el-v">'+fmtOdds(mkt)+'</span>';
     if(tot>0&&sImp!=null){const edge=Math.round((mp-sImp/tot)*1000)/10,ec=edge>=0?"pos":"neg";
       parts+='<span class="el-edge '+ec+'">'+(edge>=0?"+":"")+edge+'% edge</span>';}
-  }else{parts+='<span class="el-none">No market line yet</span>';}
+  }else{parts+='<span class="el-none">Awaiting market</span>';}
   return '<div class="edge-line">'+parts+'</div>';}
 function pickCardHTML(p,isFree){const pct=Math.round(p.prob*100);const slabel=(SPORT_LABEL[p.sport]||p.sport).toUpperCase();
   // Odds (fair + market when available) show on EVERY pick; edge% is Best-Bets only.

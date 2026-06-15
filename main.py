@@ -813,6 +813,8 @@ def accuracy(days: int = 30):
     by_sport = {}
     tot_p = tot_c = 0
     tot_tp = tot_tc = 0
+    tot_units = 0.0
+    tot_priced = 0
     alltime = {}
     at_p = at_c = 0
     with SessionLocal() as db:
@@ -820,7 +822,8 @@ def accuracy(days: int = 30):
         for r in rows:
             if _is_soccer_push(r):
                 continue                       # draw = push, excluded from record
-            s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0, "today_picks": 0, "today_correct": 0})
+            s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0, "today_picks": 0,
+                                              "today_correct": 0, "units": 0.0, "priced": 0})
             s["picks"] += 1
             tot_p += 1
             is_today = bool(r.settled_date) and r.settled_date.date() == _today
@@ -833,6 +836,13 @@ def accuracy(days: int = 30):
                 if is_today:
                     s["today_correct"] += 1
                     tot_tc += 1
+            if r.taken_odds is not None:                       # flat 1u staking -> ROI
+                prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
+                pl = prof if r.correct else -1.0
+                s["priced"] += 1
+                s["units"] += pl
+                tot_priced += 1
+                tot_units += pl
         # all-time record (no date filter), per sport and overall
         allrows = db.query(PickResult).all()
         for r in allrows:
@@ -856,12 +866,17 @@ def accuracy(days: int = 30):
         v["alltime_losses"] = at["losses"]
         tot = at["wins"] + at["losses"]
         v["alltime_pct"] = round(100 * at["wins"] / tot) if tot else None
+        v["units_30d"] = round(v.get("units", 0.0), 2)
+        v["priced_30d"] = v.get("priced", 0)
+        v["roi_30d"] = round(100 * v["units"] / v["priced"], 1) if v.get("priced") else None
     data = {
         "days": days,
         "overall": {"picks": tot_p, "correct": tot_c,
                     "accuracy": round(100 * tot_c / tot_p) if tot_p else None,
                     "wins_30d": tot_c, "losses_30d": tot_p - tot_c,
                     "today_wins": tot_tc, "today_losses": tot_tp - tot_tc,
+                    "units_30d": round(tot_units, 2), "priced_30d": tot_priced,
+                    "roi_30d": round(100 * tot_units / tot_priced, 1) if tot_priced else None,
                     "alltime_wins": at_c, "alltime_losses": at_p - at_c,
                     "alltime_pct": round(100 * at_c / at_p) if at_p else None},
         "by_sport": by_sport,
