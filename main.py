@@ -259,6 +259,44 @@ async def lifespan(app: FastAPI):
         import threading as _thr_tla
         _thr_tla.Thread(target=_tennis_lookahead, daemon=True).start()
 
+    # Odds-snapshot warmer — OFF by default. On a free Odds API tier this loop
+    # can consume the whole monthly quota and starve the live board's edge/odds.
+    # Only enable (ODDS_SNAPSHOT=1) if you have quota headroom (paid plan).
+    if run_bg and os.environ.get("ODDS_SNAPSHOT", "0") == "1":
+        def _odds_snapshot_bg():
+            import time as _t
+            _t.sleep(150)
+            every = max(1, int(os.environ.get("ODDS_SNAPSHOT_HOURS", "12") or 12)) * 3600
+            while True:
+                try:
+                    import odds_api
+                    if odds_api.enabled():
+                        today = dt.date.today().isoformat()
+                        jobs = [
+                            ("mlb", lambda: mlb_games(date=today)),
+                            ("ncaabb", lambda: ncaabb_games(date=today)),
+                            ("ufc", lambda: ufc_games(date=None)),
+                            ("nba", lambda: team_games("nba", date=today)),
+                            ("nfl", lambda: team_games("nfl", date=today)),
+                            ("nhl", lambda: team_games("nhl", date=today)),
+                            ("ncaaf", lambda: team_games("ncaaf", date=today)),
+                            ("ncaab", lambda: team_games("ncaab", date=today)),
+                        ]
+                        n = 0
+                        for name, fn in jobs:
+                            try:
+                                fn()
+                                n += 1
+                            except Exception as e:
+                                print(f"[odds-snapshot] {name} failed: {e}")
+                            _t.sleep(3)
+                        print(f"[odds-snapshot] cycle done ({n} boards)")
+                except Exception as e:
+                    print(f"[odds-snapshot] loop error: {e}")
+                _t.sleep(every)
+        import threading as _thr_os
+        _thr_os.Thread(target=_odds_snapshot_bg, daemon=True).start()
+
     # AI narration warmer — pre-narrates today's board in the background so user
     # page loads are instant and fully Claude-written. No-op without a key.
     if run_bg and LLM_COMPLETE is not None:
@@ -2146,6 +2184,33 @@ def soccer_games(date: str | None = None, league: str | None = None):
         games = soccer_provider.get_today(target)
     else:
         games = soccer_provider.get_games(target, lg)
+    # Attach real 3-way odds for the viewed league and snapshot the predicted
+    # side so soccer can track units/CLV (quota-light: one league at a time,
+    # cached; no-ops without an odds key, quota, or a match).
+    if lg not in ("all", "today"):
+        try:
+            import odds_api
+            if odds_api.enabled():
+                sodds = odds_api.get_soccer_odds(lg) or {}
+                for g in games:
+                    if not g.get("odds"):
+                        o = sodds.get(_norm_team(g["home"]["name"]) + "|" + _norm_team(g["away"]["name"]))
+                        if o:
+                            g["odds"] = {"ml_home": o.get("ml_home"), "ml_draw": o.get("ml_draw"),
+                                         "ml_away": o.get("ml_away"), "books": o.get("books")}
+                    if g.get("odds"):
+                        sp = {"home": g.get("prob_home", 0), "draw": g.get("prob_draw", 0),
+                              "away": g.get("prob_away", 0)}
+                        side = max(sp, key=sp.get)
+                        taken = {"home": g["odds"].get("ml_home"), "draw": g["odds"].get("ml_draw"),
+                                 "away": g["odds"].get("ml_away")}.get(side)
+                        if taken is not None:
+                            try:
+                                _snapshot_odds("soccer", str(g["id"]), side, int(round(taken)))
+                            except Exception:
+                                pass
+        except Exception as e:
+            print(f"[soccer] odds attach failed: {e}")
     _settle_soccer(games)
     return {"games": games, "league": ("all" if lg in ("all", "today") else lg),
             "leagues": soccer_provider.leagues()}
@@ -2647,6 +2712,7 @@ def ncaabb_games(date: str | None = None, debug: int = 0):
             print(f"[ncaabb] espn games failed: {e}")
     games = hl_games or espn_games
     diag["source"] = "highlightly" if hl_games else ("espn" if espn_games else "none")
+    games = _attach_odds("ncaabb", games)   # attach market + snapshot pick line (units/CLV)
     # settle finished games for accuracy
     try:
         with SessionLocal() as db:
