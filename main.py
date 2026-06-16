@@ -173,21 +173,34 @@ def _resolve_surface_rec(name: str):
 def _build_surface_records_bg():
     """Build records from Sackmann CSVs and cache to _srf. Runs in a background
     thread so a slow first boot (pulling ~20 CSVs) never blocks the server from
-    answering Railway's health check. SURFACE_RECORDS is swapped in atomically
-    at the end, so readers see either empty or the finished set, never partial."""
+    answering Railway's health check. The freshly built set REPLACES the cache
+    only if it is non-empty and not smaller than what we already have, so a fetch
+    outage can never wipe a good cache (which is what happened before)."""
     global SURFACE_RECORDS
     try:
         import build_surface_records as _bsr
         _y0 = int(os.environ.get("SURFACE_START_YEAR", "2015"))
         _y1 = dt.date.today().year
         _store, _tot = {}, 0
+        _atp_rows, _wta_rows = 0, 0
         print(f"[surface] background build {_y0}..{_y1} started (server is already live) ...")
         for _yr in range(_y0, _y1 + 1):
-            for _u in (_bsr.ATP_URL.format(year=_yr), _bsr.WTA_URL.format(year=_yr)):
-                _tot += _bsr.aggregate(_bsr._fetch_csv(_u), _store)
+            _ar = _bsr.aggregate(_bsr._fetch_csv(_bsr.ATP_URL.format(year=_yr)), _store)
+            _wr = _bsr.aggregate(_bsr._fetch_csv(_bsr.WTA_URL.format(year=_yr)), _store)
+            _atp_rows += _ar; _wta_rows += _wr; _tot += _ar + _wr
+        print(f"[surface] fetch tally: ATP rows={_atp_rows:,}, WTA rows={_wta_rows:,}, "
+              f"unique players={len(_store):,}")
         _mm = int(os.environ.get("SURFACE_MIN_MATCHES", "0"))
         if _mm > 0:
             _store = {k: v for k, v in _store.items() if _bsr._career_total(v) >= _mm}
+        # Safety: never replace a good cache with an empty/smaller partial build.
+        _prev = len(SURFACE_RECORDS)
+        _floor = int(os.environ.get("SURFACE_MIN_PLAYERS", "800"))
+        if not _store or (len(_store) < _prev and len(_store) < _floor):
+            print(f"[surface] build yielded {len(_store):,} players (have {_prev:,}); "
+                  f"keeping existing cache, NOT overwriting. Check the fetch tally above "
+                  f"\u2014 0 rows means the data host is unreachable from this server.")
+            return
         SURFACE_RECORDS = _store
         _rebuild_surface_abbrev()
         try:
