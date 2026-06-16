@@ -1,0 +1,48 @@
+name: Build surface records
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out this repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Clone Sackmann data repos (shallow)
+        run: |
+          git clone --depth 1 https://github.com/JeffSackmann/tennis_atp.git
+          git clone --depth 1 https://github.com/JeffSackmann/tennis_wta.git
+
+      - name: Build surface_records.json
+        run: |
+          python build_surface_records.py \
+            --from-dir tennis_atp \
+            --from-dir tennis_wta \
+            --start 2015 \
+            --out surface_records.json
+          echo "Generated file size:"; ls -la surface_records.json
+
+      - name: Commit the data file if it changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          rm -rf tennis_atp tennis_wta
+          git add surface_records.json
+          if git diff --staged --quiet; then
+            echo "No changes to surface_records.json."
+          else
+            git commit -m "data: refresh surface_records.json [skip ci]"
+            git push
+          fi
