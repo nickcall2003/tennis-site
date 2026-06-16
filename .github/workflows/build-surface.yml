@@ -20,16 +20,20 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Clone Sackmann data repos (shallow)
+      - name: Download Sackmann data (tarballs, no auth needed)
         run: |
-          git clone --depth 1 https://github.com/JeffSackmann/tennis_atp.git
-          git clone --depth 1 https://github.com/JeffSackmann/tennis_wta.git
+          for repo in tennis_atp tennis_wta; do
+            curl -fsSL -o "$repo.tgz" \
+              "https://codeload.github.com/JeffSackmann/$repo/tar.gz/refs/heads/master"
+            tar xzf "$repo.tgz"
+          done
+          ls -d tennis_*-master
 
       - name: Build surface_records.json
         run: |
           python build_surface_records.py \
-            --from-dir tennis_atp \
-            --from-dir tennis_wta \
+            --from-dir tennis_atp-master \
+            --from-dir tennis_wta-master \
             --start 2015 \
             --out surface_records.json
           echo "Generated file size:"; ls -la surface_records.json
@@ -40,7 +44,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm -rf tennis_atp tennis_wta
+          rm -rf tennis_atp-master tennis_wta-master tennis_atp.tgz tennis_wta.tgz
           git add surface_records.json
           if git diff --staged --quiet; then
             echo "No changes to surface_records.json."
