@@ -119,7 +119,11 @@ live_engine = LiveEngine(provider)
 # by the match detail's Surface tab. Absent file => feature degrades to "no data".
 import unicodedata as _ud
 
-def _norm_player(name: str) -> str:
+def _norm_surface_name(name: str) -> str:
+    """Space-preserving normalization that MATCHES build_surface_records.norm_name
+    (lowercase, accent-stripped, whitespace-collapsed) so live names line up with
+    the dataset keys. Distinct from the alphanumeric-only _norm_player used by the
+    props matcher below."""
     if not name:
         return ""
     s = _ud.normalize("NFKD", str(name))
@@ -155,7 +159,7 @@ def _rebuild_surface_abbrev():
 
 def _resolve_surface_rec(name: str):
     """Find a player's record by exact name, then by initial+lastname fallback."""
-    norm = _norm_player(name)
+    norm = _norm_surface_name(name)
     rec = SURFACE_RECORDS.get(norm)
     if rec:
         return rec
@@ -203,9 +207,15 @@ try:
     print(f"[surface] loaded records for {len(SURFACE_RECORDS):,} players")
     # A previous run may have cached an empty file (e.g. a transient fetch outage).
     # If so and self-build is enabled, rebuild in the background and overwrite it.
-    if not SURFACE_RECORDS and os.environ.get("BUILD_SURFACE_AT_RUNTIME", "").lower() in ("1", "true", "yes"):
+    # Also rebuild if the set is suspiciously small: a full ATP+WTA build is several
+    # thousand players, so a couple hundred means an earlier partial fetch (e.g.
+    # only WTA came through) got cached. SURFACE_MIN_PLAYERS sets the floor.
+    _min_players = int(os.environ.get("SURFACE_MIN_PLAYERS", "800"))
+    _self_build = os.environ.get("BUILD_SURFACE_AT_RUNTIME", "").lower() in ("1", "true", "yes")
+    if _self_build and len(SURFACE_RECORDS) < _min_players:
         import threading
-        print("[surface] cached file is empty; rebuilding in background.")
+        print(f"[surface] cached set has only {len(SURFACE_RECORDS):,} players "
+              f"(< {_min_players}); rebuilding in background to repair a partial cache.")
         threading.Thread(target=_build_surface_records_bg, daemon=True).start()
 except FileNotFoundError:
     # No cached file. Optionally self-build from the same Sackmann CSVs the model
@@ -3784,7 +3794,7 @@ def _surface_diag(name: str = "A. Zverev", name2: str = "V. Kopriva"):
     """Diagnose surface-record lookups. ?name=...&name2=... to test specific
     players. Shows whether they resolve and (if so) the matched full key."""
     def probe(n):
-        norm = _norm_player(n)
+        norm = _norm_surface_name(n)
         toks = [t.strip(".") for t in norm.split() if t.strip(".")]
         abbr = (toks[0][0] + " " + " ".join(toks[1:])) if (len(toks) >= 2 and len(toks[0]) == 1) else None
         rec = _resolve_surface_rec(n)
