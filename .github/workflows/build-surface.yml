@@ -15,44 +15,29 @@ jobs:
       - name: Check out this repo
         uses: actions/checkout@v4
 
+      - name: Get ATP data (Sackmann)
+        uses: actions/checkout@v4
+        with:
+          repository: JeffSackmann/tennis_atp
+          path: _data/tennis_atp
+
+      - name: Get WTA data (Sackmann)
+        uses: actions/checkout@v4
+        with:
+          repository: JeffSackmann/tennis_wta
+          path: _data/tennis_wta
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
-      - name: Download Sackmann CSVs (anonymous raw, with diagnostics)
-        run: |
-          echo "== Probing HTTP status for one file across hosts =="
-          probe="atp_matches_2024.csv"
-          for url in \
-            "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/$probe" \
-            "https://api.github.com/repos/JeffSackmann/tennis_atp/contents/$probe?ref=master" \
-            "https://media.githubusercontent.com/media/JeffSackmann/tennis_atp/master/$probe" ; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/vnd.github.raw" "$url")
-            echo "  HTTP $code  <-  $url"
-          done
-          echo "== Downloading via anonymous raw =="
-          mkdir -p atp wta
-          get() {  # $1=repo $2=file $3=outdir
-            curl -fsSL "https://raw.githubusercontent.com/JeffSackmann/$1/master/$2" -o "$3/$2" \
-            || curl -fsSL -H "Accept: application/vnd.github.raw" \
-                 "https://api.github.com/repos/JeffSackmann/$1/contents/$2?ref=master" -o "$3/$2"
-          }
-          for y in $(seq 2015 2026); do
-            get tennis_atp "atp_matches_${y}.csv" atp || rm -f "atp/atp_matches_${y}.csv"
-            get tennis_wta "wta_matches_${y}.csv" wta || rm -f "wta/wta_matches_${y}.csv"
-          done
-          find atp wta -type f -empty -delete || true
-          echo "Downloaded:"; ls -la atp wta
-          if [ -z "$(ls -A atp)" ] && [ -z "$(ls -A wta)" ]; then
-            echo "ERROR: no CSVs downloaded"; exit 1
-          fi
-
       - name: Build surface_records.json
         run: |
+          echo "ATP files:"; ls _data/tennis_atp/atp_matches_2024.csv 2>/dev/null || echo "  (2024 not found)"
           python build_surface_records.py \
-            --from-dir atp \
-            --from-dir wta \
+            --from-dir _data/tennis_atp \
+            --from-dir _data/tennis_wta \
             --start 2015 \
             --out surface_records.json
           echo "Generated file size:"; ls -la surface_records.json
@@ -63,7 +48,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm -rf atp wta
+          rm -rf _data
           git add surface_records.json
           if git diff --staged --quiet; then
             echo "No changes to surface_records.json."
