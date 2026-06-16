@@ -702,12 +702,22 @@ def _odds_rec_sides(home_name, o):
 
 def _attach_odds(sport, games):
     """Attach real market odds to each game and snapshot the pick's line.
-    Tries The Odds API first, then SportsGameOdds (free) as a fallback so the
-    model-vs-market edge can render even without an Odds API plan."""
+
+    Load-balances two free odds sources: SportsGameOdds (SGO) covers the major
+    team leagues + UFC on its own quota, so for those sports we DON'T spend a
+    scarce Odds API call — we reserve the Odds API's limited monthly quota for
+    the sports SGO can't do (tennis, golf, NCAA baseball, WNBA). Falls through to
+    SGO below so the model-vs-market edge renders on either source."""
     book = {}
+    sgo_covers = False
+    try:
+        import sgo_api
+        sgo_covers = sgo_api.enabled() and (sport in getattr(sgo_api, "SGO_LEAGUE", {}))
+    except Exception:
+        sgo_covers = False
     try:
         import odds_api
-        if odds_api.enabled():
+        if odds_api.enabled() and not sgo_covers:
             book = odds_api.get_odds(sport) or {}
     except Exception as e:
         print(f"[odds] odds-api {sport} skipped: {e}")
@@ -3568,7 +3578,7 @@ def _odds_diag():
     # live test: does the SGO fallback return a game line for today's first MLB game?
     try:
         import mlb_provider
-        games = mlb_provider.get_games(dt.date.today().isoformat()) or []
+        games = mlb_provider.get_games(dt.date.today()) or []
         if games:
             g = games[0]
             import sgo_api
