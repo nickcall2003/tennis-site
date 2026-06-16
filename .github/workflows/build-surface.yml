@@ -20,20 +20,28 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Download Sackmann data (tarballs, no auth needed)
+      - name: Download Sackmann data (archive tarballs, no auth needed)
         run: |
           for repo in tennis_atp tennis_wta; do
-            curl -fsSL -o "$repo.tgz" \
-              "https://codeload.github.com/JeffSackmann/$repo/tar.gz/refs/heads/master"
-            tar xzf "$repo.tgz"
+            ok=0
+            for br in master main; do
+              if curl -fsSL -o "$repo.tgz" \
+                   "https://github.com/JeffSackmann/$repo/archive/refs/heads/$br.tar.gz"; then
+                tar xzf "$repo.tgz"; ok=1; break
+              fi
+            done
+            if [ "$ok" != 1 ]; then echo "ERROR: could not download $repo"; exit 1; fi
           done
-          ls -d tennis_*-master
+          echo "Extracted:"; ls -d tennis_*-*/
 
       - name: Build surface_records.json
         run: |
+          ATP_DIR=$(ls -d tennis_atp-*/ | head -1)
+          WTA_DIR=$(ls -d tennis_wta-*/ | head -1)
+          echo "Using ATP_DIR=$ATP_DIR  WTA_DIR=$WTA_DIR"
           python build_surface_records.py \
-            --from-dir tennis_atp-master \
-            --from-dir tennis_wta-master \
+            --from-dir "$ATP_DIR" \
+            --from-dir "$WTA_DIR" \
             --start 2015 \
             --out surface_records.json
           echo "Generated file size:"; ls -la surface_records.json
@@ -44,7 +52,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm -rf tennis_atp-master tennis_wta-master tennis_atp.tgz tennis_wta.tgz
+          rm -rf tennis_atp-*/ tennis_wta-*/ tennis_atp.tgz tennis_wta.tgz
           git add surface_records.json
           if git diff --staged --quiet; then
             echo "No changes to surface_records.json."
