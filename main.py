@@ -128,36 +128,49 @@ def _norm_player(name: str) -> str:
 
 SURFACE_RECORDS: dict = {}
 _srf = os.environ.get("SURFACE_RECORDS_FILE", "surface_records.json")
+
+def _build_surface_records_bg():
+    """Build records from Sackmann CSVs and cache to _srf. Runs in a background
+    thread so a slow first boot (pulling ~20 CSVs) never blocks the server from
+    answering Railway's health check. SURFACE_RECORDS is swapped in atomically
+    at the end, so readers see either empty or the finished set, never partial."""
+    global SURFACE_RECORDS
+    try:
+        import build_surface_records as _bsr
+        _y0 = int(os.environ.get("SURFACE_START_YEAR", "2015"))
+        _y1 = dt.date.today().year
+        _store, _tot = {}, 0
+        print(f"[surface] background build {_y0}..{_y1} started (server is already live) ...")
+        for _yr in range(_y0, _y1 + 1):
+            for _u in (_bsr.ATP_URL.format(year=_yr), _bsr.WTA_URL.format(year=_yr)):
+                _tot += _bsr.aggregate(_bsr._fetch_csv(_u), _store)
+        _mm = int(os.environ.get("SURFACE_MIN_MATCHES", "0"))
+        if _mm > 0:
+            _store = {k: v for k, v in _store.items() if _bsr._career_total(v) >= _mm}
+        SURFACE_RECORDS = _store
+        try:
+            with open(_srf, "w") as _f:
+                json.dump(_store, _f, separators=(",", ":"))
+            print(f"[surface] built {len(_store):,} players from {_tot:,} matches -> {_srf} "
+                  f"(cached; future boots load instantly)")
+        except Exception as _e:
+            print(f"[surface] built {len(_store):,} players in-memory; cache write failed ({_e})")
+    except Exception as _e:
+        print(f"[surface] background build failed ({_e})")
+
 try:
     with open(_srf) as _f:
         SURFACE_RECORDS = json.load(_f)
     print(f"[surface] loaded records for {len(SURFACE_RECORDS):,} players")
 except FileNotFoundError:
-    # Optional: build it live from the same Sackmann CSVs (no pandas needed) and
-    # cache to disk, so a fresh deploy can self-populate without the offline step.
-    # Point SURFACE_RECORDS_FILE at the persistent volume (e.g. /data/surface_records.json)
-    # so it only builds once. Slow boot (pulls ~20 CSVs), hence opt-in.
+    # No cached file. Optionally self-build from the same Sackmann CSVs the model
+    # trains on (no pandas needed), caching to _srf. Point SURFACE_RECORDS_FILE at
+    # the persistent volume (e.g. /data/surface_records.json) so it builds ONCE.
     if os.environ.get("BUILD_SURFACE_AT_RUNTIME", "").lower() in ("1", "true", "yes"):
-        try:
-            import build_surface_records as _bsr
-            _y0 = int(os.environ.get("SURFACE_START_YEAR", "2015"))
-            _y1 = dt.date.today().year
-            _store, _tot = {}, 0
-            for _yr in range(_y0, _y1 + 1):
-                for _u in (_bsr.ATP_URL.format(year=_yr), _bsr.WTA_URL.format(year=_yr)):
-                    _tot += _bsr.aggregate(_bsr._fetch_csv(_u), _store)
-            _mm = int(os.environ.get("SURFACE_MIN_MATCHES", "0"))
-            if _mm > 0:
-                _store = {k: v for k, v in _store.items() if _bsr._career_total(v) >= _mm}
-            SURFACE_RECORDS = _store
-            try:
-                with open(_srf, "w") as _f:
-                    json.dump(_store, _f, separators=(",", ":"))
-                print(f"[surface] built {len(_store):,} players from {_tot:,} matches -> {_srf}")
-            except Exception as _e:
-                print(f"[surface] built {len(_store):,} players in-memory; cache failed ({_e})")
-        except Exception as _e:
-            print(f"[surface] runtime build failed ({_e})")
+        import threading
+        threading.Thread(target=_build_surface_records_bg, daemon=True).start()
+        print("[surface] no cached file; building in background. The Surface tab and "
+              "career-record line appear automatically once it finishes.")
     else:
         print("[surface] no surface_records.json; Surface tab hidden. Generate via "
               "build_surface_records.py, or set BUILD_SURFACE_AT_RUNTIME=1 to self-build.")
