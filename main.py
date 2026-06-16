@@ -162,6 +162,12 @@ try:
     with open(_srf) as _f:
         SURFACE_RECORDS = json.load(_f)
     print(f"[surface] loaded records for {len(SURFACE_RECORDS):,} players")
+    # A previous run may have cached an empty file (e.g. a transient fetch outage).
+    # If so and self-build is enabled, rebuild in the background and overwrite it.
+    if not SURFACE_RECORDS and os.environ.get("BUILD_SURFACE_AT_RUNTIME", "").lower() in ("1", "true", "yes"):
+        import threading
+        print("[surface] cached file is empty; rebuilding in background.")
+        threading.Thread(target=_build_surface_records_bg, daemon=True).start()
 except FileNotFoundError:
     # No cached file. Optionally self-build from the same Sackmann CSVs the model
     # trains on (no pandas needed), caching to _srf. Point SURFACE_RECORDS_FILE at
