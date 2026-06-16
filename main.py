@@ -127,7 +127,44 @@ def _norm_player(name: str) -> str:
     return " ".join(s.lower().split())
 
 SURFACE_RECORDS: dict = {}
+# Live tennis feeds give abbreviated names ("A. Zverev"); the Sackmann dataset is
+# keyed by full names ("alexander zverev"). This secondary index maps
+# "<initial> <lastname...>" -> full key so abbreviated names still resolve. A key
+# that maps to two different players is set to None (ambiguous) and not matched.
+SURFACE_ABBREV: dict = {}
 _srf = os.environ.get("SURFACE_RECORDS_FILE", "surface_records.json")
+
+def _abbrev_key(norm_full: str):
+    toks = [t.strip(".") for t in norm_full.split() if t.strip(".")]
+    if len(toks) < 2:
+        return None
+    return toks[0][0] + " " + " ".join(toks[1:])
+
+def _rebuild_surface_abbrev():
+    global SURFACE_ABBREV
+    idx: dict = {}
+    for k in SURFACE_RECORDS.keys():
+        ak = _abbrev_key(k)
+        if not ak:
+            continue
+        if ak in idx and idx[ak] != k:
+            idx[ak] = None          # collision -> ambiguous, don't guess
+        else:
+            idx[ak] = k
+    SURFACE_ABBREV = idx
+
+def _resolve_surface_rec(name: str):
+    """Find a player's record by exact name, then by initial+lastname fallback."""
+    norm = _norm_player(name)
+    rec = SURFACE_RECORDS.get(norm)
+    if rec:
+        return rec
+    toks = [t.strip(".") for t in norm.split() if t.strip(".")]
+    if len(toks) >= 2 and len(toks[0]) == 1:
+        fk = SURFACE_ABBREV.get(toks[0][0] + " " + " ".join(toks[1:]))
+        if fk:
+            return SURFACE_RECORDS.get(fk)
+    return None
 
 def _build_surface_records_bg():
     """Build records from Sackmann CSVs and cache to _srf. Runs in a background
@@ -148,6 +185,7 @@ def _build_surface_records_bg():
         if _mm > 0:
             _store = {k: v for k, v in _store.items() if _bsr._career_total(v) >= _mm}
         SURFACE_RECORDS = _store
+        _rebuild_surface_abbrev()
         try:
             with open(_srf, "w") as _f:
                 json.dump(_store, _f, separators=(",", ":"))
@@ -161,6 +199,7 @@ def _build_surface_records_bg():
 try:
     with open(_srf) as _f:
         SURFACE_RECORDS = json.load(_f)
+    _rebuild_surface_abbrev()
     print(f"[surface] loaded records for {len(SURFACE_RECORDS):,} players")
     # A previous run may have cached an empty file (e.g. a transient fetch outage).
     # If so and self-build is enabled, rebuild in the background and overwrite it.
@@ -187,7 +226,7 @@ except Exception as _e:
 def _player_surface_card(name: str):
     """Both-surface record block for one player, current year highlighted by the
     caller. Returns None if we have no history for this player."""
-    rec = SURFACE_RECORDS.get(_norm_player(name))
+    rec = _resolve_surface_rec(name)
     if not rec:
         return None
     this_year = str(dt.date.today().year)
@@ -212,7 +251,7 @@ def _player_surface_card(name: str):
 def _surface_record_str(name: str, surface: str):
     """Career W-L (pct) for a player on one surface, e.g. '42\u20138 (84%)'. For
     the analysis write-up. None if unknown."""
-    rec = SURFACE_RECORDS.get(_norm_player(name))
+    rec = _resolve_surface_rec(name)
     if not rec or not surface:
         return None
     s = (rec.get("surfaces") or {}).get(str(surface).title())
