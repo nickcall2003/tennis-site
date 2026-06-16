@@ -3567,13 +3567,16 @@ def _odds_diag():
         out["sgo_enabled"] = f"error: {e}"
     # live test: does the SGO fallback return a game line for today's first MLB game?
     try:
-        games = mlb_provider.get_games(dt.date.today()) or []
+        import mlb_provider
+        games = mlb_provider.get_games(dt.date.today().isoformat()) or []
         if games:
             g = games[0]
             import sgo_api
             so = sgo_api.get_game_odds("mlb", g["home"]["name"], g["away"]["name"])
             out["sgo_game_odds_sample"] = {"match": g["away"]["name"] + " @ " + g["home"]["name"],
                                            "odds": so}
+        else:
+            out["sgo_game_odds_sample"] = {"note": "no MLB games today to sample"}
     except Exception as e:
         out["sgo_game_odds_sample"] = {"error": str(e)}
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
