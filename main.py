@@ -113,6 +113,98 @@ else:
     engine = None
 
 live_engine = LiveEngine(provider)
+
+# Per-player surface win/loss records (career + by year), generated offline by
+# build_surface_records.py from Sackmann CSVs and committed as a small JSON. Used
+# by the match detail's Surface tab. Absent file => feature degrades to "no data".
+import unicodedata as _ud
+
+def _norm_player(name: str) -> str:
+    if not name:
+        return ""
+    s = _ud.normalize("NFKD", str(name))
+    s = "".join(c for c in s if not _ud.combining(c))
+    return " ".join(s.lower().split())
+
+SURFACE_RECORDS: dict = {}
+_srf = os.environ.get("SURFACE_RECORDS_FILE", "surface_records.json")
+try:
+    with open(_srf) as _f:
+        SURFACE_RECORDS = json.load(_f)
+    print(f"[surface] loaded records for {len(SURFACE_RECORDS):,} players")
+except FileNotFoundError:
+    # Optional: build it live from the same Sackmann CSVs (no pandas needed) and
+    # cache to disk, so a fresh deploy can self-populate without the offline step.
+    # Point SURFACE_RECORDS_FILE at the persistent volume (e.g. /data/surface_records.json)
+    # so it only builds once. Slow boot (pulls ~20 CSVs), hence opt-in.
+    if os.environ.get("BUILD_SURFACE_AT_RUNTIME", "").lower() in ("1", "true", "yes"):
+        try:
+            import build_surface_records as _bsr
+            _y0 = int(os.environ.get("SURFACE_START_YEAR", "2015"))
+            _y1 = dt.date.today().year
+            _store, _tot = {}, 0
+            for _yr in range(_y0, _y1 + 1):
+                for _u in (_bsr.ATP_URL.format(year=_yr), _bsr.WTA_URL.format(year=_yr)):
+                    _tot += _bsr.aggregate(_bsr._fetch_csv(_u), _store)
+            _mm = int(os.environ.get("SURFACE_MIN_MATCHES", "0"))
+            if _mm > 0:
+                _store = {k: v for k, v in _store.items() if _bsr._career_total(v) >= _mm}
+            SURFACE_RECORDS = _store
+            try:
+                with open(_srf, "w") as _f:
+                    json.dump(_store, _f, separators=(",", ":"))
+                print(f"[surface] built {len(_store):,} players from {_tot:,} matches -> {_srf}")
+            except Exception as _e:
+                print(f"[surface] built {len(_store):,} players in-memory; cache failed ({_e})")
+        except Exception as _e:
+            print(f"[surface] runtime build failed ({_e})")
+    else:
+        print("[surface] no surface_records.json; Surface tab hidden. Generate via "
+              "build_surface_records.py, or set BUILD_SURFACE_AT_RUNTIME=1 to self-build.")
+except Exception as _e:
+    print(f"[surface] could not load surface_records.json ({_e})")
+
+
+def _player_surface_card(name: str):
+    """Both-surface record block for one player, current year highlighted by the
+    caller. Returns None if we have no history for this player."""
+    rec = SURFACE_RECORDS.get(_norm_player(name))
+    if not rec:
+        return None
+    this_year = str(dt.date.today().year)
+    out = {"name": rec.get("name", name), "surfaces": {}}
+    for surf in ("Hard", "Clay", "Grass", "Carpet"):
+        s = (rec.get("surfaces") or {}).get(surf)
+        if not s:
+            continue
+        cw, cl = s.get("career", [0, 0])
+        yw, yl = (s.get("by_year") or {}).get(this_year, [0, 0])
+        if cw + cl == 0:
+            continue
+        out["surfaces"][surf] = {
+            "career": {"w": cw, "l": cl,
+                       "pct": round(100 * cw / (cw + cl)) if (cw + cl) else None},
+            "year": {"w": yw, "l": yl,
+                     "pct": round(100 * yw / (yw + yl)) if (yw + yl) else None},
+        }
+    return out if out["surfaces"] else None
+
+
+def _surface_record_str(name: str, surface: str):
+    """Career W-L (pct) for a player on one surface, e.g. '42\u20138 (84%)'. For
+    the analysis write-up. None if unknown."""
+    rec = SURFACE_RECORDS.get(_norm_player(name))
+    if not rec or not surface:
+        return None
+    s = (rec.get("surfaces") or {}).get(str(surface).title())
+    if not s:
+        return None
+    w, l = s.get("career", [0, 0])
+    if w + l == 0:
+        return None
+    return f"{w}\u2013{l} ({round(100 * w / (w + l))}%)"
+
+
 _built_dates: set[str] = set()
 
 
@@ -636,7 +728,31 @@ def match_detail(match_id: int):
             h2h=h2h, recent_a=ra_list, recent_b=rb_list,
             facts=facts, weather=m.weather, weather_effect=m.weather_effect,
         )
-        writeup = generate_writeup(ctx, LLM_COMPLETE)
+        # Same in-depth, AI-written rationale used under Best Bets, for EVERY match:
+        # who the model favours and by how much (Elo edge), whether the surface
+        # suits them, plus form/rest/H2H and conditions. Falls back to the
+        # standard writeup if the Best Bets pipeline is unavailable.
+        writeup = None
+        try:
+            import narrate
+            prob = max(prob_a, 1 - prob_a)
+            pick = m.player_a if prob_a >= 0.5 else m.player_b
+            opp = m.player_b if prob_a >= 0.5 else m.player_a
+            _tctx = {"opponent": opp, "round": m.round, "surface": m.surface,
+                     "tournament": m.tournament, "weather": m.weather,
+                     "weather_effect": m.weather_effect,
+                     "rating_gap": facts.get("rating_gap"),
+                     "edge_size": facts.get("edge_size"),
+                     "surface_note": facts.get("surface_note")}
+            _tctx["surface_record"] = _surface_record_str(pick, m.surface)
+            _p = {"sport": "tennis", "prob": round(prob, 3),
+                  "pick": f"{pick} to win", "confidence": confidence, "ctx": _tctx}
+            writeup = narrate.prose(_long_reason(_p), kind="reason", sport="tennis",
+                                    llm=LLM_COMPLETE, budget={"left": 1})
+        except Exception as e:
+            print(f"[detail] best-bets rationale failed: {e}")
+        if not writeup:
+            writeup = generate_writeup(ctx, LLM_COMPLETE)
 
         lines = None
         props = None
@@ -672,6 +788,11 @@ def match_detail(match_id: int):
             "best_of": m.best_of, "odds": tns_odds,
             "prediction": {"prob_a": prob_a, "confidence": confidence},
             "analysis": writeup,
+            "surface_records": {
+                "current": m.surface,
+                "a": _player_surface_card(m.player_a),
+                "b": _player_surface_card(m.player_b),
+            },
             "h2h": h2h, "form_a": fa, "form_b": fb,
             "recent_a": ra_list, "recent_b": rb_list,
             "weather": m.weather, "weather_effect": m.weather_effect,
@@ -712,7 +833,7 @@ def _attach_odds(sport, games):
     sgo_covers = False
     try:
         import sgo_api
-        sgo_covers = sgo_api.enabled() and (sport in getattr(sgo_api, "SGO_LEAGUE", {}))
+        sgo_covers = (sgo_api.available() and sport in getattr(sgo_api, "SGO_LEAGUE", {}))
     except Exception:
         sgo_covers = False
     try:
@@ -1160,6 +1281,7 @@ def _gather_plays_uncached(target: dt.date):
                     tctx["surface_note"] = facts.get("surface_note")
             except Exception:
                 pass
+            tctx["surface_record"] = _surface_record_str(pick, m.surface)
             plays.append({
                 "sport": "tennis", "id": m.id, "kind": "moneyline",
                 "match": f"{m.player_a} vs {m.player_b}", "tournament": m.tournament,
@@ -1687,6 +1809,9 @@ def _long_reason(p):
                      f"the model's core measure of head-to-head strength.")
         if ctx.get("surface_note"):
             s.append(ctx["surface_note"].capitalize() + ".")
+        if ctx.get("surface_record"):
+            on = surf if (surf and surf != "unknown") else "this surface"
+            s.append(f"On {on}, {name} carries a career record of {ctx['surface_record']}.")
         if ctx.get("round"):
             s.append(f"Round: {ctx['round']}. The projection also folds in each player's "
                      f"recent form, days of rest, and prior meetings.")

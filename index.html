@@ -109,6 +109,21 @@
   .d-pred{display:flex;height:30px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin-top:16px}
   .d-pred .bar{height:100%;display:flex;align-items:center;padding:0 11px;font-family:"Space Mono",monospace;font-size:12.5px;font-weight:700;white-space:nowrap;overflow:hidden}
   .d-pred .a{background:rgba(200,97,47,.28)}.d-pred .b{background:rgba(255,255,255,.05);color:var(--muted);justify-content:flex-end}
+  .srf-intro{font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.5}
+  .srf-block{margin-bottom:12px;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--panel-2)}
+  .srf-block.cur{border-color:var(--grass);box-shadow:inset 0 0 0 1px var(--grass)}
+  .srf-head{font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-bottom:9px;display:flex;align-items:center;gap:8px}
+  .srf-now{font-size:9px;color:var(--grass);border:1px solid var(--grass);border-radius:5px;padding:1px 6px;letter-spacing:.03em;text-transform:none}
+  .srf-row{display:flex;align-items:center;gap:8px;margin:7px 0;font-size:13px}
+  .srf-pl{flex:0 0 78px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .srf-pl.a{color:#f0795a}.srf-pl.b{color:#6fa8e8}
+  .srf-track{flex:1;height:9px;min-width:40px;background:rgba(255,255,255,.06);border-radius:5px;overflow:hidden}
+  .srf-fill{height:100%;border-radius:5px}
+  .srf-fill.a{background:#e0563f}.srf-fill.b{background:#4a90e2}
+  .srf-pct{flex:0 0 34px;text-align:right;font-family:"Space Mono",monospace;font-size:12px;font-weight:700;color:var(--ink)}
+  .srf-rec{flex:0 0 44px;text-align:right;font-family:"Space Mono",monospace;font-size:12px;color:var(--muted)}
+  .srf-yr{flex:0 0 76px;text-align:right;font-size:10.5px;color:var(--muted-2);white-space:nowrap}
+  .srf-na{color:var(--muted-2);font-size:12px;font-style:italic}
   .soc-leagues{display:flex;gap:7px;overflow-x:auto;padding:2px 0 4px;-webkit-overflow-scrolling:touch}
   .soc-leagues::-webkit-scrollbar{height:0}
   .soc-lg{flex:0 0 auto;background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:7px 13px;font-size:12.5px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -863,7 +878,9 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
     '<div class="d-score"><span class="d-pname '+(fin&&sc.winner==="a"?"winner":"")+'">'+m.player_a+'</span><span class="d-sets">'+(sc.sets_a||[]).join(" ")+" "+(live?"<b>"+sc.game_a+"</b>":"")+'</span></div>'+
     '<div class="d-score"><span class="d-pname '+(fin&&sc.winner==="b"?"winner":"")+'">'+m.player_b+'</span><span class="d-sets">'+(sc.sets_b||[]).join(" ")+" "+(live?"<b>"+sc.game_b+"</b>":"")+'</span></div>'+
     (live?tennisLiveBarHTML(m)+'</div>':'<div class="d-pred"><div class="bar a" style="width:'+pa*100+'%">'+lastName(m.player_a)+" "+Math.round(pa*100)+'%</div><div class="bar b" style="width:'+(1-pa)*100+'%">'+Math.round((1-pa)*100)+"% "+lastName(m.player_b)+'</div></div></div>');
+  const _hasSurf=m.surface_records&&(m.surface_records.a||m.surface_records.b);
   const tabs='<div class="d-tabs"><button class="d-tab '+(detailTab==="analysis"?"active":"")+'" onclick="setDetailTab(\'analysis\')">Analysis</button>'+
+    (_hasSurf?'<button class="d-tab '+(detailTab==="surface"?"active":"")+'" onclick="setDetailTab(\'surface\')">Surface</button>':"")+
     '<button class="d-tab '+(detailTab==="stats"?"active":"")+'" onclick="setDetailTab(\'stats\')">Match Stats</button></div>';
   let body;
   if(detailTab==="analysis"){let meta="";
@@ -875,6 +892,7 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
     if(m.lines)meta+=tennisLinesHTML(m);
     const paras=(m.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel"><div class="analysis">'+paras+'</div>'+meta+'</div>';
+  }else if(detailTab==="surface"){body='<div class="panel">'+surfaceHTML(m)+'</div>';
   }else{body='<div class="panel">'+statsHTML(m)+'</div>';}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;}
 function setDetailTab(t){detailTab=t;refreshDetail(true);}
@@ -892,6 +910,32 @@ function statsHTML(m){const s=m.stats;
   h+=statRow("Total Games Won",a.games_won,b.games_won,a.games_won,b.games_won);
   h+=statRow("Total Points Won",a.total_points_won,b.total_points_won,a.total_points_won,b.total_points_won);
   return h;}
+function srfRow(pl,s,cls){
+  if(!pl||!pl.surfaces||!pl.surfaces[s])
+    return '<div class="srf-row"><span class="srf-pl '+cls+'">\u2014</span><span class="srf-na">no record</span></div>';
+  const d=pl.surfaces[s],c=d.career,y=d.year,pct=(c.pct==null?0:c.pct);
+  const yr=(new Date().getFullYear()+"").slice(2);
+  const ytxt=(y.w+y.l>0)?("\u2019"+yr+" "+y.w+"\u2013"+y.l+(y.pct!=null?" ("+y.pct+"%)":"")):"\u2014";
+  return '<div class="srf-row">'+
+    '<span class="srf-pl '+cls+'">'+lastName(pl.name)+'</span>'+
+    '<div class="srf-track"><div class="srf-fill '+cls+'" style="width:'+pct+'%"></div></div>'+
+    '<span class="srf-pct">'+(c.pct==null?"\u2014":c.pct+"%")+'</span>'+
+    '<span class="srf-rec">'+c.w+'\u2013'+c.l+'</span>'+
+    '<span class="srf-yr">'+ytxt+'</span></div>';
+}
+function surfaceHTML(m){
+  const sr=m.surface_records||{},a=sr.a,b=sr.b,cur=sr.current;
+  if(!a&&!b)return '<div class="stat-na" style="padding:30px 0">Surface history isn\u2019t available for these players yet.</div>';
+  const order=["Hard","Clay","Grass","Carpet"];
+  let present=order.filter(s=>(a&&a.surfaces&&a.surfaces[s])||(b&&b.surfaces&&b.surfaces[s]));
+  if(cur&&present.indexOf(cur)>=0)present=[cur].concat(present.filter(s=>s!==cur));
+  let h='<div class="srf-intro">Career win rate by surface \u00b7 record is W\u2013L \u00b7 current-year split on the right</div>';
+  present.forEach(s=>{const isCur=(s===cur);
+    h+='<div class="srf-block'+(isCur?" cur":"")+'">'+
+       '<div class="srf-head">'+s+(isCur?' <span class="srf-now">match surface</span>':"")+'</div>'+
+       srfRow(a,s,"a")+srfRow(b,s,"b")+'</div>';});
+  return h;
+}
 const TEAM_SPORTS=["mlb","nba","nfl","ncaabb","nhl"];
 const SPORT_LABEL={tennis:"Tennis",mlb:"MLB",nba:"NBA",nfl:"NFL",ncaabb:"NCAA Baseball",nhl:"NHL",soccer:"Soccer",ufc:"UFC",golf:"Golf"};
 let SPORTS_META=[
