@@ -20,28 +20,34 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Download Sackmann data (archive tarballs, no auth needed)
+      - name: Download Sackmann CSVs via GitHub API (authenticated, reliable)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          for repo in tennis_atp tennis_wta; do
-            ok=0
-            for br in master main; do
-              if curl -fsSL -o "$repo.tgz" \
-                   "https://github.com/JeffSackmann/$repo/archive/refs/heads/$br.tar.gz"; then
-                tar xzf "$repo.tgz"; ok=1; break
-              fi
-            done
-            if [ "$ok" != 1 ]; then echo "ERROR: could not download $repo"; exit 1; fi
+          mkdir -p atp wta
+          dl() {  # $1=repo  $2=filename  $3=outdir
+            curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github.raw" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/JeffSackmann/$1/contents/$2?ref=master" \
+              -o "$3/$2"
+          }
+          for y in $(seq 2015 2026); do
+            dl tennis_atp "atp_matches_${y}.csv" atp || rm -f "atp/atp_matches_${y}.csv"
+            dl tennis_wta "wta_matches_${y}.csv" wta || rm -f "wta/wta_matches_${y}.csv"
           done
-          echo "Extracted:"; ls -d tennis_*-*/
+          find atp wta -type f -empty -delete || true
+          echo "Downloaded:"; ls -la atp wta
+          if [ -z "$(ls -A atp)" ] && [ -z "$(ls -A wta)" ]; then
+            echo "ERROR: no CSVs downloaded"; exit 1
+          fi
 
       - name: Build surface_records.json
         run: |
-          ATP_DIR=$(ls -d tennis_atp-*/ | head -1)
-          WTA_DIR=$(ls -d tennis_wta-*/ | head -1)
-          echo "Using ATP_DIR=$ATP_DIR  WTA_DIR=$WTA_DIR"
           python build_surface_records.py \
-            --from-dir "$ATP_DIR" \
-            --from-dir "$WTA_DIR" \
+            --from-dir atp \
+            --from-dir wta \
             --start 2015 \
             --out surface_records.json
           echo "Generated file size:"; ls -la surface_records.json
@@ -52,7 +58,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          rm -rf tennis_atp-*/ tennis_wta-*/ tennis_atp.tgz tennis_wta.tgz
+          rm -rf atp wta
           git add surface_records.json
           if git diff --staged --quiet; then
             echo "No changes to surface_records.json."
