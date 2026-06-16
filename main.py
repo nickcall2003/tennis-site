@@ -3585,6 +3585,10 @@ def _odds_diag():
             so = sgo_api.get_game_odds("mlb", g["home"]["name"], g["away"]["name"])
             out["sgo_game_odds_sample"] = {"match": g["away"]["name"] + " @ " + g["home"]["name"],
                                            "odds": so}
+            try:
+                out["sgo_debug"] = sgo_api.diag_game("mlb", g["home"]["name"], g["away"]["name"])
+            except Exception as e:
+                out["sgo_debug"] = {"error": str(e)}
         else:
             out["sgo_game_odds_sample"] = {"note": "no MLB games today to sample"}
     except Exception as e:
