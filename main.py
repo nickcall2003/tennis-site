@@ -213,37 +213,48 @@ def _build_surface_records_bg():
     except Exception as _e:
         print(f"[surface] background build failed ({_e})")
 
-try:
-    with open(_srf) as _f:
-        SURFACE_RECORDS = json.load(_f)
-    _rebuild_surface_abbrev()
-    print(f"[surface] loaded records for {len(SURFACE_RECORDS):,} players")
-    # A previous run may have cached an empty file (e.g. a transient fetch outage).
-    # If so and self-build is enabled, rebuild in the background and overwrite it.
-    # Also rebuild if the set is suspiciously small: a full ATP+WTA build is several
-    # thousand players, so a couple hundred means an earlier partial fetch (e.g.
-    # only WTA came through) got cached. SURFACE_MIN_PLAYERS sets the floor.
-    _min_players = int(os.environ.get("SURFACE_MIN_PLAYERS", "800"))
-    _self_build = os.environ.get("BUILD_SURFACE_AT_RUNTIME", "").lower() in ("1", "true", "yes")
-    if _self_build and len(SURFACE_RECORDS) < _min_players:
-        import threading
-        print(f"[surface] cached set has only {len(SURFACE_RECORDS):,} players "
-              f"(< {_min_players}); rebuilding in background to repair a partial cache.")
-        threading.Thread(target=_build_surface_records_bg, daemon=True).start()
-except FileNotFoundError:
-    # No cached file. Optionally self-build from the same Sackmann CSVs the model
-    # trains on (no pandas needed), caching to _srf. Point SURFACE_RECORDS_FILE at
-    # the persistent volume (e.g. /data/surface_records.json) so it builds ONCE.
+def _load_surface_records():
+    """Load surface records from the first source that actually has data:
+      1. SURFACE_RECORDS_FILE (e.g. a persistent volume), then
+      2. ./surface_records.json committed in the repo (built by GitHub Actions).
+    Runtime fetching from Sackmann is intentionally NOT the primary path: GitHub
+    and jsDelivr block this host's datacenter IP (403/404), so the data is built
+    elsewhere and shipped in the repo. Returns the path that loaded, or None."""
+    global SURFACE_RECORDS
+    candidates = []
+    for p in (_srf, "surface_records.json"):
+        if p and p not in candidates:
+            candidates.append(p)
+    for p in candidates:
+        try:
+            with open(p) as _f:
+                data = json.load(_f)
+        except FileNotFoundError:
+            continue
+        except Exception as _e:
+            print(f"[surface] could not parse {p} ({_e})")
+            continue
+        if data:
+            SURFACE_RECORDS = data
+            _rebuild_surface_abbrev()
+            print(f"[surface] loaded records for {len(SURFACE_RECORDS):,} players from {p}")
+            return p
+    return None
+
+_loaded_from = _load_surface_records()
+if _loaded_from is None:
+    # Nothing usable on disk yet. Runtime self-build only happens if explicitly
+    # enabled AND can reach the data (it usually can't from Railway); the builder
+    # is guarded so it can never overwrite a good cache.
     if os.environ.get("BUILD_SURFACE_AT_RUNTIME", "").lower() in ("1", "true", "yes"):
         import threading
         threading.Thread(target=_build_surface_records_bg, daemon=True).start()
-        print("[surface] no cached file; building in background. The Surface tab and "
-              "career-record line appear automatically once it finishes.")
+        print("[surface] no data on disk; attempting background self-build (note: "
+              "GitHub/jsDelivr block this host, so this may yield 0 \u2014 the "
+              "GitHub Actions workflow is the reliable source).")
     else:
-        print("[surface] no surface_records.json; Surface tab hidden. Generate via "
-              "build_surface_records.py, or set BUILD_SURFACE_AT_RUNTIME=1 to self-build.")
-except Exception as _e:
-    print(f"[surface] could not load surface_records.json ({_e})")
+        print("[surface] no surface_records.json on disk; Surface tab hidden until "
+              "the committed data file is present (built by the GitHub Action).")
 
 
 def _player_surface_card(name: str):
