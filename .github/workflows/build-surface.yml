@@ -20,22 +20,27 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Download Sackmann CSVs via GitHub API (authenticated, reliable)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download Sackmann CSVs (anonymous raw, with diagnostics)
         run: |
+          echo "== Probing HTTP status for one file across hosts =="
+          probe="atp_matches_2024.csv"
+          for url in \
+            "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/$probe" \
+            "https://api.github.com/repos/JeffSackmann/tennis_atp/contents/$probe?ref=master" \
+            "https://media.githubusercontent.com/media/JeffSackmann/tennis_atp/master/$probe" ; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: application/vnd.github.raw" "$url")
+            echo "  HTTP $code  <-  $url"
+          done
+          echo "== Downloading via anonymous raw =="
           mkdir -p atp wta
-          dl() {  # $1=repo  $2=filename  $3=outdir
-            curl -fsSL \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github.raw" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "https://api.github.com/repos/JeffSackmann/$1/contents/$2?ref=master" \
-              -o "$3/$2"
+          get() {  # $1=repo $2=file $3=outdir
+            curl -fsSL "https://raw.githubusercontent.com/JeffSackmann/$1/master/$2" -o "$3/$2" \
+            || curl -fsSL -H "Accept: application/vnd.github.raw" \
+                 "https://api.github.com/repos/JeffSackmann/$1/contents/$2?ref=master" -o "$3/$2"
           }
           for y in $(seq 2015 2026); do
-            dl tennis_atp "atp_matches_${y}.csv" atp || rm -f "atp/atp_matches_${y}.csv"
-            dl tennis_wta "wta_matches_${y}.csv" wta || rm -f "wta/wta_matches_${y}.csv"
+            get tennis_atp "atp_matches_${y}.csv" atp || rm -f "atp/atp_matches_${y}.csv"
+            get tennis_wta "wta_matches_${y}.csv" wta || rm -f "wta/wta_matches_${y}.csv"
           done
           find atp wta -type f -empty -delete || true
           echo "Downloaded:"; ls -la atp wta
