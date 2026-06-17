@@ -222,7 +222,10 @@ def _load_surface_records():
     elsewhere and shipped in the repo. Returns the path that loaded, or None."""
     global SURFACE_RECORDS
     candidates = []
-    for p in (_srf, "surface_records.json"):
+    _here = os.path.dirname(os.path.abspath(__file__))
+    for p in (_srf, "surface_records.json",
+              os.path.join(_here, "surface_records.json"),
+              "/app/surface_records.json"):
         if p and p not in candidates:
             candidates.append(p)
     for p in candidates:
@@ -2553,6 +2556,38 @@ def golf_edge(tour: str = "pga"):
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
+def _golf_pretourney_matchup(board, id_list):
+    """Pre-tournament 3-ball when there's no live scoring to simulate: price each
+    selected player's chance to finish best of the group from de-vigged outright
+    win odds (Harville normalization). Returns None if odds aren't available for
+    all the picked players, so the caller can fall back to the normal message."""
+    import odds_api
+    if not odds_api.enabled():
+        return None
+    by_id = {p["id"]: p for p in (board.get("players") or [])}
+    sel = [by_id[i] for i in id_list if i in by_id][:3]
+    if len(sel) < 2:
+        return None
+    book = odds_api.get_golf_outrights()
+    mkt = (book or {}).get("players") or {}
+    if not mkt:
+        return None
+    ws = []
+    for p in sel:
+        m = mkt.get(odds_api._norm(p["name"]))
+        if not m or not m.get("implied"):
+            return None          # need every picked player priced
+        ws.append(float(m["implied"]))
+    tot = sum(ws) or 1.0
+    ev = board.get("event") or {}
+    out = [{"id": p["id"], "name": p["name"], "pos": p.get("pos"),
+            "total": p.get("total"), "prob": round(100 * w / tot, 1)}
+           for p, w in zip(sel, ws)]
+    out.sort(key=lambda x: -x["prob"])
+    return {"ready": True, "scope": "pretourney", "source": "market",
+            "event": ev.get("name"), "round": ev.get("round"), "players": out}
+
+
 @app.get("/api/golf/matchup")
 def golf_matchup(tour: str = "pga", ids: str = "", scope: str = "tournament"):
     import golf_provider, golf_model
@@ -2560,8 +2595,13 @@ def golf_matchup(tour: str = "pga", ids: str = "", scope: str = "tournament"):
     if len(id_list) < 2:
         return JSONResponse({"ready": False, "reason": "need_2"})
     board = golf_provider.get_board(tour)
-    return JSONResponse(golf_model.matchup(board, id_list, scope=scope),
-                        headers={"Cache-Control": "no-store"})
+    res = golf_model.matchup(board, id_list, scope=scope)
+    # Pre-tournament (no live scoring): fall back to an odds-implied estimate.
+    if (not res.get("ready")) and res.get("reason") == "no_field":
+        alt = _golf_pretourney_matchup(board, id_list)
+        if alt:
+            res = alt
+    return JSONResponse(res, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/golf/projections")

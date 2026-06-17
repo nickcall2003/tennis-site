@@ -1664,10 +1664,11 @@ function renderGolfMatchup(){
   if(golfMatchSel.length>=2)action='<button class="mbtn" onclick="loadGolfMatchup()"'+(golfMatchLoading?' disabled':'')+'>'+(golfMatchLoading?"Simulating\u2026":("Compare "+golfMatchSel.length+" players \u2192"))+'</button>';
   let result='';
   if(golfMatchResult){
-    if(!golfMatchResult.ready)result='<div class="empty">'+(golfMatchResult.reason||"Not available")+'</div>';
+    if(!golfMatchResult.ready){const MMSG={no_field:"Matchup projections open once play is underway \u2014 the field needs to be on the course. Check back after R1 tee-off.",need_2_in_field:"At least two of the selected players aren\u2019t in the active field (withdrawn or missed cut). Try different players.",complete:"Tournament complete \u2014 matchups are for live or upcoming play."};result='<div class="empty">'+(MMSG[golfMatchResult.reason]||golfMatchResult.reason||"Not available")+'</div>';}
     else{
       const max=Math.max.apply(null,golfMatchResult.players.map(p=>p.prob))||1;
-      result='<div class="mres"><div class="ge-sub" style="margin-bottom:8px">'+(golfMatchResult.scope==="round"?("Round "+golfMatchResult.round):"Rest of tournament")+' \u00b7 chance of lowest score</div>'+
+      const _msc=golfMatchResult.scope==="round"?("Round "+golfMatchResult.round+" \u00b7 chance of lowest score"):(golfMatchResult.scope==="pretourney"?"Pre-tournament \u00b7 market-implied \u00b7 chance to finish best of the group":"Rest of tournament \u00b7 chance of lowest score");
+      result='<div class="mres"><div class="ge-sub" style="margin-bottom:8px">'+_msc+'</div>'+
         golfMatchResult.players.map(p=>'<div class="mrow"><span class="mrow-n">'+p.name+' <span class="gpm">'+(p.total||"")+'</span></span><span class="mrow-bar"><span class="mrow-fill" style="width:'+Math.round(p.prob/max*100)+'%"></span></span><span class="mrow-p">'+p.prob+'%</span></div>').join("")+'</div>';
     }
   }
