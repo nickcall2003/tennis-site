@@ -2543,6 +2543,86 @@ setInterval(()=>{
   if(anyLive)reload();
 },30000);
 setInterval(loadAccuracy,300000);
+/* ===== Slate search/filter — self-contained; filters the visible slate by player/team name ===== */
+(function(){
+  var q="";
+  var SKIP_VIEWS={home:1,free:1,best:1,parlays:1,news:1};
+  function active(){
+    try{
+      if(typeof view!=="undefined" && SKIP_VIEWS[view])return false;       // not on picks/news/home
+      if(typeof sport!=="undefined" && sport==="golf")return false;        // golf has its own search
+    }catch(e){}
+    return true;
+  }
+  function ph(){
+    try{
+      if(sport==="tennis")return "Search players\u2026";
+      if(sport==="ufc")return "Search fighters\u2026";
+    }catch(e){}
+    return "Search teams\u2026";
+  }
+  function bar(){
+    var list=document.getElementById("list");
+    if(!list||!list.parentNode)return null;
+    var b=document.getElementById("slatesearch");
+    if(!b){
+      b=document.createElement("div");
+      b.id="slatesearch"; b.style.cssText="margin:0 0 10px";
+      var inp=document.createElement("input");
+      inp.id="slateq"; inp.type="search"; inp.autocomplete="off"; inp.spellcheck=false;
+      inp.setAttribute("autocapitalize","none"); inp.setAttribute("enterkeyhint","search");
+      inp.style.cssText="width:100%;box-sizing:border-box;padding:11px 14px;border-radius:12px;border:1px solid var(--line,#262b36);background:var(--card,#161a22);color:var(--fg,#e9edf4);font-size:15px;outline:none;-webkit-appearance:none";
+      inp.addEventListener("input",function(){q=this.value;apply();});
+      var none=document.createElement("div");
+      none.id="slatenone"; none.className="empty"; none.style.cssText="display:none;padding:14px 2px";
+      b.appendChild(inp); b.appendChild(none);
+      list.parentNode.insertBefore(b,list);
+    }
+    return b;
+  }
+  function apply(){
+    var list=document.getElementById("list"); if(!list)return;
+    var n=q.trim().toLowerCase();
+    var cards=list.querySelectorAll(".card"), vis=0;
+    for(var i=0;i<cards.length;i++){
+      var hit=!n||(cards[i].textContent||"").toLowerCase().indexOf(n)>=0;
+      cards[i].style.display=hit?"":"none"; if(hit)vis++;
+    }
+    var heads=list.querySelectorAll(".section-h");
+    for(var j=0;j<heads.length;j++)heads[j].style.display=n?"none":"";
+    var none=document.getElementById("slatenone");
+    if(none){
+      if(n&&cards.length&&!vis){none.textContent='No results for \u201c'+q.trim()+'\u201d.'; none.style.display="";}
+      else none.style.display="none";
+    }
+  }
+  function sync(){
+    var b=document.getElementById("slatesearch");
+    if(!active()){ if(b)b.style.display="none"; return; }
+    b=bar(); if(!b)return;
+    b.style.display="";
+    var inp=document.getElementById("slateq");
+    if(inp){ inp.placeholder=ph(); if(document.activeElement!==inp&&inp.value!==q)inp.value=q; }
+    apply();
+  }
+  function start(){
+    var list=document.getElementById("list");
+    if(!list){ setTimeout(start,200); return; }
+    var t=null; function soon(){ if(t)return; t=setTimeout(function(){t=null;sync();},16); }
+    new MutationObserver(soon).observe(list,{childList:true});
+    var ls=null,lv=null;
+    setInterval(function(){
+      try{
+        var ch=false;
+        if(typeof sport!=="undefined"&&sport!==ls){ls=sport;q="";var i=document.getElementById("slateq");if(i)i.value="";ch=true;}
+        if(typeof view!=="undefined"&&view!==lv){lv=view;ch=true;}
+        if(ch)sync();
+      }catch(e){}
+    },300);
+    sync();
+  }
+  if(document.readyState!=="loading")start(); else document.addEventListener("DOMContentLoaded",start);
+})();
 </script>
 </body>
 </html>
