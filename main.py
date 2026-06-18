@@ -704,13 +704,19 @@ def tennis_debug(date: str | None = None):
             data = {}
             out["raw_text"] = (r.text or "")[:300]
         if isinstance(data, dict):
+            out["resp_keys"] = list(data.keys())
             out["api_success"] = data.get("success")
             err = data.get("error") or data.get("Error") or data.get("message") or data.get("msg")
             if err:
                 out["api_error"] = err
             res = data.get("result")
             out["result_count"] = len(res) if isinstance(res, list) else (
-                "none" if res is None else "non-list")
+                "none" if res is None else "non-list:" + type(res).__name__)
+            if isinstance(res, list) and res:
+                out["result0"] = str(res[0])[:500]
+            elif res is not None and not isinstance(res, list):
+                out["result_value"] = str(res)[:500]
+        out["raw_text"] = (r.text or "")[:700]
         out["key_set"] = bool(getattr(provider, "api_key", None))
         out["key_tail"] = ("\u2026" + provider.api_key[-4:]) if getattr(provider, "api_key", None) else None
         # Then the normal (swallowed) path + classification, for comparison.
