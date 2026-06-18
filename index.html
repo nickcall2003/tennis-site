@@ -403,7 +403,10 @@
   .mb-head span:not(.mb-tag){text-align:right}
   .mb-tag{font-weight:800;color:var(--fg);text-transform:uppercase;letter-spacing:.05em;font-size:11px}
   .mb-row{display:grid;grid-template-columns:1fr 60px 92px 42px;gap:6px;align-items:center;padding:7px 11px;border-top:1px solid var(--line);font-size:13px}
-  .mb-row.val{background:rgba(63,208,122,.09)}
+  .mb-row.val{background:rgba(241,193,75,.10)}
+  .favstar{color:#f1c14b}
+  .mb-legend{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.65}
+  .mb-legend b{color:var(--fg)}
   .mb-n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .mb-mod,.mb-mkt{text-align:right;font-variant-numeric:tabular-nums;line-height:1.15}
   .mb-mod small,.mb-mkt small{display:block;color:var(--muted);font-size:10px}
@@ -1676,21 +1679,25 @@ function renderGolfMatchBoard(){
   const mb=golfMatchBoard;
   if(!mb)return '<div class="empty">Loading matchups\u2026</div>';
   if(!mb.ready){const M={no_datagolf_key:"DataGolf isn\u2019t configured.",no_market:"No matchups posted yet \u2014 books usually post 3-balls once Round 1 pairings are set, then 2-balls on the weekend. Check back closer to tee-off.",error:(mb.error||"Matchups unavailable right now.")};return '<div class="empty">'+(M[mb.reason]||"Matchups unavailable right now.")+'</div>';}
-  const note='<div class="ge-sub" style="padding:2px 2px 8px">'+(mb.event||"")+' \u00b7 R'+(mb.round||"")+' \u00b7 model price vs best book \u00b7 sorted by edge</div>';
+  const legend='<div class="mb-legend">'+
+    '<div><span class="favstar">\u2605</span> = the player the model favors to win the matchup.</div>'+
+    '<div><b>Model</b> = the model\u2019s win% &amp; fair price. <b>Best book</b> = best market price (book shown). <b>Edge</b> = model% \u2212 market% \u2014 <span style="color:#3fd07a">green</span> means the model rates that player higher than the price implies (value).</div>'+
+    '</div>';
+  const note='<div class="ge-sub" style="padding:2px 2px 8px">'+(mb.event||"")+' \u00b7 R'+(mb.round||"")+' \u00b7 sorted by biggest edge in the group</div>';
   const groups=mb.groups.map(g=>{
-    const rows=g.players.map((p,i)=>{
+    const rows=g.players.map(p=>{
       const ev=p.edge;
       const ecol=ev==null?"var(--muted-2)":(ev>0?"#3fd07a":(ev<0?"#e0563f":"var(--fg)"));
-      const val=(ev!=null&&ev>0&&i===0);
-      return '<div class="mb-row'+(val?" val":"")+'">'+
-        '<span class="mb-n">'+(val?'\u2605 ':'')+p.name+'</span>'+
+      const fav=!!p.fav;
+      return '<div class="mb-row'+(fav?" val":"")+'">'+
+        '<span class="mb-n">'+(fav?'<span class="favstar">\u2605</span> ':'')+p.name+'</span>'+
         '<span class="mb-mod">'+(p.model_pct!=null?p.model_pct+'%':'\u2014')+'<small>'+gAm(p.model_am)+'</small></span>'+
         '<span class="mb-mkt">'+(p.market_pct!=null?p.market_pct+'%':'\u2014')+'<small>'+gAm(p.market_am)+(p.book?' '+p.book:'')+'</small></span>'+
         '<span class="mb-edge" style="color:'+ecol+'">'+(ev==null?'\u2014':(ev>0?'+':'')+ev)+'</span></div>';
     }).join("");
     return '<div class="mb-card"><div class="mb-head"><span class="mb-tag">'+g.market+'</span><span>Model</span><span>Best book</span><span>Edge</span></div>'+rows+'</div>';
   }).join("");
-  return note+'<div class="mb-list">'+groups+'</div>';
+  return legend+note+'<div class="mb-list">'+groups+'</div>';
 }
 function renderGolfMatchup(){
   const modeTabs='<div class="ltabs" style="padding:2px 0 8px"><button class="ltab'+(golfMatchMode==="offered"?" on":"")+'" onclick="setMatchMode(\'offered\')">Offered matchups</button><button class="ltab'+(golfMatchMode==="custom"?" on":"")+'" onclick="setMatchMode(\'custom\')">Build your own</button></div>';
