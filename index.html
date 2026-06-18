@@ -1603,6 +1603,7 @@ async function loadGolf(){
   try{golfBoard=await getJSON("/api/golf/board?tour="+golfTour);}catch(e){golfBoard=null;}
   if(golfView==="proj"){try{golfProj=await getJSON("/api/golf/projections?tour="+golfTour);}catch(e){golfProj=null;}}
   if(golfView==="edge"){try{golfEdge=await getJSON("/api/golf/edge?tour="+golfTour);}catch(e){golfEdge=null;}}
+  if(golfView==="matchup"&&golfMatchMode==="offered"){try{golfMatchBoard=await getJSON("/api/golf/matchup-board?tour="+golfTour);}catch(e){golfMatchBoard=null;}}
 }
 async function loadGolfProj(){try{golfProj=await getJSON("/api/golf/projections?tour="+golfTour);}catch(e){golfProj=null;}}
 async function loadGolfEdge(){try{golfEdge=await getJSON("/api/golf/edge?tour="+golfTour);}catch(e){golfEdge=null;}}
@@ -1708,14 +1709,15 @@ function renderGolfMatchBoard(){
     '<div><span class="favstar">\u2605</span> = the player the model favors to win the matchup.</div>'+
     '<div><b>Model</b> = the model\u2019s win% &amp; fair price. <b>Best book</b> = best market price (book shown). <b>Edge</b> = model% \u2212 market% \u2014 <span style="color:#3fd07a">green</span> means the model rates that player higher than the price implies (value).</div>'+
     '</div>';
-  const note='<div class="ge-sub" style="padding:2px 2px 8px">'+(mb.event||"")+' \u00b7 R'+(mb.round||"")+' \u00b7 sorted by biggest edge in the group</div>';
+  const note='<div class="ge-sub" style="padding:2px 2px 8px">'+(mb.event||"")+' \u00b7 R'+(mb.round||"")+(mb.live?' \u00b7 live':'')+' \u00b7 sorted by biggest edge in the group</div>';
   const groups=mb.groups.map(g=>{
     const rows=g.players.map(p=>{
       const ev=p.edge;
       const ecol=ev==null?"var(--muted-2)":(ev>0?"#3fd07a":(ev<0?"#e0563f":"var(--fg)"));
       const fav=!!p.fav;
+      const sc=p.total?(' <span class="gpm">'+p.total+((mb.live&&p.thru&&p.thru!=="F"&&p.thru!=="CUT")?(' \u00b7 '+p.thru):'')+'</span>'):'';
       return '<div class="mb-row'+(fav?" val":"")+'">'+
-        '<span class="mb-n">'+(fav?'<span class="favstar">\u2605</span> ':'')+p.name+'</span>'+
+        '<span class="mb-n">'+(fav?'<span class="favstar">\u2605</span> ':'')+p.name+sc+'</span>'+
         '<span class="mb-mod">'+(p.model_pct!=null?p.model_pct+'%':'\u2014')+'<small>'+gAm(p.model_am)+'</small></span>'+
         '<span class="mb-mkt">'+(p.market_pct!=null?p.market_pct+'%':'\u2014')+'<small>'+gAm(p.market_am)+(p.book?' '+p.book:'')+'</small></span>'+
         '<span class="mb-edge" style="color:'+ecol+'">'+(ev==null?'\u2014':(ev>0?'+':'')+ev)+'</span></div>';

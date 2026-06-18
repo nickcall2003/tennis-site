@@ -2765,6 +2765,20 @@ def golf_matchup_board(tour: str = "pga"):
         b = datagolf_api.matchup_board(tour)
         if not b or not b.get("groups"):
             return JSONResponse({"ready": False, "reason": "no_market"})
+        # attach each player's live score from the leaderboard
+        import golf_provider
+        board = golf_provider.get_board(tour)
+        bmap = {datagolf_api._norm(p.get("name") or ""): p
+                for p in (board.get("players") or [])}
+        for g in b["groups"]:
+            for pl in g["players"]:
+                bp = bmap.get(datagolf_api._norm(pl["name"]))
+                if bp:
+                    pl["total"] = bp.get("total")
+                    pl["thru"] = bp.get("thru")
+                    pl["pos"] = bp.get("pos")
+        ev = board.get("event") or {}
+        b["live"] = bool(ev.get("is_live"))
         b["ready"] = True
         b["tour"] = tour
         return JSONResponse(b, headers={"Cache-Control": "no-store"})
@@ -2789,6 +2803,31 @@ def golf_dg_outrights_diag(tour: str = "pga", market: str = "win"):
                             headers={"Cache-Control": "no-store"})
     except Exception as e:
         return JSONResponse({"error": str(e)})
+
+
+@app.get("/api/golf/tracker-reset")
+def golf_tracker_reset(confirm: str = ""):
+    """Wipes golf tracking: deletes golf PickResults and re-arms every tracked
+    matchup so the corrected grader re-settles only completed rounds. Use once
+    to clear records that settled early. Add ?confirm=yes."""
+    if confirm != "yes":
+        return JSONResponse({"ok": False, "note": "add ?confirm=yes to reset golf tracking"})
+    try:
+        from db import SessionLocal
+        from models import GolfMatchupPick, PickResult
+        with SessionLocal() as db:
+            n_pr = db.query(PickResult).filter_by(sport="golf").delete()
+            n_mp = 0
+            for mp in db.query(GolfMatchupPick).all():
+                mp.settled = False
+                mp.result = None
+                mp.settled_date = None
+                n_mp += 1
+            db.commit()
+        return JSONResponse({"ok": True, "deleted_golf_pickresults": n_pr,
+                             "re_armed_matchups": n_mp})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 @app.get("/api/golf/tracker-diag")
