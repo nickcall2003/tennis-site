@@ -468,6 +468,7 @@ async def lifespan(app: FastAPI):
                             ("nhl", lambda: team_games("nhl", date=today)),
                             ("ncaaf", lambda: team_games("ncaaf", date=today)),
                             ("ncaab", lambda: team_games("ncaab", date=today)),
+                            ("soccer", lambda: soccer_games(date=today, league="all")),
                         ]
                         n = 0
                         for name, fn in jobs:
@@ -483,6 +484,34 @@ async def lifespan(app: FastAPI):
                 _t.sleep(every)
         import threading as _thr_os
         _thr_os.Thread(target=_odds_snapshot_bg, daemon=True).start()
+
+    # Golf matchup tracker — records DataGolf 3-balls at tee-off and grades them
+    # on round scores so golf shows up in /api/accuracy units/ROI. No-op without
+    # DATAGOLF_KEY. Disable with GOLF_TRACKER=0.
+    if run_bg and os.environ.get("GOLF_TRACKER", "1") == "1":
+        def _golf_tracker_bg():
+            import time as _t
+            _t.sleep(180)
+            try:
+                import datagolf_api
+            except Exception:
+                return
+            tours = [t.strip() for t in
+                     os.environ.get("GOLF_TRACKER_TOURS", "pga").split(",") if t.strip()]
+            while True:
+                if datagolf_api.enabled():
+                    import golf_tracker
+                    for tr in tours:
+                        try:
+                            a = golf_tracker.record(tr)
+                            s = golf_tracker.settle(tr)
+                            if a or s:
+                                print(f"[golf-tracker] {tr}: +{a} recorded, {s} settled")
+                        except Exception as e:
+                            print(f"[golf-tracker] {tr} error: {e}")
+                _t.sleep(int(os.environ.get("GOLF_TRACKER_SECS", "3600") or 3600))
+        import threading as _thr_gt
+        _thr_gt.Thread(target=_golf_tracker_bg, daemon=True).start()
 
     # AI narration warmer — pre-narrates today's board in the background so user
     # page loads are instant and fully Claude-written. No-op without a key.
@@ -2693,6 +2722,18 @@ def golf_dg_matchups_diag(tour: str = "pga", market: str = "3_balls"):
             out["count"] = len(data)
             out["first"] = data[0] if data else None
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
+@app.get("/api/golf/tracker-diag")
+def golf_tracker_diag(tour: str = "pga"):
+    """Tracked/pending/settled counts + record so the matchup tracker can be
+    verified."""
+    try:
+        import golf_tracker
+        return JSONResponse(golf_tracker.diag(tour),
+                            headers={"Cache-Control": "no-store"})
     except Exception as e:
         return JSONResponse({"error": str(e)})
 

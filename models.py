@@ -224,3 +224,31 @@ class ParlaySlip(Base):
     settled_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (UniqueConstraint("slip_date", "name", name="uq_parlay_day_name"),)
+
+
+class GolfMatchupPick(Base):
+    """
+    A DataGolf 3-ball matchup we tracked for ROI. Recorded at tee-off with the
+    model favorite (lowest DataGolf odds) and the best book price on that player;
+    graded once the round's scores are in (lowest round score wins the 3-ball).
+    On settle it also writes a PickResult(sport="golf") so it flows into the
+    rolling 30-day units/ROI alongside every other sport. One row per matchup.
+    """
+    __tablename__ = "golf_matchup_picks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ref: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    tour: Mapped[str] = mapped_column(String(12))
+    event: Mapped[str] = mapped_column(String(80))
+    round_num: Mapped[int] = mapped_column(Integer, index=True)
+    p1: Mapped[str] = mapped_column(String(48))      # normalized 'first last'
+    p2: Mapped[str] = mapped_column(String(48))
+    p3: Mapped[str] = mapped_column(String(48))
+    fav_id: Mapped[str] = mapped_column(String(12))  # DataGolf dg_id of the favorite
+    fav_name: Mapped[str] = mapped_column(String(48))
+    fav_slot: Mapped[str] = mapped_column(String(2))  # p1|p2|p3
+    taken_odds: Mapped[int] = mapped_column(Integer)  # american, best book on the fav
+    recorded_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    settled: Mapped[bool] = mapped_column(default=False, index=True)
+    result: Mapped[str | None] = mapped_column(String(8), nullable=True)  # win|loss|push
+    settled_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
