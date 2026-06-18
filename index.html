@@ -1682,25 +1682,25 @@ function renderGolfEdge(){
   const e=golfEdge;
   if(!e)return '<div class="empty">Loading market edge\u2026</div>';
   if(!e.ready){
-    const msg={no_odds_key:"Odds API key not set \u2014 market edge unavailable.",
-      no_market:"No outright market this week. Book odds are offered only for the four majors \u2014 Masters, PGA, U.S. Open, The Open.",
-      not_started:"Edge compares the model to the market once play is underway. Check back after tee-off.",
-      complete:"Tournament complete.",no_field:"No field yet.",no_projection:"Projections not ready yet."}[e.reason]||(e.note||"Market edge unavailable right now.");
+    const msg={no_datagolf_key:"DataGolf isn\u2019t configured \u2014 market edge unavailable.",
+      no_market:"No outright market posted for this event yet. Check back closer to the start.",
+      complete:"Tournament complete.",error:(e.error||"Market edge unavailable right now.")}[e.reason]||"Market edge unavailable right now.";
     return '<div class="empty">'+msg+'</div>';
   }
   const head='<div class="glf-head proj"><span class="gn">Player</span><span class="pc">Model</span><span class="pc">Mkt</span><span class="pc">Odds</span><span class="pw">Edge</span></div>';
   const rows=e.rows.map(r=>{
     const ecol=r.edge>0?"#3fd07a":(r.edge<0?"#e0563f":"var(--fg)");
     const am=r.american==null?"\u2014":((r.american>0?"+":"")+r.american);
-    return '<div class="glf-row proj" onclick="openGolfDetail(\''+r.id+'\')">'+
+    const click=r.id?(' onclick="openGolfDetail(\''+r.id+'\')"'):'';
+    return '<div class="glf-row proj"'+click+'>'+
       '<span class="gn">'+r.name+' <span class="gpm">'+(r.total||"")+'</span></span>'+
       '<span class="pc">'+r.model+'%</span>'+
       '<span class="pc">'+r.market+'%</span>'+
       '<span class="pc">'+am+'</span>'+
       '<span class="pw" style="color:'+ecol+'">'+(r.edge>0?"+":"")+r.edge+'</span></div>';
   }).join("");
-  const note='<div class="ge-sub" style="padding:2px 2px 8px">Model win% vs de-vigged market \u00b7 '+(e.event||"")+' \u00b7 '+e.matched+' matched \u00b7 R'+(e.round||"")+'</div>';
-  const legend='<div class="ge-sub" style="padding:0 2px 8px;color:var(--muted-2)">Positive edge = model rates the player higher than the market.</div>';
+  const note='<div class="ge-sub" style="padding:2px 2px 8px">DataGolf model win% vs best book price \u00b7 '+(e.event||"")+' \u00b7 '+e.matched+' players'+(e.pre?" \u00b7 pre-tournament":"")+'</div>';
+  const legend='<div class="ge-sub" style="padding:0 2px 8px;color:var(--muted-2)">Positive edge = the model rates the player higher than the best book price implies.</div>';
   return note+'<div class="glf-board">'+head+rows+'</div>'+legend;
 }
 function renderGolf(){

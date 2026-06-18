@@ -2548,45 +2548,56 @@ _golf_proj_cache = {}
 
 _golf_edge_cache = {}
 
+def _dec_to_american(d):
+    try:
+        d = float(d)
+    except (TypeError, ValueError):
+        return None
+    if d <= 1.0:
+        return None
+    return int(round((d - 1.0) * 100)) if d >= 2.0 else int(round(-100.0 / (d - 1.0)))
+
+
 @app.get("/api/golf/edge")
 def golf_edge(tour: str = "pga"):
     c = _golf_edge_cache.get(tour)
     if c and time.time() - c[0] < 60:
         return JSONResponse(c[1], headers={"Cache-Control": "no-store"})
-    import golf_provider, golf_model, odds_api
+    import datagolf_api, golf_provider
     out = {"ready": False, "tour": tour}
     try:
-        if not odds_api.enabled():
-            out["reason"] = "no_odds_key"
+        if not datagolf_api.enabled():
+            out["reason"] = "no_datagolf_key"
         else:
-            board = golf_provider.get_board(tour)
-            proj = golf_model.project(board)
-            if not proj.get("ready"):
-                out["reason"] = proj.get("reason", "no_projection")
+            o = datagolf_api.outrights(tour, "win")
+            players = (o or {}).get("players") or {}
+            if not players:
+                out["reason"] = "no_market"
             else:
-                book = odds_api.get_golf_outrights()
-                mkt = (book or {}).get("players") or {}
-                if not mkt:
-                    out["reason"] = "no_market"
-                    out["note"] = "Outright odds are only offered for the four majors."
-                else:
-                    rows = []
-                    for p in proj["projections"]:
-                        m = mkt.get(odds_api._norm(p["name"]))
-                        if not m:
-                            continue
-                        rows.append({"id": p["id"], "name": p["name"], "total": p["total"],
-                                     "model": p["win"], "market": m["implied"],
-                                     "american": m["american"],
-                                     "edge": round(p["win"] - m["implied"], 1)})
-                    rows.sort(key=lambda x: -x["edge"])
-                    out = {"ready": True, "tour": tour, "event": book.get("event"),
-                           "model_event": proj["event"], "round": proj.get("round"),
-                           "n_sims": proj["n_sims"], "matched": len(rows),
-                           "overround": book.get("overround"), "rows": rows}
+                # map to the board (if any) for a clickable id + score
+                board = golf_provider.get_board(tour)
+                bmap = {datagolf_api._norm(p.get("name") or ""): p
+                        for p in (board.get("players") or [])}
+                rows = []
+                for nm, m in players.items():
+                    md, bd = m.get("model_dec"), m.get("book_dec")
+                    if not md or not bd:
+                        continue
+                    model_p = round(100.0 / md, 1)
+                    mkt_p = round(100.0 / bd, 1)
+                    bp = bmap.get(nm) or {}
+                    rows.append({"id": bp.get("id", ""), "name": m["name"],
+                                 "total": bp.get("total", ""), "model": model_p,
+                                 "market": mkt_p, "edge": round(model_p - mkt_p, 1),
+                                 "american": _dec_to_american(bd), "book": m.get("book")})
+                rows.sort(key=lambda x: -x["edge"])
+                ev = board.get("event") or {}
+                out = {"ready": True, "tour": tour, "source": "datagolf",
+                       "event": (o or {}).get("event") or ev.get("name"),
+                       "market": "win", "matched": len(rows),
+                       "pre": not ev.get("is_live"), "rows": rows[:50]}
     except Exception as e:
-        out["reason"] = "error"
-        out["error"] = str(e)
+        out = {"ready": False, "tour": tour, "reason": "error", "error": str(e)}
     _golf_edge_cache[tour] = (time.time(), out)
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
@@ -2722,6 +2733,25 @@ def golf_dg_matchups_diag(tour: str = "pga", market: str = "3_balls"):
             out["count"] = len(data)
             out["first"] = data[0] if data else None
         return JSONResponse(out, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
+@app.get("/api/golf/dg-outrights-diag")
+def golf_dg_outrights_diag(tour: str = "pga", market: str = "win"):
+    """Shows the parsed outrights (model + best book per player) so the Edge
+    tab's source can be verified against a real response."""
+    try:
+        import datagolf_api
+        o = datagolf_api.outrights(tour, market)
+        if not o:
+            return JSONResponse({"enabled": datagolf_api.enabled(),
+                                 "note": "no data (not enabled or feed empty)"})
+        pl = o.get("players") or {}
+        sample = list(pl.values())[:5]
+        return JSONResponse({"event": o.get("event"), "market": o.get("market"),
+                             "players_loaded": len(pl), "sample": sample},
+                            headers={"Cache-Control": "no-store"})
     except Exception as e:
         return JSONResponse({"error": str(e)})
 
