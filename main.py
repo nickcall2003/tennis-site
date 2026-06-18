@@ -2664,26 +2664,43 @@ def golf_projections(tour: str = "pga"):
         if (not data.get("ready")) and data.get("reason") == "no_field":
             import datagolf_api
             if datagolf_api.enabled():
-                pred = datagolf_api.pre_tournament(tour)
-                mkt = (pred or {}).get("players") or {}
-                if mkt:
+                pb = datagolf_api.pre_tournament(tour, "baseline")
+                pf = datagolf_api.pre_tournament(tour, "fit")
+                mb = (pb or {}).get("players") or {}
+                mf = (pf or {}).get("players") or {}
+                # is the course-fit model actually different from baseline?
+                has_fit = bool(mf) and any(
+                    (mf.get(k, {}).get("win") != mb.get(k, {}).get("win"))
+                    for k in list(mb.keys())[:60])
+                if mb:
                     rows = []
                     for p in (board.get("players") or []):
-                        m = mkt.get(datagolf_api._norm(p["name"]))
-                        if not m or m.get("win") is None:
+                        key = datagolf_api._norm(p["name"])
+                        b = mb.get(key)
+                        if not b or b.get("win") is None:
                             continue
-                        rows.append({"id": p["id"], "name": p["name"],
-                                     "pos": p.get("pos"), "total": p.get("total"),
-                                     "win": m.get("win"), "top5": m.get("top5"),
-                                     "top10": m.get("top10"), "top20": m.get("top20"),
-                                     "make_cut": m.get("make_cut")})
+                        f = mf.get(key) or {}
+                        base = {"win": b.get("win"), "top5": b.get("top5"),
+                                "top10": b.get("top10"), "top20": b.get("top20"),
+                                "make_cut": b.get("make_cut")}
+                        row = {"id": p["id"], "name": p["name"],
+                               "pos": p.get("pos"), "total": p.get("total"),
+                               "win": base["win"], "top5": base["top5"],
+                               "top10": base["top10"], "top20": base["top20"],
+                               "make_cut": base["make_cut"], "base": base}
+                        if has_fit and f:
+                            row["fit"] = {"win": f.get("win"), "top5": f.get("top5"),
+                                          "top10": f.get("top10"), "top20": f.get("top20"),
+                                          "make_cut": f.get("make_cut")}
+                        rows.append(row)
                     if rows:
                         rows.sort(key=lambda r: (-(r.get("win") or 0),
                                                  -(r.get("top5") or 0)))
                         ev = board.get("event") or {}
                         data = {"ready": True, "scope": "pretourney",
                                 "source": "datagolf", "pre_cut": True,
-                                "event": ev.get("name") or (pred or {}).get("event"),
+                                "has_fit": has_fit,
+                                "event": ev.get("name") or (pb or {}).get("event"),
                                 "field": len(rows), "projections": rows}
         data["tour"] = tour
         _golf_proj_cache[tour] = (time.time(), data)

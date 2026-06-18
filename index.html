@@ -1031,7 +1031,7 @@ function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";let ws;
 let sport="tennis",teamGames=[],mlbDetailTab="prediction",mlbMatchups=null,mlbInjuries=null,mlbProps=null,mlbBox=null,mlbGame=null;
 let soccerGames=[],soccerLeague="all",soccerLeagues=[],soccerGame=null,soccerDetailTab="prediction",soccerBox=null,soccerProps=null,soccerDetailLeague="all";
 let ufcGames=[],ufcEvent="UFC",ufcGame=null;
-let golfBoard=null,golfTour="pga",golfById={},golfView="board",golfProj=null,golfEdge=null;
+let golfBoard=null,golfTour="pga",golfById={},golfView="board",golfProj=null,golfEdge=null,golfProjModel="baseline";
 let golfMatchSel=[],golfMatchScope="tournament",golfMatchResult=null,golfMatchQuery="",golfMatchLoading=false,golfMatchBoard=null,golfMatchMode="offered";
 const GOLF_TOURS=[["pga","PGA"],["eur","DP World"],["lpga","LPGA"],["champions-tour","Champions"],["liv","LIV"]];
 let teamProps=null,teamBox=null,teamDetailTab="prediction",teamGame=null;
@@ -1630,10 +1630,37 @@ function golfRowHTML(p){
     '<span class="gth">'+(cut?"\u2014":(p.thru||"\u2014"))+'</span>'+
     '<span class="gtot '+tc+'">'+p.total+'</span></div>';
 }
+function setGolfProjModel(m){if(m===golfProjModel)return;golfProjModel=m;renderGolf();}
+function gProjModelTabs(){const L={baseline:"Baseline",fit:"Course-fit",compare:"Compare"};
+  return '<div class="ltabs" style="padding:2px 0 6px">'+["baseline","fit","compare"].map(m=>'<button class="ltab'+(golfProjModel===m?" on":"")+'" onclick="setGolfProjModel(\''+m+'\')">'+L[m]+'</button>').join("")+'</div>';}
 function renderGolfProj(){
   const pj=golfProj;
   if(!pj)return '<div class="empty">Loading projections\u2026</div>';
   if(!pj.ready)return '<div class="empty">'+(pj.reason==="complete"?"Tournament complete \u2014 no live projections.":"Projections begin once play is underway. Check back after tee-off.")+'</div>';
+  // ---- DataGolf pre-tournament: Baseline / Course-fit / Compare ----
+  if(pj.source==="datagolf"){
+    const hasFit=!!pj.has_fit, mode=hasFit?golfProjModel:"baseline";
+    const toggle=hasFit?gProjModelTabs():"";
+    if(mode==="compare"){
+      const rows=pj.projections.slice().map(p=>({p:p,b:(p.base&&p.base.win),f:(p.fit&&p.fit.win)}))
+        .sort((a,b)=>((b.f!=null?b.f:b.b)||0)-((a.f!=null?a.f:a.b)||0));
+      const head='<div class="glf-head proj"><span class="gn">Player</span><span class="pc">Base</span><span class="pc">Fit</span><span class="pw">\u0394</span></div>';
+      const body=rows.map(o=>{const p=o.p,b=o.b,f=o.f,d=(b!=null&&f!=null)?Math.round((f-b)*10)/10:null,dc=d==null?"var(--muted-2)":(d>0?"#3fd07a":(d<0?"#e0563f":"var(--fg)"));
+        return '<div class="glf-row proj" onclick="openGolfDetail(\''+p.id+'\')"><span class="gn">'+p.name+' <span class="gpm">'+(p.total||"")+'</span></span><span class="pc">'+gPct(b)+'</span><span class="pc">'+gPct(f)+'</span><span class="pw" style="color:'+dc+'">'+(d==null?"\u2014":(d>0?"+":"")+d)+'</span></div>';}).join("");
+      const note='<div class="ge-sub" style="padding:2px 2px 8px">DataGolf \u00b7 baseline vs course-fit win% \u00b7 '+pj.field+' in field</div>';
+      const legend='<div class="ge-sub" style="padding:0 2px 8px;color:var(--muted-2)">\u0394 = course-fit minus baseline win%. Green = the venue & course-fit suit them; red = they don\u2019t.</div>';
+      return note+toggle+'<div class="glf-board">'+head+body+'</div>'+legend;
+    }
+    const key=(mode==="fit")?"fit":"base";
+    const rows=pj.projections.slice().map(p=>({p:p,s:(p[key]||p)}))
+      .sort((a,b)=>((b.s.win||0)-(a.s.win||0))||((b.s.top5||0)-(a.s.top5||0)));
+    const head='<div class="glf-head proj"><span class="gn">Player</span><span class="pw">Win</span><span class="pc">T5</span><span class="pc">T10</span><span class="pc">Cut</span></div>';
+    const body=rows.map(o=>{const p=o.p,s=o.s;return '<div class="glf-row proj" onclick="openGolfDetail(\''+p.id+'\')"><span class="gn">'+p.name+' <span class="gpm">'+(p.total||"")+'</span></span><span class="pw">'+gPct(s.win)+'</span><span class="pc">'+gPct(s.top5)+'</span><span class="pc">'+gPct(s.top10)+'</span><span class="pc">'+gPct(s.make_cut)+'</span></div>';}).join("");
+    const lab=(mode==="fit")?"course-fit model":"baseline model";
+    const note='<div class="ge-sub" style="padding:2px 2px 8px">DataGolf '+lab+' \u00b7 pre-tournament \u00b7 '+pj.field+' in field</div>';
+    return note+toggle+'<div class="glf-board">'+head+body+'</div>';
+  }
+  // ---- Live Monte Carlo (unchanged) ----
   const cut=pj.pre_cut,lastLab=cut?"Cut":"T20",lastKey=cut?"make_cut":"top20";
   const head='<div class="glf-head proj"><span class="gn">Player</span><span class="pw">Win</span><span class="pc">T5</span><span class="pc">T10</span><span class="pc">'+lastLab+'</span></div>';
   const rows=pj.projections.map(p=>'<div class="glf-row proj" onclick="openGolfDetail(\''+p.id+'\')">'+
@@ -1649,9 +1676,7 @@ function renderGolfProj(){
       rl='<div class="rl-strip"><span class="rl-lab">R'+pj.round+' leader</span>'+
          top.map(p=>'<span class="rl-chip">'+p.name.split(" ").slice(-1)[0]+' <b>'+gPct(p.round_leader)+'</b></span>').join("")+'</div>';
   }
-  const note=(pj.source==="datagolf")
-    ? '<div class="ge-sub" style="padding:2px 2px 8px">DataGolf model \u00b7 pre-tournament \u00b7 '+pj.field+' in field</div>'
-    : '<div class="ge-sub" style="padding:2px 2px 8px">Live Monte Carlo \u00b7 '+(pj.n_sims||0).toLocaleString()+' sims \u00b7 R'+pj.round+' \u00b7 '+pj.field+' in play'+(pj.round_std?' \u00b7 spread '+pj.round_std:'')+'</div>';
+  const note='<div class="ge-sub" style="padding:2px 2px 8px">Live Monte Carlo \u00b7 '+(pj.n_sims||0).toLocaleString()+' sims \u00b7 R'+pj.round+' \u00b7 '+pj.field+' in play'+(pj.round_std?' \u00b7 spread '+pj.round_std:'')+'</div>';
   return note+rl+'<div class="glf-board">'+head+rows+'</div>';
 }
 function matchListHTML(players){
