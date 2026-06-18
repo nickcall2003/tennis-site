@@ -681,15 +681,40 @@ def _match_row(db, m):
 @app.get("/api/tennis/debug")
 def tennis_debug(date: str | None = None):
     """Read-only diagnostic: what does the tennis API actually return for a date?
-    Shows raw fixture count, the event-type breakdown, and how _classify_tier
-    sorts them — so we can tell 'no data yet' from 'filtered out' from 'error'."""
+    Surfaces the raw success/error (api-tennis returns HTTP 200 even on an
+    expired key or blown quota, with success:0 + a message that _call swallows),
+    so we can tell 'no data yet' from 'filtered out' from 'auth/quota error'."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     out = {"date": target.isoformat()}
     try:
         if not hasattr(provider, "_call"):
             return {"error": "not using the live API-Tennis provider", **out}
-        from collections import Counter
+        import httpx
+        from apitennis import BASE_URL
         d = target.strftime("%Y-%m-%d")
+        # Direct call that does NOT swallow the API's own status fields.
+        params = {"method": "get_fixtures", "APIkey": provider.api_key,
+                  "timezone": getattr(provider, "timezone", "America/Chicago"),
+                  "date_start": d, "date_stop": d}
+        r = httpx.get(BASE_URL, params=params, timeout=20.0)
+        out["http_status"] = r.status_code
+        try:
+            data = r.json()
+        except Exception:
+            data = {}
+            out["raw_text"] = (r.text or "")[:300]
+        if isinstance(data, dict):
+            out["api_success"] = data.get("success")
+            err = data.get("error") or data.get("Error") or data.get("message") or data.get("msg")
+            if err:
+                out["api_error"] = err
+            res = data.get("result")
+            out["result_count"] = len(res) if isinstance(res, list) else (
+                "none" if res is None else "non-list")
+        out["key_set"] = bool(getattr(provider, "api_key", None))
+        out["key_tail"] = ("\u2026" + provider.api_key[-4:]) if getattr(provider, "api_key", None) else None
+        # Then the normal (swallowed) path + classification, for comparison.
+        from collections import Counter
         raw = provider._call("get_fixtures", date_start=d, date_stop=d)
         out["raw_fixtures"] = len(raw)
         out["event_types"] = dict(Counter((f.get("event_type_type") or "?") for f in raw))
