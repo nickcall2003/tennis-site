@@ -12,6 +12,12 @@ Endpoints used (from API-Tennis docs):
   get_standings  -> ATP / WTA rankings  (used to rate otherwise-unknown players)
   get_H2H        -> head-to-head + each player's recent results
   (point-by-point arrives inside get_fixtures for a specific match key)
+
+Usage protection: the live-score poll is the only call that runs continuously,
+so it's throttled by TENNIS_LIVE_TTL (default 15s) and a per-day soft cap
+(TENNIS_DAILY_MAX) pauses *only* live polling near the plan limit, leaving the
+cheap, essential calls (schedule, H2H, rankings) working. Errors are logged and
+exposed via .last_error so an account/billing failure is never invisible.
 """
 
 from __future__ import annotations
@@ -76,8 +82,11 @@ def _classify_tier(fix):
     # fall back to the original exact map if present; otherwise exclude.
     return _TIER_MAP.get(fix.get("event_type_type"))
 
-_LIVE_TTL = 8.0          # seconds between live-score pulls
-_FIXTURE_TTL = 20.0      # seconds to cache a single match's detail pull
+
+# Live poll cadence + per-day usage guard (all env-tunable).
+_LIVE_TTL = float(os.environ.get("TENNIS_LIVE_TTL", "15"))       # was 8; halves live-poll cost
+_FIXTURE_TTL = float(os.environ.get("TENNIS_FIXTURE_TTL", "20"))  # detail-pull cache
+_DAILY_MAX = int(os.environ.get("TENNIS_DAILY_MAX", "7500"))      # soft cap under an 8k/day plan
 
 
 def _server(flag) -> str:
@@ -127,17 +136,44 @@ class APITennisProvider(TennisProvider):
         self._live_cache = {}
         self._live_fetched_at = 0.0
         self._detail_cache = {}        # event_key -> (ts, raw fixture with pbp)
+        self._req_count = 0            # API requests made today (usage meter)
+        self._req_day = None
+        self.last_error = None         # last API error envelope, surfaced in the diag
 
     # ---- HTTP ------------------------------------------------------------
 
     def _call(self, method, **params):
         import httpx
+        import datetime as _dt
+        # Per-day usage meter + soft guard. The live poll is the only call that
+        # runs continuously, so near the daily limit we pause ONLY get_livescore
+        # and let the cheap, essential calls (schedule/H2H/rankings) through.
+        today = _dt.date.today()
+        if self._req_day != today:
+            self._req_day, self._req_count = today, 0
+        if method == "get_livescore" and self._req_count >= _DAILY_MAX:
+            self.last_error = (f"daily cap {_DAILY_MAX} reached; live polling paused "
+                               "until tomorrow")
+            return []
         params = {"method": method, "APIkey": self.api_key, "timezone": self.timezone, **params}
+        self._req_count += 1
         r = httpx.get(BASE_URL, params=params, timeout=20.0)
         r.raise_for_status()
         data = r.json()
         if not data or data.get("success") != 1:
+            # api-tennis returns HTTP 200 even on errors (e.g. cod 1006 "Please
+            # make the payment for your account!"). Surface the message instead of
+            # silently returning [] so a billing/auth failure is visible.
+            msg = None
+            if isinstance(data, dict):
+                res = data.get("result")
+                if isinstance(res, list) and res and isinstance(res[0], dict):
+                    msg = res[0].get("msg") or res[0].get("error")
+                msg = msg or data.get("error") or data.get("message")
+            self.last_error = f"{method}: {msg or data}"
+            print(f"[apitennis] no data ({self.last_error})")
             return []
+        self.last_error = None
         return data.get("result", []) or []
 
     # ---- schedule --------------------------------------------------------

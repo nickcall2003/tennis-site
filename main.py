@@ -719,6 +719,8 @@ def tennis_debug(date: str | None = None):
         out["raw_text"] = (r.text or "")[:700]
         out["key_set"] = bool(getattr(provider, "api_key", None))
         out["key_tail"] = ("\u2026" + provider.api_key[-4:]) if getattr(provider, "api_key", None) else None
+        out["req_count_today"] = getattr(provider, "_req_count", None)
+        out["last_error"] = getattr(provider, "last_error", None)
         # Then the normal (swallowed) path + classification, for comparison.
         from collections import Counter
         raw = provider._call("get_fixtures", date_start=d, date_stop=d)
