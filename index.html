@@ -1629,7 +1629,9 @@ function renderGolfProj(){
       rl='<div class="rl-strip"><span class="rl-lab">R'+pj.round+' leader</span>'+
          top.map(p=>'<span class="rl-chip">'+p.name.split(" ").slice(-1)[0]+' <b>'+gPct(p.round_leader)+'</b></span>').join("")+'</div>';
   }
-  const note='<div class="ge-sub" style="padding:2px 2px 8px">Live Monte Carlo \u00b7 '+(pj.n_sims||0).toLocaleString()+' sims \u00b7 R'+pj.round+' \u00b7 '+pj.field+' in play'+(pj.round_std?' \u00b7 spread '+pj.round_std:'')+'</div>';
+  const note=(pj.source==="datagolf")
+    ? '<div class="ge-sub" style="padding:2px 2px 8px">DataGolf model \u00b7 pre-tournament \u00b7 '+pj.field+' in field</div>'
+    : '<div class="ge-sub" style="padding:2px 2px 8px">Live Monte Carlo \u00b7 '+(pj.n_sims||0).toLocaleString()+' sims \u00b7 R'+pj.round+' \u00b7 '+pj.field+' in play'+(pj.round_std?' \u00b7 spread '+pj.round_std:'')+'</div>';
   return note+rl+'<div class="glf-board">'+head+rows+'</div>';
 }
 function matchListHTML(players){
@@ -1667,7 +1669,7 @@ function renderGolfMatchup(){
     if(!golfMatchResult.ready){const MMSG={no_field:"Matchup projections open once play is underway \u2014 the field needs to be on the course. Check back after R1 tee-off.",need_2_in_field:"At least two of the selected players aren\u2019t in the active field (withdrawn or missed cut). Try different players.",complete:"Tournament complete \u2014 matchups are for live or upcoming play."};result='<div class="empty">'+(MMSG[golfMatchResult.reason]||golfMatchResult.reason||"Not available")+'</div>';}
     else{
       const max=Math.max.apply(null,golfMatchResult.players.map(p=>p.prob))||1;
-      const _msc=golfMatchResult.scope==="round"?("Round "+golfMatchResult.round+" \u00b7 chance of lowest score"):(golfMatchResult.scope==="pretourney"?"Pre-tournament \u00b7 market-implied \u00b7 chance to finish best of the group":"Rest of tournament \u00b7 chance of lowest score");
+      const _msc=golfMatchResult.scope==="round"?("Round "+golfMatchResult.round+" \u00b7 chance of lowest score"):(golfMatchResult.scope==="pretourney"?"Pre-tournament \u00b7 DataGolf model \u00b7 chance to finish best of the group":"Rest of tournament \u00b7 chance of lowest score");
       result='<div class="mres"><div class="ge-sub" style="margin-bottom:8px">'+_msc+'</div>'+
         golfMatchResult.players.map(p=>'<div class="mrow"><span class="mrow-n">'+p.name+' <span class="gpm">'+(p.total||"")+'</span></span><span class="mrow-bar"><span class="mrow-fill" style="width:'+Math.round(p.prob/max*100)+'%"></span></span><span class="mrow-p">'+p.prob+'%</span></div>').join("")+'</div>';
     }

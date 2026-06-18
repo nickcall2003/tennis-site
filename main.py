@@ -2367,8 +2367,14 @@ def sports_meta():
     out-of-season sports."""
     meta = sports.public_meta()
     mo = dt.date.today().month
+    # Force-hide sports regardless of season. Defaults to NBA + NHL (seasons over);
+    # set the HIDDEN_SPORTS env var (comma-separated keys, or empty) to change.
+    _hs = os.environ.get("HIDDEN_SPORTS")
+    hidden = {s.strip().lower() for s in
+              ((_hs if _hs is not None else "nba,nhl").split(",")) if s.strip()}
     for entry in meta:
-        entry["active"] = mo in SPORT_SEASON.get(entry["key"], set(range(1, 13)))
+        in_season = mo in SPORT_SEASON.get(entry["key"], set(range(1, 13)))
+        entry["active"] = in_season and entry["key"] not in hidden
     # Golf is served by a dedicated leaderboard view, not the matchup registry,
     # so it isn't in sports.py SPORTS. Surface it here so the home grid shows it.
     if not any(e.get("key") == "golf" for e in meta):
@@ -2556,35 +2562,35 @@ def golf_edge(tour: str = "pga"):
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
-def _golf_pretourney_matchup(board, id_list):
+def _golf_pretourney_matchup(board, id_list, tour="pga"):
     """Pre-tournament 3-ball when there's no live scoring to simulate: price each
-    selected player's chance to finish best of the group from de-vigged outright
-    win odds (Harville normalization). Returns None if odds aren't available for
-    all the picked players, so the caller can fall back to the normal message."""
-    import odds_api
-    if not odds_api.enabled():
+    selected player's chance to finish best of the group from DataGolf's model
+    win probabilities (Harville normalization). Returns None if DataGolf isn't
+    configured or doesn't have all the picked players."""
+    import datagolf_api
+    if not datagolf_api.enabled():
         return None
     by_id = {p["id"]: p for p in (board.get("players") or [])}
     sel = [by_id[i] for i in id_list if i in by_id][:3]
     if len(sel) < 2:
         return None
-    book = odds_api.get_golf_outrights()
-    mkt = (book or {}).get("players") or {}
+    pred = datagolf_api.pre_tournament(tour)
+    mkt = (pred or {}).get("players") or {}
     if not mkt:
         return None
     ws = []
     for p in sel:
-        m = mkt.get(odds_api._norm(p["name"]))
-        if not m or not m.get("implied"):
-            return None          # need every picked player priced
-        ws.append(float(m["implied"]))
+        m = mkt.get(datagolf_api._norm(p["name"]))
+        if not m or m.get("win") is None:
+            return None          # need every picked player in the DataGolf field
+        ws.append(max(float(m["win"]), 0.0001))
     tot = sum(ws) or 1.0
     ev = board.get("event") or {}
     out = [{"id": p["id"], "name": p["name"], "pos": p.get("pos"),
             "total": p.get("total"), "prob": round(100 * w / tot, 1)}
            for p, w in zip(sel, ws)]
     out.sort(key=lambda x: -x["prob"])
-    return {"ready": True, "scope": "pretourney", "source": "market",
+    return {"ready": True, "scope": "pretourney", "source": "datagolf",
             "event": ev.get("name"), "round": ev.get("round"), "players": out}
 
 
@@ -2596,9 +2602,9 @@ def golf_matchup(tour: str = "pga", ids: str = "", scope: str = "tournament"):
         return JSONResponse({"ready": False, "reason": "need_2"})
     board = golf_provider.get_board(tour)
     res = golf_model.matchup(board, id_list, scope=scope)
-    # Pre-tournament (no live scoring): fall back to an odds-implied estimate.
+    # Pre-tournament (no live scoring): fall back to DataGolf model probabilities.
     if (not res.get("ready")) and res.get("reason") == "no_field":
-        alt = _golf_pretourney_matchup(board, id_list)
+        alt = _golf_pretourney_matchup(board, id_list, tour=tour)
         if alt:
             res = alt
     return JSONResponse(res, headers={"Cache-Control": "no-store"})
@@ -2614,11 +2620,48 @@ def golf_projections(tour: str = "pga"):
         import golf_model
         board = golf_provider.get_board(tour)
         data = golf_model.project(board)
+        # Pre-tournament (no live scoring): fill projections from DataGolf's model.
+        if (not data.get("ready")) and data.get("reason") == "no_field":
+            import datagolf_api
+            if datagolf_api.enabled():
+                pred = datagolf_api.pre_tournament(tour)
+                mkt = (pred or {}).get("players") or {}
+                if mkt:
+                    rows = []
+                    for p in (board.get("players") or []):
+                        m = mkt.get(datagolf_api._norm(p["name"]))
+                        if not m or m.get("win") is None:
+                            continue
+                        rows.append({"id": p["id"], "name": p["name"],
+                                     "pos": p.get("pos"), "total": p.get("total"),
+                                     "win": m.get("win"), "top5": m.get("top5"),
+                                     "top10": m.get("top10"), "top20": m.get("top20"),
+                                     "make_cut": m.get("make_cut")})
+                    if rows:
+                        rows.sort(key=lambda r: (-(r.get("win") or 0),
+                                                 -(r.get("top5") or 0)))
+                        ev = board.get("event") or {}
+                        data = {"ready": True, "scope": "pretourney",
+                                "source": "datagolf", "pre_cut": True,
+                                "event": ev.get("name") or (pred or {}).get("event"),
+                                "field": len(rows), "projections": rows}
         data["tour"] = tour
         _golf_proj_cache[tour] = (time.time(), data)
         return JSONResponse(data, headers={"Cache-Control": "no-store"})
     except Exception as e:
         return JSONResponse({"ready": False, "error": str(e)})
+
+
+@app.get("/api/golf/dg-diag")
+def golf_dg_diag(tour: str = "pga"):
+    """Confirms the DataGolf key works and shows a few parsed players so the
+    field mapping can be verified against a real response."""
+    try:
+        import datagolf_api
+        return JSONResponse(datagolf_api.diag(tour),
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"enabled": False, "error": str(e)})
 
 
 @app.get("/api/golf/board")
