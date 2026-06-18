@@ -2737,6 +2737,24 @@ def golf_dg_matchups_diag(tour: str = "pga", market: str = "3_balls"):
         return JSONResponse({"error": str(e)})
 
 
+@app.get("/api/golf/matchup-board")
+def golf_matchup_board(tour: str = "pga"):
+    """Full value board of every offered matchup (model price vs best book +
+    edge per player), for the rebuilt Matchups tab."""
+    try:
+        import datagolf_api
+        if not datagolf_api.enabled():
+            return JSONResponse({"ready": False, "reason": "no_datagolf_key"})
+        b = datagolf_api.matchup_board(tour)
+        if not b or not b.get("groups"):
+            return JSONResponse({"ready": False, "reason": "no_market"})
+        b["ready"] = True
+        b["tour"] = tour
+        return JSONResponse(b, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"ready": False, "reason": "error", "error": str(e)})
+
+
 @app.get("/api/golf/dg-outrights-diag")
 def golf_dg_outrights_diag(tour: str = "pga", market: str = "win"):
     """Shows the parsed outrights (model + best book per player) so the Edge

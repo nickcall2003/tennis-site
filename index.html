@@ -397,6 +397,21 @@
   .glf-row.mpick{cursor:pointer}
   .glf-row.mpick.on{background:rgba(63,155,89,.15)}
   .glf-row.mpick .gp{flex:0 0 22px;color:#3fd07a;font-weight:700}
+  .mb-list{display:flex;flex-direction:column;gap:10px;margin-top:4px}
+  .mb-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .mb-head{display:grid;grid-template-columns:1fr 60px 92px 42px;gap:6px;align-items:center;padding:6px 11px;background:rgba(255,255,255,.03);font-size:10px;color:var(--muted)}
+  .mb-head span:not(.mb-tag){text-align:right}
+  .mb-tag{font-weight:800;color:var(--fg);text-transform:uppercase;letter-spacing:.05em;font-size:11px}
+  .mb-row{display:grid;grid-template-columns:1fr 60px 92px 42px;gap:6px;align-items:center;padding:7px 11px;border-top:1px solid var(--line);font-size:13px}
+  .mb-row.val{background:rgba(63,208,122,.09)}
+  .mb-n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mb-mod,.mb-mkt{text-align:right;font-variant-numeric:tabular-nums;line-height:1.15}
+  .mb-mod small,.mb-mkt small{display:block;color:var(--muted);font-size:10px}
+  .mb-edge{text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+  .pscore-main{font-size:15px;margin:2px 0 7px}.pscore-main b{font-size:19px;letter-spacing:.5px}
+  .pscore-alts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+  .pscore-chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 9px;font-size:11.5px;color:var(--muted)}
+  .pscore-chip b{color:var(--fg)}
   .pred-live{margin-top:10px;font-family:"Space Mono",monospace;font-size:12px;color:var(--clay-bright);background:rgba(200,97,47,.10);border:1px solid rgba(200,97,47,.3);border-radius:8px;padding:8px 11px}
   .pred-live b{color:var(--ink)}
   .pred-live .pl-note{color:var(--muted);font-size:10.5px}
@@ -1014,7 +1029,7 @@ let sport="tennis",teamGames=[],mlbDetailTab="prediction",mlbMatchups=null,mlbIn
 let soccerGames=[],soccerLeague="all",soccerLeagues=[],soccerGame=null,soccerDetailTab="prediction",soccerBox=null,soccerProps=null,soccerDetailLeague="all";
 let ufcGames=[],ufcEvent="UFC",ufcGame=null;
 let golfBoard=null,golfTour="pga",golfById={},golfView="board",golfProj=null,golfEdge=null;
-let golfMatchSel=[],golfMatchScope="tournament",golfMatchResult=null,golfMatchQuery="",golfMatchLoading=false;
+let golfMatchSel=[],golfMatchScope="tournament",golfMatchResult=null,golfMatchQuery="",golfMatchLoading=false,golfMatchBoard=null,golfMatchMode="offered";
 const GOLF_TOURS=[["pga","PGA"],["eur","DP World"],["lpga","LPGA"],["champions-tour","Champions"],["liv","LIV"]];
 let teamProps=null,teamBox=null,teamDetailTab="prediction",teamGame=null;
 let view="sport";  // "sport" | "free" | "best"
@@ -1588,13 +1603,15 @@ async function loadGolf(){
 }
 async function loadGolfProj(){try{golfProj=await getJSON("/api/golf/projections?tour="+golfTour);}catch(e){golfProj=null;}}
 async function loadGolfEdge(){try{golfEdge=await getJSON("/api/golf/edge?tour="+golfTour);}catch(e){golfEdge=null;}}
+async function loadGolfMatchBoard(){try{golfMatchBoard=await getJSON("/api/golf/matchup-board?tour="+golfTour);}catch(e){golfMatchBoard=null;}}
 function setGolfView(v){if(v===golfView)return;golfView=v;
   if(v==="proj"&&!golfProj){renderGolf();loadGolfProj().then(()=>{if(sport==="golf"&&golfView==="proj")renderGolf();});}
   else if(v==="edge"&&!golfEdge){renderGolf();loadGolfEdge().then(()=>{if(sport==="golf"&&golfView==="edge")renderGolf();});}
+  else if(v==="matchup"&&golfMatchMode==="offered"&&!golfMatchBoard){renderGolf();loadGolfMatchBoard().then(()=>{if(sport==="golf"&&golfView==="matchup")renderGolf();});}
   else renderGolf();}
 function golfParClass(n){return n==null?"":(n<0?"under":(n>0?"over":"even"));}
 function golfDate(iso){if(!iso)return"";try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch(e){return"";}}
-function setGolfTour(t){if(t===golfTour)return;golfTour=t;golfBoard=null;golfProj=null;golfEdge=null;renderGolf();reload();}
+function setGolfTour(t){if(t===golfTour)return;golfTour=t;golfBoard=null;golfProj=null;golfEdge=null;golfMatchBoard=null;renderGolf();reload();}
 function golfTourTabs(){
   return '<div class="ltabs">'+GOLF_TOURS.map(t=>'<button class="ltab'+(t[0]===golfTour?" on":"")+'" onclick="setGolfTour(\''+t[0]+'\')">'+t[1]+'</button>').join("")+'</div>';
 }
@@ -1651,7 +1668,35 @@ async function loadGolfMatchup(){
   catch(e){golfMatchResult={ready:false,reason:"Could not simulate \u2014 try again."};}
   golfMatchLoading=false;renderGolf();
 }
+function setMatchMode(m){if(m===golfMatchMode)return;golfMatchMode=m;
+  if(m==="offered"&&!golfMatchBoard){renderGolf();loadGolfMatchBoard().then(()=>{if(sport==="golf"&&golfView==="matchup")renderGolf();});}
+  else renderGolf();}
+function gAm(v){return v==null?"\u2014":((v>0?"+":"")+v);}
+function renderGolfMatchBoard(){
+  const mb=golfMatchBoard;
+  if(!mb)return '<div class="empty">Loading matchups\u2026</div>';
+  if(!mb.ready){const M={no_datagolf_key:"DataGolf isn\u2019t configured.",no_market:"No matchups posted yet \u2014 books usually post 3-balls once Round 1 pairings are set, then 2-balls on the weekend. Check back closer to tee-off.",error:(mb.error||"Matchups unavailable right now.")};return '<div class="empty">'+(M[mb.reason]||"Matchups unavailable right now.")+'</div>';}
+  const note='<div class="ge-sub" style="padding:2px 2px 8px">'+(mb.event||"")+' \u00b7 R'+(mb.round||"")+' \u00b7 model price vs best book \u00b7 sorted by edge</div>';
+  const groups=mb.groups.map(g=>{
+    const rows=g.players.map((p,i)=>{
+      const ev=p.edge;
+      const ecol=ev==null?"var(--muted-2)":(ev>0?"#3fd07a":(ev<0?"#e0563f":"var(--fg)"));
+      const val=(ev!=null&&ev>0&&i===0);
+      return '<div class="mb-row'+(val?" val":"")+'">'+
+        '<span class="mb-n">'+(val?'\u2605 ':'')+p.name+'</span>'+
+        '<span class="mb-mod">'+(p.model_pct!=null?p.model_pct+'%':'\u2014')+'<small>'+gAm(p.model_am)+'</small></span>'+
+        '<span class="mb-mkt">'+(p.market_pct!=null?p.market_pct+'%':'\u2014')+'<small>'+gAm(p.market_am)+(p.book?' '+p.book:'')+'</small></span>'+
+        '<span class="mb-edge" style="color:'+ecol+'">'+(ev==null?'\u2014':(ev>0?'+':'')+ev)+'</span></div>';
+    }).join("");
+    return '<div class="mb-card"><div class="mb-head"><span class="mb-tag">'+g.market+'</span><span>Model</span><span>Best book</span><span>Edge</span></div>'+rows+'</div>';
+  }).join("");
+  return note+'<div class="mb-list">'+groups+'</div>';
+}
 function renderGolfMatchup(){
+  const modeTabs='<div class="ltabs" style="padding:2px 0 8px"><button class="ltab'+(golfMatchMode==="offered"?" on":"")+'" onclick="setMatchMode(\'offered\')">Offered matchups</button><button class="ltab'+(golfMatchMode==="custom"?" on":"")+'" onclick="setMatchMode(\'custom\')">Build your own</button></div>';
+  return modeTabs+(golfMatchMode==="offered"?renderGolfMatchBoard():renderGolfMatchCustom());
+}
+function renderGolfMatchCustom(){
   const b=golfBoard;
   if(!b||!b.players||!b.players.length)return '<div class="empty">No field available yet.</div>';
   if(b.event&&b.event.is_complete)return '<div class="empty">Tournament complete \u2014 matchups are for live/upcoming play.</div>';
@@ -1870,6 +1915,20 @@ function soccerBarHTML(g,big){
     '<div class="seg d" style="width:'+pd+'%">'+(pd>=16?"Draw ":"")+pd+'%</div>'+
     '<div class="seg h" style="width:'+ph+'%">'+ph+'%'+(ph>=14?" "+ha:"")+'</div></div>';
 }
+function soccerProjHTML(g){
+  if(g.status==="finished"||!g.proj_score)return"";
+  const ps=g.proj_score,ha=g.home.abbr||g.home.short||"H",aa=g.away.abbr||g.away.short||"A";
+  return '<div class="proj-line">proj score <span class="pr"><b>'+aa+" "+ps.away+"\u2013"+ps.home+" "+ha+'</b></span> <span class="pl-note">'+ps.p+'% likely</span></div>';
+}
+function soccerProjDetailHTML(g){
+  const ps=g.proj_score;if(!ps)return"";
+  const ha=g.home.abbr||g.home.short||"H",aa=g.away.abbr||g.away.short||"A";
+  const alts=(ps.alts||[]).map(a=>'<span class="pscore-chip">'+aa+" "+a.away+"\u2013"+a.home+" "+ha+' <b>'+a.p+'%</b></span>').join("");
+  return '<div class="stat-sec">Projected score</div>'+
+    '<div class="pscore-main">'+aa+' <b>'+ps.away+"\u2013"+ps.home+'</b> '+ha+' <span class="pl-note">'+ps.p+'% \u00b7 most likely line</span></div>'+
+    '<div class="pscore-alts">'+alts+'</div>'+
+    '<div class="note" style="margin-top:6px">Most probable exact scorelines from a Poisson goal model ('+aa+' '+g.exp_goals_away+' xG, '+ha+' '+g.exp_goals_home+' xG). Result split \u2014 '+aa+' '+ps.result_away+'% \u00b7 Draw '+ps.result_draw+'% \u00b7 '+ha+' '+ps.result_home+'%.</div>';
+}
 function soccerCardHTML(g){
   const fin=g.status==="finished",live=g.status==="live";
   const sa=g.score&&g.score.away!=null?g.score.away:"",sh=g.score&&g.score.home!=null?g.score.home:"";
@@ -1889,7 +1948,7 @@ function soccerCardHTML(g){
   const tcol=(side,winSide)=>'<div class="soc-team'+(winSide?" win":"")+'"><img src="'+(side.logo||"")+'" onerror="this.style.visibility=\'hidden\'"><div class="nm">'+(side.name||"")+'</div>'+(side.record?'<div class="rec">'+side.record+'</div>':"")+'</div>';
   return '<div class="card-top"><span class="tier" style="background:'+(TIER_COLOR.soccer||"#2f9e6f")+'">'+(g.league_label||"Soccer")+'</span><span class="tourn">'+(g.venue||"")+'</span><span class="status">'+mark+'</span></div>'+
     '<div class="soc-row">'+tcol(g.away,winAway)+'<div class="soc-mid"><div class="rs">'+midTop+'</div><div class="t'+(live?" live":"")+'">'+midBot+'</div></div>'+tcol(g.home,winHome)+'</div>'+
-    soccerBarHTML(g,false)+soccerEdgeLineHTML(g);
+    soccerBarHTML(g,false)+soccerProjHTML(g)+soccerEdgeLineHTML(g);
 }
 function renderSoccer(){
   renderDatebar();renderSoccerLeagues();
@@ -2009,7 +2068,7 @@ function renderSoccerDetail(g){
   if(soccerDetailTab==="props"){body=propsPanelHTML(soccerProps);}
   else if(soccerDetailTab==="box"){body=soccerStatsHTML(soccerBox);}
   else if(soccerDetailTab==="events"){body='<div class="panel"><div class="stat-sec">Match events</div>'+soccerEventsHTML(g)+'<div class="note">Goals, cards and substitutions as ESPN posts them, newest feeds may lag a minute or two.</div></div>';}
-  else{body='<div class="panel">'+soccerProbExplain(g)+
+  else{body='<div class="panel">'+soccerProbExplain(g)+soccerProjDetailHTML(g)+
     '<div class="note">Three-way result probability (home / draw / away) from a Poisson goals model with home advantage, updated live from the score and minute. Not betting advice.</div></div>'+depthHTML(g);}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;
 }
