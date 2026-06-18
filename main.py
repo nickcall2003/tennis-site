@@ -2664,6 +2664,39 @@ def golf_dg_diag(tour: str = "pga"):
         return JSONResponse({"enabled": False, "error": str(e)})
 
 
+@app.get("/api/golf/dg-matchups-diag")
+def golf_dg_matchups_diag(tour: str = "pga", market: str = "3_balls"):
+    """Shows the raw structure of DataGolf's offered matchups (top-level keys +
+    the first match) so the matchup-tracker parser can be built against the real
+    field names. Try market=3_balls, then tournament_matchups if empty."""
+    try:
+        import datagolf_api
+        data = datagolf_api.matchups(tour, market)
+        if data is None:
+            return JSONResponse({"enabled": datagolf_api.enabled(),
+                                 "note": "no data (not enabled, or feed empty)"})
+        out = {"market_requested": market}
+        if isinstance(data, dict):
+            out["top_keys"] = list(data.keys())
+            out["event"] = data.get("event_name")
+            out["round"] = data.get("round_num")
+            out["market"] = data.get("market")
+            ml = data.get("match_list")
+            out["match_list_type"] = type(ml).__name__
+            if isinstance(ml, list):
+                out["count"] = len(ml)
+                out["first"] = ml[0] if ml else None
+            elif isinstance(ml, str):
+                out["match_list_note"] = ml      # DataGolf returns a note when none offered
+        elif isinstance(data, list):
+            out["top_keys"] = "list"
+            out["count"] = len(data)
+            out["first"] = data[0] if data else None
+        return JSONResponse(out, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
 @app.get("/api/golf/board")
 def golf_board(tour: str = "pga"):
     import golf_provider
