@@ -453,13 +453,28 @@ async def lifespan(app: FastAPI):
     if USE_REAL and run_bg and os.environ.get("TENNIS_ODDS", "1") == "1":
         def _tennis_odds_bg():
             import time as _t
+            from models import OddsSnapshot
             _t.sleep(160)   # let the first build settle + pass healthcheck
+            refresh = int(os.environ.get("TENNIS_ODDS_REFRESH", "3600") or 3600)
             while True:
                 try:
                     plays = _gather_plays(dt.date.today())
+                    tennis = [p for p in plays
+                              if p.get("sport") == "tennis" and p.get("pmid")]
+                    # Skip matches snapshotted within `refresh` secs so each match
+                    # costs ~1 odds request/hour (opening line captured once, then
+                    # occasional refresh for CLV) — keeps us well under the cap.
+                    recent = set()
+                    if tennis:
+                        cutoff = dt.datetime.utcnow() - dt.timedelta(seconds=refresh)
+                        with SessionLocal() as db:
+                            for s in (db.query(OddsSnapshot)
+                                        .filter(OddsSnapshot.sport == "tennis",
+                                                OddsSnapshot.last_seen >= cutoff).all()):
+                                recent.add(s.ref)
                     n = 0
-                    for p in plays:
-                        if p.get("sport") != "tennis":
+                    for p in tennis:
+                        if str(p["id"]) in recent:
                             continue
                         try:
                             _attach_tennis_market(p)
@@ -468,7 +483,7 @@ async def lifespan(app: FastAPI):
                         except Exception:
                             pass
                     if n:
-                        print(f"[tennis-odds] snapshotted {n} match lines")
+                        print(f"[tennis-odds] snapshotted {n} new match lines")
                 except Exception as e:
                     print(f"[tennis-odds] warmer error: {e}")
                 _t.sleep(int(os.environ.get("TENNIS_ODDS_SECS", "1800") or 1800))
@@ -775,25 +790,47 @@ def tennis_debug(date: str | None = None):
 
 @app.get("/api/tennis/odds-diag")
 def tennis_odds_diag(date: str | None = None):
-    """Read-only: is api-tennis returning Home/Away odds, and are tennis picks
-    snapshotting a line? Use this to confirm units/ROI will settle for tennis."""
+    """Read-only: is api-tennis returning Home/Away odds per match, and are
+    tennis picks snapshotting a line? get_odds is per-match (keyed by event id),
+    so we sample a few of today's tour matches and fetch each one's odds."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     out = {"date": target.isoformat()}
     try:
         if not hasattr(provider, "get_odds"):
             return {"error": "not using the live API-Tennis provider", **out}
-        book = provider.get_odds(day=target) or {}
-        out["matches_with_odds"] = len(book)
-        out["sample"] = [
-            {"first": od.get("first"), "second": od.get("second"),
-             "dec_a": od.get("a"), "dec_b": od.get("b"),
-             "amer_a": _dec_to_amer(od["a"]) if od.get("a") else None,
-             "amer_b": _dec_to_amer(od["b"]) if od.get("b") else None}
-            for od in list(book.values())[:6]
-        ]
+        _ensure_day(target)
+        with SessionLocal() as db:
+            rows = (db.query(Match)
+                      .filter(Match.scheduled >= dt.datetime.combine(target, dt.time.min),
+                              Match.scheduled <= dt.datetime.combine(target, dt.time.max))
+                      .order_by(Match.scheduled).limit(8).all())
+            matches = [(m.provider_match_id, m.player_a, m.player_b) for m in rows]
+        out["sampled_matches"] = len(matches)
+        sample = []
+        priced = 0
+        for pmid, a, b in matches:
+            dec_a, dec_b = _tennis_odds_for(pmid, a, b)
+            if dec_a and dec_b:
+                priced += 1
+            sample.append({"pmid": pmid, "a": a, "b": b,
+                           "dec_a": dec_a, "dec_b": dec_b,
+                           "amer_a": _dec_to_amer(dec_a) if dec_a else None,
+                           "amer_b": _dec_to_amer(dec_b) if dec_b else None})
+        out["matches_priced"] = priced
+        out["sample"] = sample
+        # raw get_odds for the first match, so we can see exactly what comes back
+        if matches:
+            pmid0 = matches[0][0]
+            try:
+                raw = provider._call("get_odds", match_key=str(pmid0))
+                out["raw_first"] = {"pmid": pmid0,
+                                    "type": type(raw).__name__,
+                                    "keys": list(raw.keys())[:5] if isinstance(raw, dict) else None,
+                                    "snippet": str(raw)[:400]}
+            except Exception as e:
+                out["raw_first_error"] = str(e)
         out["req_count_today"] = getattr(provider, "_req_count", None)
         out["last_error"] = getattr(provider, "last_error", None)
-        # how many tennis lines have we captured into the snapshot store?
         try:
             from models import OddsSnapshot, PickResult
             with SessionLocal() as db:
@@ -988,7 +1025,7 @@ def match_detail(match_id: int):
         tns_odds = None
         try:
             # Match-winner moneyline from api-tennis (included in the plan).
-            dec_a, dec_b = _tennis_odds_for(m.player_a, m.player_b)
+            dec_a, dec_b = _tennis_odds_for(m.provider_match_id, m.player_a, m.player_b)
             if dec_a and dec_b:
                 tns_odds = {"ml_a": _dec_to_amer(dec_a), "ml_b": _dec_to_amer(dec_b)}
         except Exception as e:
@@ -1180,32 +1217,27 @@ def _record_result(db, sport, ref, predicted, actual):
     _recorded_refs.add(memo)
 
 
-def _tennis_odds_for(player_a, player_b):
-    """Best Home/Away decimals for this match from api-tennis, aligned so the
-    first value is player_a's price. (None, None) if unavailable. Matches by
-    normalized name (both sides come from api-tennis's own strings, so they line
-    up), and handles the case where the feed lists the players in flipped order."""
+def _tennis_odds_for(pmid, player_a, player_b):
+    """Best Home/Away decimals for ONE match, fetched per-match from api-tennis
+    (get_odds is per-match, keyed by event id), with the first value aligned to
+    player_a. api-tennis Home == first player == player_a, so alignment holds by
+    construction; we double-check by name when the feed carries them. Returns
+    (None, None) if no odds are posted for this match yet."""
     prov = globals().get("provider")
-    if prov is None or not hasattr(prov, "get_odds"):
+    if prov is None or not hasattr(prov, "get_odds") or not pmid:
         return None, None
     try:
         from odds_api import _norm
-        book = prov.get_odds(day=dt.date.today())   # provider-cached ~120s
-        if not book:
+        book = prov.get_odds(match_key=pmid)   # {pmid: {...}}, cached per match
+        od = book.get(str(pmid))
+        if not od:
             return None, None
-        na, nb = _norm(player_a), _norm(player_b)
-        for od in book.values():
-            f, s = od.get("first"), od.get("second")
-            if not f or not s:
-                continue
-            nf, ns = _norm(f), _norm(s)
-            if nf == na and ns == nb:
-                return od["a"], od["b"]
-            if nf == nb and ns == na:       # feed listed them flipped
-                return od["b"], od["a"]
+        f, s = od.get("first"), od.get("second")
+        if f and s and _norm(f) == _norm(player_b) and _norm(s) == _norm(player_a):
+            return od["b"], od["a"]            # feed listed them flipped
+        return od["a"], od["b"]
     except Exception:
-        pass
-    return None, None
+        return None, None
 
 
 def _attach_tennis_market(p):
@@ -1216,7 +1248,7 @@ def _attach_tennis_market(p):
     names = [n.strip() for n in p.get("match", "").split(" vs ")]
     if len(names) != 2:
         return
-    dec_a, dec_b = _tennis_odds_for(names[0], names[1])
+    dec_a, dec_b = _tennis_odds_for(p.get("pmid"), names[0], names[1])
     if not (dec_a and dec_b):
         return
     from odds_api import _norm
@@ -1551,6 +1583,7 @@ def _gather_plays_uncached(target: dt.date):
             tctx["surface_record"] = _surface_record_str(pick, m.surface)
             plays.append({
                 "sport": "tennis", "id": m.id, "kind": "moneyline",
+                "pmid": m.provider_match_id,
                 "match": f"{m.player_a} vs {m.player_b}", "tournament": m.tournament,
                 "pick": f"{pick} to win", "prob": round(prob, 3),
                 "confidence": getattr(pred, "confidence", "high"),
