@@ -54,6 +54,18 @@ def _classify_tier(fix):
     if "doubles" in hay or "/" in (fix.get("event_first_player") or ""):
         return None
 
+    # Exclude national-team competitions (Davis Cup, Billie Jean King Cup,
+    # United Cup, Laver/ATP Cup). api-tennis tags these "Teams Men"/"Teams Women"
+    # and lists them country-vs-country (e.g. "Armenia" vs "Albania") with no
+    # player-level odds, so they are not bettable singles and must never enter
+    # the slate — otherwise every tie shows up as a phantom match "awaiting
+    # market". The word "men"/"women" in "Teams Men/Women" was wrongly tagging
+    # them ATP/WTA below.
+    if "teams" in hay or any(k in name for k in (
+            "davis cup", "billie jean king", "united cup",
+            "laver cup", "atp cup", "fed cup")):
+        return None
+
     is_women = ("women" in hay or "wta" in hay or "ladies" in hay
                 or "girls" in hay)
     is_men = ("men" in hay or "atp" in hay or "boys" in hay) and not is_women

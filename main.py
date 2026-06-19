@@ -845,6 +845,19 @@ def tennis_odds_diag(date: str | None = None):
     return out
 
 
+_TEAM_EVENT_KEYS = ("davis cup", "billie jean king", "bjk cup", "united cup",
+                    "laver cup", "atp cup", "fed cup", "world team", "teams")
+
+
+def _is_tennis_team_event(m):
+    """True for national-team competitions (Davis Cup, BJK Cup, United/Laver Cup).
+    These are country-vs-country with no player-level odds; the classifier now
+    excludes them from new slates, but this also hides any already-loaded rows so
+    they stop showing as phantom 'awaiting market' cards immediately."""
+    name = (getattr(m, "tournament", "") or "").lower()
+    return any(k in name for k in _TEAM_EVENT_KEYS)
+
+
 @app.get("/api/matches")
 def list_matches(date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
@@ -854,6 +867,7 @@ def list_matches(date: str | None = None):
                   .filter(Match.scheduled >= dt.datetime.combine(target, dt.time.min),
                           Match.scheduled <= dt.datetime.combine(target, dt.time.max))
                   .order_by(Match.scheduled).all())
+        rows = [m for m in rows if not _is_tennis_team_event(m)]
         result = [_match_row(db, m) for m in rows]
         # log settled tennis picks for the accuracy tracker (best-effort)
         try:
@@ -882,6 +896,8 @@ def list_tournaments(date: str | None = None):
                   .all())
         groups = {}
         for m in rows:
+            if _is_tennis_team_event(m):
+                continue
             k = m.tournament_key or m.tournament
             g = groups.setdefault(k, {"key": k, "name": m.tournament, "tier": m.tier,
                                       "count": 0, "live": 0})
@@ -1564,6 +1580,8 @@ def _gather_plays_uncached(target: dt.date):
                           Match.scheduled <= dt.datetime.combine(target, dt.time.max))
                   .all())
         for m, pred, live in rows:
+            if _is_tennis_team_event(m):
+                continue
             if live and live.status == "finished":
                 continue
             prob = max(pred.prob_a, 1 - pred.prob_a)
