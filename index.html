@@ -421,6 +421,26 @@
   .mb-res.win{background:#3fd07a;color:#0e1014}
   .mb-res.loss{background:#e0563f;color:#fff}
   .mb-res.push{background:var(--muted-2);color:#0e1014}
+  .mb-card{cursor:pointer}
+  .mb-caret{color:var(--muted-2);font-size:9px;margin-left:3px}
+  .mb-card.mb-open{border-color:var(--clay)}
+  .mb-why{border-top:1px dashed var(--line);padding:9px 11px;background:rgba(255,255,255,.02);cursor:default}
+  .mw-head{font-family:"Space Mono",monospace;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);margin-bottom:6px}
+  .mw-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:3px 0;font-size:12.5px}
+  .mw-st{color:var(--muted);font-size:11px;font-family:"Space Mono",monospace}
+  .mw-fit{font-size:11.5px;font-weight:700;min-width:42px;text-align:right}
+  .mw-sum{margin-top:7px;font-size:12.5px;line-height:1.5;color:var(--fg)}
+  .wx-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 11px;margin:6px 0 2px}
+  .wx-h{font-family:"Space Mono",monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
+  .wx-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
+  .wx-day{flex:1 0 auto;min-width:58px;text-align:center;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:7px 4px}
+  .wx-dow{font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+  .wx-ic{font-size:18px;line-height:1.5}
+  .wx-t{font-size:13px;font-weight:800}.wx-t small{font-size:10px;color:var(--muted);font-weight:500;margin-left:2px}
+  .wx-w{font-size:11px;font-weight:700;margin-top:2px;color:var(--fg)}.wx-w small{font-size:8px;color:var(--muted);font-weight:500;margin-left:1px}
+  .wx-w.wx-windy{color:#e8923f}
+  .wx-p{font-size:9.5px;color:#5aa9e6;margin-top:1px;min-height:12px}
+  .wx-note{font-size:10.5px;color:var(--muted);margin-top:7px;line-height:1.4}
   .mb-legend{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.65}
   .mb-legend b{color:var(--fg)}
   .mb-n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -673,7 +693,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v71</span>
+    Not betting advice. <span style="opacity:.4">build v72</span>
   </footer>
 </div>
 <script>
@@ -1055,6 +1075,7 @@ let soccerGames=[],soccerLeague="all",soccerLeagues=[],soccerGame=null,soccerDet
 let ufcGames=[],ufcEvent="UFC",ufcGame=null;
 let golfBoard=null,golfTour="pga",golfById={},golfView="board",golfProj=null,golfEdge=null,golfProjModel="baseline";
 let golfMatchSel=[],golfMatchScope="tournament",golfMatchResult=null,golfMatchQuery="",golfMatchLoading=false,golfMatchBoard=null,golfMatchMode="offered";
+let golfWeather=null,golfWeatherReq=false,golfMatchExpanded={};
 const GOLF_TOURS=[["pga","PGA"],["eur","DP World"],["lpga","LPGA"],["champions-tour","Champions"],["liv","LIV"]];
 let teamProps=null,teamBox=null,teamDetailTab="prediction",teamGame=null;
 let view="sport";  // "sport" | "free" | "best"
@@ -1651,6 +1672,7 @@ async function loadGolf(){
 async function loadGolfProj(){try{golfProj=await getJSON("/api/golf/projections?tour="+golfTour);}catch(e){golfProj=null;}}
 async function loadGolfEdge(){try{golfEdge=await getJSON("/api/golf/edge?tour="+golfTour);}catch(e){golfEdge=null;}}
 async function loadGolfMatchBoard(){try{golfMatchBoard=await getJSON("/api/golf/matchup-board?tour="+golfTour);}catch(e){golfMatchBoard=null;}}
+async function loadGolfWeather(){try{golfWeather=await getJSON("/api/golf/weather?tour="+golfTour);}catch(e){golfWeather=null;}}
 function setGolfView(v){if(v===golfView)return;golfView=v;
   if(v==="proj"&&!golfProj){renderGolf();loadGolfProj().then(()=>{if(sport==="golf"&&golfView==="proj")renderGolf();});}
   else if(v==="edge"&&!golfEdge){renderGolf();loadGolfEdge().then(()=>{if(sport==="golf"&&golfView==="edge")renderGolf();});}
@@ -1658,7 +1680,7 @@ function setGolfView(v){if(v===golfView)return;golfView=v;
   else renderGolf();}
 function golfParClass(n){return n==null?"":(n<0?"under":(n>0?"over":"even"));}
 function golfDate(iso){if(!iso)return"";try{return new Date(iso).toLocaleDateString(undefined,{month:"short",day:"numeric"});}catch(e){return"";}}
-function setGolfTour(t){if(t===golfTour)return;golfTour=t;golfBoard=null;golfProj=null;golfEdge=null;golfMatchBoard=null;renderGolf();reload();}
+function setGolfTour(t){if(t===golfTour)return;golfTour=t;golfBoard=null;golfProj=null;golfEdge=null;golfMatchBoard=null;golfWeather=null;golfWeatherReq=false;golfMatchExpanded={};renderGolf();reload();}
 function golfTourTabs(){
   return '<div class="ltabs">'+GOLF_TOURS.map(t=>'<button class="ltab'+(t[0]===golfTour?" on":"")+'" onclick="setGolfTour(\''+t[0]+'\')">'+t[1]+'</button>').join("")+'</div>';
 }
@@ -1754,7 +1776,7 @@ function renderGolfMatchBoard(){
     '<div>When the round finishes, the card turns <span style="color:#3fd07a">green \u2713</span> if the \u2605 pick won the matchup, <span style="color:#e0563f">red \u2717</span> if it lost.</div>'+
     '</div>';
   const note='<div class="ge-sub" style="padding:2px 2px 8px">'+(mb.event||"")+' \u00b7 R'+(mb.round||"")+(mb.live?' \u00b7 live':'')+' \u00b7 sorted by biggest edge in the group</div>';
-  const groups=mb.groups.map(g=>{
+  const groups=mb.groups.map((g,gi)=>{
     const rows=g.players.map(p=>{
       const ev=p.edge;
       const ecol=ev==null?"var(--muted-2)":(ev>0?"#3fd07a":(ev<0?"#e0563f":"var(--fg)"));
@@ -1771,7 +1793,9 @@ function renderGolfMatchBoard(){
     const badge=res==="win"?'<span class="mb-res win">\u2713</span>':
                 res==="loss"?'<span class="mb-res loss">\u2717</span>':
                 res==="push"?'<span class="mb-res push">PUSH</span>':'';
-    return '<div class="mb-card'+cardCls+'"><div class="mb-head"><span class="mb-tag">'+g.market+badge+'</span><span>Model</span><span>Best book</span><span>Edge</span></div>'+rows+'</div>';
+    const open=!!golfMatchExpanded[gi];
+    const why=open?matchWhyHTML(g):'';
+    return '<div class="mb-card'+cardCls+(open?" mb-open":"")+'" onclick="toggleMatchWhy('+gi+')"><div class="mb-head"><span class="mb-tag">'+g.market+badge+'</span><span>Model</span><span>Best book</span><span>Edge <span class="mb-caret">'+(open?"\u25B4":"\u25BE")+'</span></span></div>'+rows+why+'</div>';
   }).join("");
   return legend+note+'<div class="mb-list">'+groups+'</div>';
 }
@@ -1831,6 +1855,57 @@ function renderGolfEdge(){
   const legend='<div class="ge-sub" style="padding:0 2px 8px;color:var(--muted-2)">Positive edge = the model rates the player higher than the best book price implies.</div>';
   return note+'<div class="glf-board">'+head+rows+'</div>'+legend;
 }
+function wxDow(d){try{const dt=new Date(d+"T12:00:00");return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dt.getDay()];}catch(e){return d;}}
+function wxIcon(code){
+  if(code==null)return "\u2600\uFE0F";
+  if(code===0)return "\u2600\uFE0F";
+  if(code<=2)return "\u26C5";
+  if(code===3)return "\u2601\uFE0F";
+  if(code>=45&&code<=48)return "\u{1F32B}\uFE0F";
+  if(code>=51&&code<=67)return "\u{1F327}\uFE0F";
+  if(code>=71&&code<=77)return "\u2744\uFE0F";
+  if(code>=80&&code<=82)return "\u{1F327}\uFE0F";
+  if(code>=95)return "\u26C8\uFE0F";
+  return "\u26C5";
+}
+function golfWeatherHTML(){
+  const w=golfWeather;
+  if(!w||!w.ready||!(w.days&&w.days.length))return "";
+  const cells=w.days.slice(0,6).map(d=>{
+    const wind=d.wind!=null?Math.round(d.wind):null,gust=d.gust!=null?Math.round(d.gust):null;
+    const windy=wind!=null&&wind>=20;
+    return '<div class="wx-day">'+
+      '<div class="wx-dow">'+wxDow(d.date)+'</div>'+
+      '<div class="wx-ic">'+wxIcon(d.code)+'</div>'+
+      '<div class="wx-t">'+(d.tmax!=null?Math.round(d.tmax)+"\u00b0":"\u2014")+'<small>'+(d.tmin!=null?Math.round(d.tmin)+"\u00b0":"")+'</small></div>'+
+      '<div class="wx-w'+(windy?" wx-windy":"")+'">'+(wind!=null?wind+(gust?"-"+gust:"")+'<small>mph</small>':"\u2014")+'</div>'+
+      '<div class="wx-p">'+(d.pop!=null&&d.pop>0?"\u{1F4A7} "+d.pop+"%":"")+'</div>'+
+    '</div>';
+  }).join("");
+  const loc=(w.venue||w.city||"")+(w.region?", "+w.region:"");
+  return '<div class="wx-card"><div class="wx-h">\u26C5 Tournament weather'+(loc?' \u00b7 '+loc:'')+'</div>'+
+    '<div class="wx-row">'+cells+'</div>'+
+    '<div class="wx-note">Wind is the big mover in golf \u2014 sustained 20+ mph (orange) reshuffles scoring and favors ball-strikers.</div></div>';
+}
+function toggleMatchWhy(i){golfMatchExpanded[i]=!golfMatchExpanded[i];renderGolf();}
+function matchWhyHTML(g){
+  const fav=g.players.find(p=>p.fav)||g.players[0];
+  const rows=g.players.map(p=>{
+    const fd=p.fit_delta;
+    const fds=fd==null?"":'<span style="color:'+(fd>0?"#3fd07a":(fd<0?"#e0563f":"var(--muted)"))+'">'+(fd>0?"+":"")+fd+'%</span>';
+    return '<div class="mw-row"><span class="mw-nm">'+(p.fav?'<span class="favstar">\u2605</span> ':'')+p.name+'</span>'+
+      '<span class="mw-st">win '+(p.win_pct!=null?p.win_pct+"%":"\u2014")+' \u00b7 top20 '+(p.top20_pct!=null?p.top20_pct+"%":"\u2014")+'</span>'+
+      '<span class="mw-fit">'+(fds||'\u00b7')+'</span></div>';
+  }).join("");
+  let why='The model gives <b>'+fav.name+'</b> the best chance ('+(fav.model_pct!=null?fav.model_pct+"%":"\u2014")+') in this '+g.market+'.';
+  if(fav.market_pct!=null&&fav.edge!=null){
+    why+=' The market prices that at '+fav.market_pct+'%, ';
+    why+=(fav.edge>0?'so there\u2019s a <b style="color:#3fd07a">+'+fav.edge+'-pt edge</b> (value).':(fav.edge<0?'so it\u2019s '+Math.abs(fav.edge)+' pts of value short of the line.':'roughly in line with the market.'));
+  }
+  if(fav.fit_delta!=null&&fav.fit_delta>0.3)why+=' The venue suits their game (+'+fav.fit_delta+'% vs a neutral course).';
+  else if(fav.fit_delta!=null&&fav.fit_delta<-0.3)why+=' The course is a slightly weaker fit for them ('+fav.fit_delta+'%).';
+  return '<div class="mb-why" onclick="event.stopPropagation()"><div class="mw-head">Why \u2014 skill (tournament win% / top-20%) &amp; course fit</div>'+rows+'<div class="mw-sum">'+why+'</div></div>';
+}
 function renderGolf(){
   document.getElementById("datebar").innerHTML="";
   document.getElementById("tabs").innerHTML=golfTourTabs();
@@ -1844,6 +1919,7 @@ function renderGolf(){
     return;
   }
   const ev=b.event,players=b.players||[];
+  if(!golfWeatherReq){golfWeatherReq=true;loadGolfWeather().then(()=>{if(sport==="golf")renderGolf();});}
   golfById={};players.forEach(p=>golfById[p.id]=p);
   const leader=players[0];
   bub.innerHTML=
@@ -1854,7 +1930,7 @@ function renderGolf(){
   if(b.tour_name)sub+=" \u00b7 "+b.tour_name;
   if(b.cut_line)sub+=" \u00b7 Cut "+b.cut_line;
   const evhdr='<div class="glf-event"><div class="ge-name">'+ev.name+'</div><div class="ge-sub">'+sub+'</div>'+
-    (ev.is_complete&&b.next_event?'<div class="ge-next">Next: '+b.next_event.name+' \u2014 '+golfDate(b.next_event.start)+'</div>':'')+'</div>';
+    (ev.is_complete&&b.next_event?'<div class="ge-next">Next: '+b.next_event.name+' \u2014 '+golfDate(b.next_event.start)+'</div>':'')+'</div>'+golfWeatherHTML();
   const toggle='<div class="gtog"><button class="gtog-b'+(golfView==="board"?" on":"")+'" onclick="setGolfView(\'board\')">Board</button><button class="gtog-b'+(golfView==="proj"?" on":"")+'" onclick="setGolfView(\'proj\')">Projections</button><button class="gtog-b'+(golfView==="matchup"?" on":"")+'" onclick="setGolfView(\'matchup\')">Matchups</button><button class="gtog-b'+(golfView==="edge"?" on":"")+'" onclick="setGolfView(\'edge\')">Edge</button></div>';
   if(golfView==="proj"){list.innerHTML=evhdr+toggle+renderGolfProj();return;}
   if(golfView==="matchup"){list.innerHTML=evhdr+toggle+renderGolfMatchup();return;}

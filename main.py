@@ -2935,6 +2935,47 @@ def golf_dg_matchups_diag(tour: str = "pga", market: str = "3_balls"):
         return JSONResponse({"error": str(e)})
 
 
+@app.get("/api/golf/weather")
+def golf_weather(tour: str = "pga"):
+    """Tournament weather (free, via Open-Meteo). Geocodes the venue city, then
+    returns a per-day forecast across the event dates. Wind is the golf driver."""
+    try:
+        import golf_provider, weather
+        board = golf_provider.get_board(tour)
+        ev = (board or {}).get("event") or {}
+        if not ev:
+            return JSONResponse({"ready": False, "reason": "no_event"})
+        start = (ev.get("start") or "")[:10] or None
+        end = (ev.get("end") or "")[:10] or None
+        # Open-Meteo's forecast endpoint only covers today forward; clamp a start
+        # that's already in the past so we still get the remaining rounds.
+        today = dt.date.today().isoformat()
+        if start and start < today:
+            start = today
+        if end and end < today:
+            end = today
+        w = weather.tournament_weather(ev.get("city"), ev.get("state"),
+                                       start, end, ev.get("venue"))
+        w["event"] = ev.get("name")
+        w["tour"] = tour
+        return JSONResponse(w, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"ready": False, "reason": "error", "error": str(e)})
+
+
+@app.get("/api/golf/weather-diag")
+def golf_weather_diag(tour: str = "pga"):
+    try:
+        import golf_provider
+        ev = (golf_provider.get_board(tour) or {}).get("event") or {}
+        return JSONResponse({"event": ev.get("name"), "venue": ev.get("venue"),
+                             "city": ev.get("city"), "state": ev.get("state"),
+                             "start": ev.get("start"), "end": ev.get("end")},
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+
+
 @app.get("/api/golf/matchup-board")
 def golf_matchup_board(tour: str = "pga"):
     """Full value board of every offered matchup (model price vs best book +
@@ -2982,6 +3023,24 @@ def golf_matchup_board(tour: str = "pga"):
                 g["result"] = None
         ev = board.get("event") or {}
         b["live"] = bool(ev.get("is_live"))
+        # Enrich each player with tournament skill (baseline win%) + course-fit
+        # delta (fit model win% minus baseline) so the detail page can explain the
+        # edge: quality of player vs whether the venue suits them.
+        try:
+            base = datagolf_api.pre_tournament(tour, "baseline") or {}
+            fitm = datagolf_api.pre_tournament(tour, "fit") or {}
+            bpl, fpl = base.get("players") or {}, fitm.get("players") or {}
+            for g in b["groups"]:
+                for pl in g["players"]:
+                    nm = datagolf_api._norm(pl["name"])
+                    bm, fm = bpl.get(nm), fpl.get(nm)
+                    if bm:
+                        pl["win_pct"] = bm.get("win")
+                        pl["top20_pct"] = bm.get("top20")
+                    if bm and fm and bm.get("win") is not None and fm.get("win") is not None:
+                        pl["fit_delta"] = round(fm["win"] - bm["win"], 1)
+        except Exception:
+            pass
         b["ready"] = True
         b["tour"] = tour
         return JSONResponse(b, headers={"Cache-Control": "no-store"})
