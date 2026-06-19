@@ -195,6 +195,15 @@
   .menu-item{padding:11px 14px;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600}
   .menu-item:hover{background:var(--panel-3)}
   .menu-item.active{background:var(--clay);color:#0e1014}
+  .ts-row{display:flex;gap:6px;padding:2px 12px 10px}
+  .ts-opt{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 0;cursor:pointer;font-weight:800;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1;font-family:"Fraunces",serif}
+  .ts-opt:nth-child(1){font-size:14px}
+  .ts-opt:nth-child(2){font-size:17px}
+  .ts-opt:nth-child(3){font-size:21px}
+  .ts-opt small{font-family:"Space Mono",monospace;font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:400}
+  .ts-opt:hover{border-color:var(--clay)}
+  .ts-opt.active{border-color:var(--clay-bright);color:var(--clay-bright)}
+  .ts-opt.active small{color:var(--clay-bright)}
   .menu-sec{font-family:"Space Mono",monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted-2);padding:8px 14px 4px}
   .picks-head{font-family:"Fraunces",serif;font-weight:900;font-size:26px;margin:0 0 4px}
   .picks-sub{color:var(--muted);font-size:13px;margin-bottom:18px}
@@ -636,6 +645,12 @@
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           <div class="menu-sec">More</div>
           <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
+          <div class="menu-sec">Text size</div>
+          <div class="ts-row" id="ts-row">
+            <button class="ts-opt" data-ts="1">A<small>Normal</small></button>
+            <button class="ts-opt" data-ts="1.15">A<small>Large</small></button>
+            <button class="ts-opt" data-ts="1.3">A<small>Larger</small></button>
+          </div>
         </div>
       </div>
     </div>
@@ -651,7 +666,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v68</span>
+    Not betting advice. <span style="opacity:.4">build v70</span>
   </footer>
 </div>
 <script>
@@ -1064,6 +1079,27 @@ function toggleMenu(force){const m=document.getElementById("menu");const open=fo
 document.getElementById("menu-btn").onclick=e=>{e.stopPropagation();toggleMenu();};
 document.querySelectorAll(".menu-item").forEach(it=>it.onclick=()=>{toggleMenu(false);selectMenu(it);});
 document.addEventListener("click",()=>toggleMenu(false));
+// Text size: scale the whole UI via CSS zoom (reflows like browser zoom, so text
+// AND layout grow with no horizontal scroll). Persisted across visits.
+(function(){
+  function applyTextSize(z){
+    z=String(z||"1");
+    try{document.documentElement.style.zoom=z;}catch(e){}
+    document.querySelectorAll(".ts-opt").forEach(function(b){
+      b.classList.toggle("active",b.dataset.ts===z);
+    });
+  }
+  var saved="1";try{saved=localStorage.getItem("ll_textsize")||"1";}catch(e){}
+  applyTextSize(saved);
+  document.querySelectorAll(".ts-opt").forEach(function(b){
+    b.onclick=function(e){
+      e.stopPropagation();            // keep the menu open while trying sizes
+      var z=b.dataset.ts;
+      try{localStorage.setItem("ll_textsize",z);}catch(e2){}
+      applyTextSize(z);
+    };
+  });
+})();
 async function loadTeam(sp){
   try{teamGames=await getJSON("/api/"+sp+"/games?date="+ymd(selected));}catch(e){teamGames=[];}
   // Only auto-scan forward for sparse college baseball, and keep it cheap:
@@ -1984,12 +2020,26 @@ function soccerCardHTML(g){
     '<div class="soc-row">'+tcol(g.away,winAway)+'<div class="soc-mid"><div class="rs">'+midTop+'</div><div class="t'+(live?" live":"")+'">'+midBot+'</div></div>'+tcol(g.home,winHome)+'</div>'+
     soccerBarHTML(g,false)+soccerProjHTML(g)+soccerEdgeLineHTML(g);
 }
+function soccerDayStats(){
+  // Mirror the card grading: model picks the higher-probability side; a finished
+  // match settles win/loss, and a draw is a push (excluded), so the % matches
+  // the recorded soccer accuracy.
+  let p=0,c=0;
+  (soccerGames||[]).forEach(g=>{
+    if(g.status==="finished"&&g.winner&&g.winner!=="draw"){
+      const pick=g.prob_home>=g.prob_away?"home":"away";
+      p++;if(pick===g.winner)c++;
+    }
+  });
+  return{p:p,c:c,acc:p?Math.round(c/p*100):0};
+}
 function renderSoccer(){
   renderDatebar();renderSoccerLeagues();
   const live=soccerGames.filter(g=>g.status==="live").length;
+  const ss=soccerDayStats();
   document.getElementById("bubbles").innerHTML='<div class="bubble"><div class="num">'+soccerGames.length+'</div><div class="lab">Matches</div></div>'+
     '<div class="bubble'+(live?" won":"")+'"><div class="num">'+live+'</div><div class="lab">Live now</div></div>'+
-    '<div class="bubble acc"><div class="num">'+((soccerLeagues||[]).length||15)+'</div><div class="lab">Leagues</div></div>';
+    '<div class="bubble acc"><div class="num">'+(ss.p?ss.acc+"%":"\u2014")+'</div><div class="lab">Day accuracy</div></div>';
   const list=document.getElementById("list");
   if(!soccerGames.length){list.innerHTML='<div class="empty">No '+soccerLabel(soccerLeague)+' matches for '+ymd(selected)+'. Use the date arrows or pick another league.</div>';return;}
   list.innerHTML="";
