@@ -1,5 +1,5 @@
 """
-weather.py
+golf_weather.py
 ----------
 Tournament weather via Open-Meteo (https://open-meteo.com) — free, no API key.
 
