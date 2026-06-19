@@ -2940,7 +2940,7 @@ def golf_weather(tour: str = "pga"):
     """Tournament weather (free, via Open-Meteo). Geocodes the venue city, then
     returns a per-day forecast across the event dates. Wind is the golf driver."""
     try:
-        import golf_provider, weather
+        import golf_provider, golf_weather
         board = golf_provider.get_board(tour)
         ev = (board or {}).get("event") or {}
         if not ev:
@@ -2954,7 +2954,7 @@ def golf_weather(tour: str = "pga"):
             start = today
         if end and end < today:
             end = today
-        w = weather.tournament_weather(ev.get("city"), ev.get("state"),
+        w = golf_weather.tournament_weather(ev.get("city"), ev.get("state"),
                                        start, end, ev.get("venue"))
         w["event"] = ev.get("name")
         w["tour"] = tour
