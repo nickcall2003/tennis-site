@@ -446,6 +446,35 @@ async def lifespan(app: FastAPI):
         import threading as _thr_tla
         _thr_tla.Thread(target=_tennis_lookahead, daemon=True).start()
 
+    # Tennis odds warmer — snapshots today's tennis picks' market line from
+    # api-tennis (included in the plan) every ~30 min, so units/ROI/CLV settle
+    # even for matches no one opened. Independent of the Odds API; the provider
+    # caches the whole-day odds pull (~1 request per cycle). Disable: TENNIS_ODDS=0.
+    if USE_REAL and run_bg and os.environ.get("TENNIS_ODDS", "1") == "1":
+        def _tennis_odds_bg():
+            import time as _t
+            _t.sleep(160)   # let the first build settle + pass healthcheck
+            while True:
+                try:
+                    plays = _gather_plays(dt.date.today())
+                    n = 0
+                    for p in plays:
+                        if p.get("sport") != "tennis":
+                            continue
+                        try:
+                            _attach_tennis_market(p)
+                            if p.get("market_odds") is not None:
+                                n += 1
+                        except Exception:
+                            pass
+                    if n:
+                        print(f"[tennis-odds] snapshotted {n} match lines")
+                except Exception as e:
+                    print(f"[tennis-odds] warmer error: {e}")
+                _t.sleep(int(os.environ.get("TENNIS_ODDS_SECS", "1800") or 1800))
+        import threading as _thr_to
+        _thr_to.Thread(target=_tennis_odds_bg, daemon=True).start()
+
     # Odds-snapshot warmer — OFF by default. On a free Odds API tier this loop
     # can consume the whole monthly quota and starve the live board's edge/odds.
     # Only enable (ODDS_SNAPSHOT=1) if you have quota headroom (paid plan).
@@ -744,6 +773,41 @@ def tennis_debug(date: str | None = None):
     return out
 
 
+@app.get("/api/tennis/odds-diag")
+def tennis_odds_diag(date: str | None = None):
+    """Read-only: is api-tennis returning Home/Away odds, and are tennis picks
+    snapshotting a line? Use this to confirm units/ROI will settle for tennis."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    out = {"date": target.isoformat()}
+    try:
+        if not hasattr(provider, "get_odds"):
+            return {"error": "not using the live API-Tennis provider", **out}
+        book = provider.get_odds(day=target) or {}
+        out["matches_with_odds"] = len(book)
+        out["sample"] = [
+            {"first": od.get("first"), "second": od.get("second"),
+             "dec_a": od.get("a"), "dec_b": od.get("b"),
+             "amer_a": _dec_to_amer(od["a"]) if od.get("a") else None,
+             "amer_b": _dec_to_amer(od["b"]) if od.get("b") else None}
+            for od in list(book.values())[:6]
+        ]
+        out["req_count_today"] = getattr(provider, "_req_count", None)
+        out["last_error"] = getattr(provider, "last_error", None)
+        # how many tennis lines have we captured into the snapshot store?
+        try:
+            from models import OddsSnapshot, PickResult
+            with SessionLocal() as db:
+                out["tennis_snapshots"] = db.query(OddsSnapshot).filter_by(sport="tennis").count()
+                settled = db.query(PickResult).filter_by(sport="tennis").all()
+                out["tennis_settled"] = len(settled)
+                out["tennis_settled_with_odds"] = sum(1 for r in settled if r.taken_odds is not None)
+        except Exception as e:
+            out["store_error"] = str(e)
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
 @app.get("/api/matches")
 def list_matches(date: str | None = None):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
@@ -923,18 +987,10 @@ def match_detail(match_id: int):
 
         tns_odds = None
         try:
-            import odds_api
-            if odds_api.enabled():
-                book = odds_api.get_tennis_odds()
-                from odds_api import _norm
-                rec = book.get(_norm(m.player_a) + "|" + _norm(m.player_b))
-                if rec:
-                    if _norm(rec["a"]) == _norm(m.player_a):
-                        dec_a, dec_b = rec.get("odds_a"), rec.get("odds_b")
-                    else:
-                        dec_a, dec_b = rec.get("odds_b"), rec.get("odds_a")
-                    tns_odds = {"ml_a": odds_api.american_from_decimal(dec_a) if dec_a else None,
-                                "ml_b": odds_api.american_from_decimal(dec_b) if dec_b else None}
+            # Match-winner moneyline from api-tennis (included in the plan).
+            dec_a, dec_b = _tennis_odds_for(m.player_a, m.player_b)
+            if dec_a and dec_b:
+                tns_odds = {"ml_a": _dec_to_amer(dec_a), "ml_b": _dec_to_amer(dec_b)}
         except Exception as e:
             print(f"[detail] tennis odds failed: {e}")
 
@@ -1122,6 +1178,60 @@ def _record_result(db, sport, ref, predicted, actual):
                       correct=(str(predicted) == str(actual)),
                       taken_odds=taken, close_odds=close))
     _recorded_refs.add(memo)
+
+
+def _tennis_odds_for(player_a, player_b):
+    """Best Home/Away decimals for this match from api-tennis, aligned so the
+    first value is player_a's price. (None, None) if unavailable. Matches by
+    normalized name (both sides come from api-tennis's own strings, so they line
+    up), and handles the case where the feed lists the players in flipped order."""
+    prov = globals().get("provider")
+    if prov is None or not hasattr(prov, "get_odds"):
+        return None, None
+    try:
+        from odds_api import _norm
+        book = prov.get_odds(day=dt.date.today())   # provider-cached ~120s
+        if not book:
+            return None, None
+        na, nb = _norm(player_a), _norm(player_b)
+        for od in book.values():
+            f, s = od.get("first"), od.get("second")
+            if not f or not s:
+                continue
+            nf, ns = _norm(f), _norm(s)
+            if nf == na and ns == nb:
+                return od["a"], od["b"]
+            if nf == nb and ns == na:       # feed listed them flipped
+                return od["b"], od["a"]
+    except Exception:
+        pass
+    return None, None
+
+
+def _attach_tennis_market(p):
+    """Attach api-tennis market odds + de-vigged edge to a tennis pick, and
+    snapshot the line so units/ROI/CLV settle from the included feed (no Odds
+    API credits spent). Pick side is read from the 'A vs B' match string."""
+    from clv import american_to_prob
+    names = [n.strip() for n in p.get("match", "").split(" vs ")]
+    if len(names) != 2:
+        return
+    dec_a, dec_b = _tennis_odds_for(names[0], names[1])
+    if not (dec_a and dec_b):
+        return
+    from odds_api import _norm
+    pick_name = _norm(p.get("pick", "").replace(" to win", "").strip())
+    side = "a" if pick_name == _norm(names[0]) else "b"
+    am = _dec_to_amer(dec_a if side == "a" else dec_b)
+    if am is None:
+        return
+    p["market_odds"] = am
+    if p.get("fair_odds") is not None:
+        fp = american_to_prob(p["fair_odds"])
+        mp = american_to_prob(am)
+        if fp is not None and mp is not None:
+            p["edge_pct"] = round((fp - mp) * 100, 1)
+    _snapshot_odds("tennis", str(p["id"]), side, am)
 
 
 _acc_cache = {"ts": 0.0, "data": None}
@@ -1586,28 +1696,15 @@ def _enrich_odds(p):
                     mp = american_to_prob(snap.last_odds)
                     if fp is not None and mp is not None:
                         p["edge_pct"] = round((fp - mp) * 100, 1)
-        elif odds_api.enabled() and p["sport"] == "tennis":
-            book = odds_api.get_tennis_odds()
-            if book:
-                from odds_api import _norm
-                pick_name = p.get("pick", "").replace(" to win", "").strip()
-                names = [n.strip() for n in p.get("match", "").split(" vs ")]
-                if len(names) == 2:
-                    rec = book.get(_norm(names[0]) + "|" + _norm(names[1]))
-                    if rec:
-                        mo = rec["odds_a"] if _norm(rec["a"]) == _norm(pick_name) else rec["odds_b"]
-                        am = odds_api.american_from_decimal(mo) if mo else None
-                        if am is not None:
-                            p["market_odds"] = am
-                            if p.get("fair_odds") is not None:
-                                fp = american_to_prob(p["fair_odds"])
-                                mp = american_to_prob(am)
-                                if fp is not None and mp is not None:
-                                    p["edge_pct"] = round((fp - mp) * 100, 1)
-                            _snapshot_odds("tennis", str(p["id"]),
-                                           "a" if _norm(rec["a"]) == _norm(pick_name) else "b", am)
     except Exception:
         pass
+    # tennis market odds come from api-tennis (included in the plan), not the
+    # Odds API — keeps Odds API credits for the team sports + soccer.
+    if p["sport"] == "tennis":
+        try:
+            _attach_tennis_market(p)
+        except Exception:
+            pass
 
 
 def _amer_to_dec(a):

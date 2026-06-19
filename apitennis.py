@@ -86,7 +86,21 @@ def _classify_tier(fix):
 # Live poll cadence + per-day usage guard (all env-tunable).
 _LIVE_TTL = float(os.environ.get("TENNIS_LIVE_TTL", "15"))       # was 8; halves live-poll cost
 _FIXTURE_TTL = float(os.environ.get("TENNIS_FIXTURE_TTL", "20"))  # detail-pull cache
+_ODDS_TTL = float(os.environ.get("TENNIS_ODDS_TTL", "120"))      # whole-day odds cache
 _DAILY_MAX = int(os.environ.get("TENNIS_DAILY_MAX", "7500"))      # soft cap under an 8k/day plan
+
+
+def _best_dec(book_map):
+    """Highest decimal price across bookmakers (the best price for the bettor)."""
+    best = None
+    for v in (book_map or {}).values():
+        try:
+            d = float(v)
+        except (TypeError, ValueError):
+            continue
+        if d > 1.0 and (best is None or d > best):
+            best = d
+    return best
 
 
 def _server(flag) -> str:
@@ -136,6 +150,7 @@ class APITennisProvider(TennisProvider):
         self._live_cache = {}
         self._live_fetched_at = 0.0
         self._detail_cache = {}        # event_key -> (ts, raw fixture with pbp)
+        self._odds_cache = {}          # day/match key -> (ts, parsed odds dict)
         self._req_count = 0            # API requests made today (usage meter)
         self._req_day = None
         self.last_error = None         # last API error envelope, surfaced in the diag
@@ -298,6 +313,52 @@ class APITennisProvider(TennisProvider):
                     out[name] = int(str(place).strip())
                 except ValueError:
                     pass
+        return out
+
+    # ---- odds (match-winner / Home-Away market) --------------------------
+
+    def get_odds(self, day=None, match_key=None):
+        """
+        Match-winner (Home/Away) odds, INCLUDED in the api-tennis plan.
+
+        Returns { str(event_key): {"a": best_dec, "b": best_dec,
+                                   "first": first_player, "second": second_player} }
+        where 'a' = first player (Home), 'b' = second player (Away), and best_dec
+        is the highest decimal across books (best price for the bettor). Pass a
+        `day` to pull the whole slate in ONE call (cached ~120s), or a single
+        match via match_key. Returns {} on failure.
+
+        api-tennis get_odds returns result as a DICT keyed by match_key:
+          result[mk]["Home/Away"]["Home"|"Away"] = {bookmaker: "decimal", ...}
+        """
+        params = {}
+        if match_key:
+            params["match_key"] = str(match_key)
+        elif day is not None:
+            d = day.strftime("%Y-%m-%d")
+            params["date_start"] = d
+            params["date_stop"] = d
+        ck = params.get("match_key") or params.get("date_start") or "all"
+        hit = self._odds_cache.get(ck)
+        if hit and time.time() - hit[0] < _ODDS_TTL:
+            return hit[1]
+        try:
+            res = self._call("get_odds", **params)
+        except Exception:
+            return {}
+        out = {}
+        if isinstance(res, dict):
+            for mk, markets in res.items():
+                ha = (markets or {}).get("Home/Away") or {}
+                ba = _best_dec(ha.get("Home"))
+                bb = _best_dec(ha.get("Away"))
+                if not (ba and bb):
+                    continue
+                fix = self._fixtures.get(str(mk)) or {}
+                out[str(mk)] = {"a": ba, "b": bb,
+                                "first": fix.get("event_first_player"),
+                                "second": fix.get("event_second_player")}
+        self._odds_cache[ck] = (time.time(), out)
         return out
 
     # ---- head to head ----------------------------------------------------
