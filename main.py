@@ -2946,18 +2946,40 @@ def golf_matchup_board(tour: str = "pga"):
         b = datagolf_api.matchup_board(tour)
         if not b or not b.get("groups"):
             return JSONResponse({"ready": False, "reason": "no_market"})
-        # attach each player's live score from the leaderboard
+        # attach each player's live score + decide a completed-matchup result
         import golf_provider
+        from golf_tracker import _round_score as _gscore, _board_index as _gidx, _lookup as _glookup
         board = golf_provider.get_board(tour)
-        bmap = {datagolf_api._norm(p.get("name") or ""): p
-                for p in (board.get("players") or [])}
+        gidx = _gidx(board.get("players") or [])
         for g in b["groups"]:
+            rnum = g.get("round")
+            scored = {}
             for pl in g["players"]:
-                bp = bmap.get(datagolf_api._norm(pl["name"]))
+                bp = _glookup(gidx, datagolf_api._norm(pl["name"]))
                 if bp:
                     pl["total"] = bp.get("total")
                     pl["thru"] = bp.get("thru")
                     pl["pos"] = bp.get("pos")
+                sc = _gscore(bp, rnum) if bp else None
+                if sc is not None:
+                    scored[pl["name"]] = sc
+            # A group is "complete" only once every player has a finished round
+            # score (the >=55 guard). Then grade the model favorite: strict low =
+            # win, tie for low = push, otherwise loss.
+            fav = next((p for p in g["players"] if p.get("fav")), None)
+            if rnum and g["players"] and len(scored) == len(g["players"]):
+                low = min(scored.values())
+                winners = [n for n, v in scored.items() if v == low]
+                g["complete"] = True
+                if fav is None:
+                    g["result"] = None
+                elif len(winners) != 1:
+                    g["result"] = "push"
+                else:
+                    g["result"] = "win" if winners[0] == fav["name"] else "loss"
+            else:
+                g["complete"] = False
+                g["result"] = None
         ev = board.get("event") or {}
         b["live"] = bool(ev.get("is_live"))
         b["ready"] = True

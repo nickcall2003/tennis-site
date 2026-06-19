@@ -414,6 +414,13 @@
   .mb-row{display:grid;grid-template-columns:1fr 60px 92px 42px;gap:6px;align-items:center;padding:7px 11px;border-top:1px solid var(--line);font-size:13px}
   .mb-row.val{background:rgba(241,193,75,.10)}
   .favstar{color:#f1c14b}
+  .mb-card.mb-win{border-color:rgba(63,208,122,.55);background:rgba(63,208,122,.12)}
+  .mb-card.mb-loss{border-color:rgba(224,86,63,.55);background:rgba(224,86,63,.12)}
+  .mb-card.mb-win .mb-head,.mb-card.mb-loss .mb-head{background:rgba(255,255,255,.04)}
+  .mb-res{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:5px;font-size:11px;font-weight:800;margin-left:7px;vertical-align:middle}
+  .mb-res.win{background:#3fd07a;color:#0e1014}
+  .mb-res.loss{background:#e0563f;color:#fff}
+  .mb-res.push{background:var(--muted-2);color:#0e1014}
   .mb-legend{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 11px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.65}
   .mb-legend b{color:var(--fg)}
   .mb-n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -666,7 +673,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v70</span>
+    Not betting advice. <span style="opacity:.4">build v71</span>
   </footer>
 </div>
 <script>
@@ -1744,6 +1751,7 @@ function renderGolfMatchBoard(){
   const legend='<div class="mb-legend">'+
     '<div><span class="favstar">\u2605</span> = the player the model favors to win the matchup.</div>'+
     '<div><b>Model</b> = the model\u2019s win% &amp; fair price. <b>Best book</b> = best market price (book shown). <b>Edge</b> = model% \u2212 market% \u2014 <span style="color:#3fd07a">green</span> means the model rates that player higher than the price implies (value).</div>'+
+    '<div>When the round finishes, the card turns <span style="color:#3fd07a">green \u2713</span> if the \u2605 pick won the matchup, <span style="color:#e0563f">red \u2717</span> if it lost.</div>'+
     '</div>';
   const note='<div class="ge-sub" style="padding:2px 2px 8px">'+(mb.event||"")+' \u00b7 R'+(mb.round||"")+(mb.live?' \u00b7 live':'')+' \u00b7 sorted by biggest edge in the group</div>';
   const groups=mb.groups.map(g=>{
@@ -1758,7 +1766,12 @@ function renderGolfMatchBoard(){
         '<span class="mb-mkt">'+(p.market_pct!=null?p.market_pct+'%':'\u2014')+'<small>'+gAm(p.market_am)+(p.book?' '+p.book:'')+'</small></span>'+
         '<span class="mb-edge" style="color:'+ecol+'">'+(ev==null?'\u2014':(ev>0?'+':'')+ev)+'</span></div>';
     }).join("");
-    return '<div class="mb-card"><div class="mb-head"><span class="mb-tag">'+g.market+'</span><span>Model</span><span>Best book</span><span>Edge</span></div>'+rows+'</div>';
+    const res=g.complete?g.result:null;
+    const cardCls=res==="win"?" mb-win":(res==="loss"?" mb-loss":(res==="push"?" mb-push":""));
+    const badge=res==="win"?'<span class="mb-res win">\u2713</span>':
+                res==="loss"?'<span class="mb-res loss">\u2717</span>':
+                res==="push"?'<span class="mb-res push">PUSH</span>':'';
+    return '<div class="mb-card'+cardCls+'"><div class="mb-head"><span class="mb-tag">'+g.market+badge+'</span><span>Model</span><span>Best book</span><span>Edge</span></div>'+rows+'</div>';
   }).join("");
   return legend+note+'<div class="mb-list">'+groups+'</div>';
 }
