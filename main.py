@@ -4429,16 +4429,16 @@ def _surface_fetchtest():
     if _tok:
         _api_h["Authorization"] = f"Bearer {_tok}"
     candidates = [
-        ("jsdelivr",      f"https://cdn.jsdelivr.net/gh/JeffSackmann/{repo}@master/{fname}", _ua),
         ("raw_master",    f"https://raw.githubusercontent.com/JeffSackmann/{repo}/master/{fname}", _ua),
-        ("githack",       f"https://raw.githack.com/JeffSackmann/{repo}/master/{fname}", _ua),
-        ("statically",    f"https://cdn.statically.io/gh/JeffSackmann/{repo}/master/{fname}", _ua),
         ("github_api_raw", f"https://api.github.com/repos/JeffSackmann/{repo}/contents/{fname}?ref=master", _api_h),
+        # --- host-reachability checks (do GitHub hosts answer Railway AT ALL?) ---
+        ("api_ratelimit", "https://api.github.com/rate_limit", _api_h),
+        ("github_git_refs", f"https://github.com/JeffSackmann/{repo}.git/info/refs?service=git-upload-pack", _ua),
     ]
     results = []
     for label, url, hdrs in candidates:
         row = {"label": label, "url": url}
-        if label == "github_api_raw":
+        if label in ("github_api_raw", "api_ratelimit"):
             row["auth"] = "bearer-token" if _tok else "anonymous(60/hr)"
         try:
             req = _ur.Request(url, headers=hdrs)
@@ -4453,8 +4453,8 @@ def _surface_fetchtest():
         except Exception as e:
             row["error"] = f"{type(e).__name__}: {e}"
         results.append(row)
-    ok = [r["label"] for r in results if r.get("lines", 0) > 100]
-    return JSONResponse({"file": fname, "working": ok, "results": results},
+    reachable = [r["label"] for r in results if "status" in r]
+    return JSONResponse({"file": fname, "hosts_that_answered": reachable, "results": results},
                         headers={"Cache-Control": "no-store"})
 
 
