@@ -24,24 +24,29 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Check out ATP data
-        uses: actions/checkout@v4
-        with:
-          repository: JeffSackmann/tennis_atp
-          path: tennis_atp
-          token: ${{ secrets.DATA_TOKEN }}
-
-      - name: Check out WTA data
-        uses: actions/checkout@v4
-        with:
-          repository: JeffSackmann/tennis_wta
-          path: tennis_wta
-          token: ${{ secrets.DATA_TOKEN }}
-
-      - name: Show what we got
+      - name: Get Sackmann data (anonymous first, token fallback)
+        env:
+          GH_TOKEN: ${{ secrets.DATA_TOKEN }}
         run: |
-          echo "tennis_atp: $(ls tennis_atp/*.csv 2>/dev/null | wc -l) csv files"
-          echo "tennis_wta: $(ls tennis_wta/*.csv 2>/dev/null | wc -l) csv files"
+          export GIT_TERMINAL_PROMPT=0
+          # Strip any injected github.com credential so a public clone is truly anonymous.
+          git config --global --unset-all http.https://github.com/.extraheader 2>/dev/null || true
+          git config --global --remove-section credential 2>/dev/null || true
+          fetch_repo () {
+            r="$1"
+            echo "== $r: trying anonymous clone =="
+            if git clone --depth 1 "https://github.com/JeffSackmann/$r.git" 2>/dev/null; then
+              echo "$r: anonymous OK"
+            elif [ -n "$GH_TOKEN" ]; then
+              echo "== $r: anonymous failed, trying token =="
+              git clone --depth 1 "https://x-access-token:${GH_TOKEN}@github.com/JeffSackmann/$r.git"
+            else
+              echo "$r: anonymous failed and no token set"; exit 1
+            fi
+            echo "$r: $(ls $r/*.csv 2>/dev/null | wc -l) csv files"
+          }
+          fetch_repo tennis_atp
+          fetch_repo tennis_wta
 
       - name: Build surface_records.json (ATP + WTA)
         run: python build_surface_records.py --start 2015 --from-dir tennis_atp --from-dir tennis_wta
