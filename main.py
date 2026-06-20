@@ -4720,6 +4720,143 @@ def _surface_builder_page():
                     headers={"Cache-Control": "no-store"})
 
 
+_FEED_BUILD = {"running": False, "report": None}
+
+
+def _run_feed_build(start: int):
+    global SURFACE_RECORDS
+    import calendar as _cal
+    report = {"start": start, "months": [], "errors": [], "calls": 0, "matches": 0}
+    try:
+        import apitennis as _at
+        prov = _at.APITennisProvider()
+    except Exception as e:
+        report["status"] = f"api-tennis init failed: {e}"
+        _FEED_BUILD["report"] = report
+        _FEED_BUILD["running"] = False
+        return
+    SURF = {"Hard", "Clay", "Grass", "Carpet"}
+    store: dict = {}
+
+    def bump(nm, surface, year, won):
+        k = _norm_surface_name(nm)
+        if not k:
+            return
+        r = store.setdefault(k, {"name": nm, "surfaces": {}})
+        sf = r["surfaces"].setdefault(surface, {"career": [0, 0], "by_year": {}})
+        yr = sf["by_year"].setdefault(year, [0, 0])
+        sf["career"][0 if won else 1] += 1
+        yr[0 if won else 1] += 1
+
+    today = dt.date.today()
+    if start < 2010:
+        start = 2010
+    cur = dt.date(start, 1, 1)
+    try:
+        while cur <= today:
+            last = _cal.monthrange(cur.year, cur.month)[1]
+            cend = min(dt.date(cur.year, cur.month, last), today)
+            try:
+                rows = prov._call("get_fixtures", date_start=cur.isoformat(),
+                                  date_stop=cend.isoformat())
+                report["calls"] += 1
+            except Exception as e:
+                report["errors"].append(f"{cur:%Y-%m}: {type(e).__name__}: {e}")
+                rows = []
+            n = 0
+            for fix in rows or []:
+                if not fix.get("event_winner"):
+                    continue
+                win = _at._winner(fix.get("event_winner"))
+                if not win:
+                    continue
+                pa = (fix.get("event_first_player") or "").strip()
+                pb = (fix.get("event_second_player") or "").strip()
+                if not pa or not pb or "/" in pa or "/" in pb:
+                    continue
+                tier = _at._classify_tier(fix)
+                if tier not in ("ATP", "WTA"):
+                    continue
+                ds = (fix.get("event_date") or "").strip()
+                year = ds[:4] if (len(ds) >= 4 and ds[:4].isdigit()) else str(cur.year)
+                try:
+                    when = dt.date.fromisoformat(ds)
+                except Exception:
+                    when = cur
+                surface = _at._infer_surface(fix.get("tournament_name") or "", tier, when)
+                if surface not in SURF:
+                    continue
+                w = pa if win == "a" else pb
+                l = pb if win == "a" else pa
+                bump(w, surface, year, True)
+                bump(l, surface, year, False)
+                n += 1
+            if n:
+                report["months"].append(f"{cur:%Y-%m}:+{n}")
+            report["matches"] += n
+            report["players_so_far"] = len(store)
+            _FEED_BUILD["report"] = dict(report)  # live progress for polling
+            cur = cend + dt.timedelta(days=1)
+    except Exception as e:
+        report["errors"].append(f"loop: {type(e).__name__}: {e}")
+
+    report["players"] = len(store)
+    probe = {nm: any(nm in k for k in store) for nm in ("sabalenka", "gauff", "swiatek")}
+    report["wta_present"] = probe
+    if len(store) >= 200 and any(probe.values()):
+        save_path = _srf if str(_srf).startswith("/data") else "/data/surface_records.json"
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        except Exception:
+            pass
+        try:
+            with open(save_path, "w") as f:
+                json.dump(store, f, separators=(",", ":"))
+            SURFACE_RECORDS = store
+            _rebuild_surface_abbrev()
+            report["saved_to"] = save_path
+            report["status"] = "DONE \u2014 saved to volume + loaded into memory (Surface tab live now)"
+        except Exception as e:
+            SURFACE_RECORDS = store
+            _rebuild_surface_abbrev()
+            report["status"] = f"DONE in memory; volume write failed ({e})"
+    else:
+        le = getattr(prov, "last_error", None)
+        report["status"] = ("DONE but NOT saved \u2014 too few players / no WTA found."
+                            + (f" api-tennis last_error: {le}" if le else ""))
+    _FEED_BUILD["report"] = report
+    _FEED_BUILD["running"] = False
+
+
+@app.get("/api/surface/build-from-feed")
+def _surface_from_feed(confirm: str = "", start: int = 2024):
+    """Plan B: build surface_records.json from the api-tennis feed (which Railway
+    reaches) instead of GitHub. Pulls finished ATP+WTA singles month-by-month from
+    ?start=YYYY (default 2024) to today, infers surface from the tournament name
+    the same way the board does, aggregates per-player W/L, saves to /data and
+    hot-reloads. Runs in the background; poll /api/surface/feed-status."""
+    if confirm != "yes":
+        yrs = max(1, dt.date.today().year - start + 1)
+        return JSONResponse({"note": "append ?confirm=yes to run",
+                             "start": start, "approx_calls": yrs * 12,
+                             "effect": "background build from api-tennis finished singles -> /data"})
+    if _FEED_BUILD["running"]:
+        return JSONResponse({"status": "already running", "poll": "/api/surface/feed-status"})
+    _FEED_BUILD["running"] = True
+    _FEED_BUILD["report"] = None
+    import threading
+    threading.Thread(target=_run_feed_build, args=(start,), daemon=True).start()
+    return JSONResponse({"status": "build started in background",
+                         "poll": "/api/surface/feed-status",
+                         "note": "takes ~1-2 min; refresh feed-status until running=false"})
+
+
+@app.get("/api/surface/feed-status")
+def _feed_status():
+    return JSONResponse({"running": _FEED_BUILD["running"], "report": _FEED_BUILD["report"]},
+                        headers={"Cache-Control": "no-store"})
+
+
 # ---- favicon / app icons (embedded so they survive a forgotten git add) ----
 import base64 as _b64
 _FAVICON_ICO = _b64.b64decode("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")
