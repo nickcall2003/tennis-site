@@ -4644,17 +4644,23 @@ async function fetchCsv(repo,fname,verbose){
   const urls=[
     raw,
     "https://cdn.jsdelivr.net/gh/JeffSackmann/"+repo+"@master/"+fname,
-    "https://raw.githack.com/JeffSackmann/"+repo+"/master/"+fname,
+    "https://api.codetabs.com/v1/proxy?quest="+encodeURIComponent(raw),
     "https://api.allorigins.win/raw?url="+encodeURIComponent(raw),
-    "https://corsproxy.io/?url="+encodeURIComponent(raw),
-    "https://thingproxy.freeboard.io/fetch/"+raw
+    "https://api.allorigins.win/get?url="+encodeURIComponent(raw)
   ];
   const errs=[];
   for(const u of urls){
     const host=u.split("/")[2];
-    try{const r=await fetch(u);if(r.ok){const t=await r.text();if(t&&t.indexOf("tourney_")>=0)return t;errs.push(host+" badbody");}
-      else errs.push(host+" HTTP "+r.status);}
-    catch(e){errs.push(host+" "+(e&&e.message?e.message:e));}
+    try{
+      const r=await fetch(u);
+      if(r.ok){
+        let t=await r.text();
+        // allorigins /get wraps the body in JSON {contents: "..."}
+        if(u.indexOf("/get?")>=0){try{t=JSON.parse(t).contents;}catch(e){}}
+        if(t&&t.indexOf("tourney_")>=0)return t;
+        errs.push(host+" badbody");
+      } else errs.push(host+" HTTP "+r.status);
+    }catch(e){errs.push(host+" "+(e&&e.message?e.message:e));}
   }
   if(verbose)log("    tried: "+errs.join(" | "),"mut");
   return null;
