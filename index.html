@@ -439,6 +439,12 @@
   .mb-rec .neg{color:var(--loss);font-weight:700}
   .mbr-hi{padding-left:16px;border-left:1px solid var(--line)}
   .mbr-empty{color:var(--muted-2);font-size:11px;white-space:normal;max-width:230px}
+  .mb-search{display:flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:8px 11px;margin:0 2px 10px}
+  .mb-search-ic{color:var(--muted-2);font-size:15px;line-height:1}
+  #mb-search-input{flex:1;background:none;border:none;outline:none;color:var(--fg);font-size:14px;font-family:inherit;min-width:0}
+  #mb-search-input::placeholder{color:var(--muted-2)}
+  .mb-search-x{background:none;border:none;color:var(--muted);font-size:13px;cursor:pointer;padding:2px 5px;line-height:1}
+  .mb-nores{padding:16px 4px;color:var(--muted);font-size:13px;text-align:center}
   .wx-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 11px;margin:6px 0 2px}
   .wx-h{font-family:"Space Mono",monospace;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin-bottom:7px}
   .wx-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:2px}
@@ -704,7 +710,7 @@
   <section class="detail" id="detail"></section>
   <footer>
     Model picks the higher-probability player; &#10003; = pick won, &#10007; = pick lost. Times shown in Central.
-    Not betting advice. <span style="opacity:.4">build v75</span>
+    Not betting advice. <span style="opacity:.4">build v76</span>
   </footer>
 </div>
 <script>
@@ -1086,7 +1092,7 @@ let soccerGames=[],soccerLeague="all",soccerLeagues=[],soccerGame=null,soccerDet
 let ufcGames=[],ufcEvent="UFC",ufcGame=null;
 let golfBoard=null,golfTour="pga",golfById={},golfView="board",golfProj=null,golfEdge=null,golfProjModel="baseline";
 let golfMatchSel=[],golfMatchScope="tournament",golfMatchResult=null,golfMatchQuery="",golfMatchLoading=false,golfMatchBoard=null,golfMatchMode="offered";
-let golfWeather=null,golfWeatherReq=false,golfMatchExpanded={};
+let golfWeather=null,golfWeatherReq=false,golfMatchExpanded={},golfBoardSearch="";
 const GOLF_TOURS=[["pga","PGA"],["eur","DP World"],["lpga","LPGA"],["champions-tour","Champions"],["liv","LIV"]];
 let teamProps=null,teamBox=null,teamDetailTab="prediction",teamGame=null;
 let view="sport";  // "sport" | "free" | "best"
@@ -1777,6 +1783,28 @@ function setMatchMode(m){if(m===golfMatchMode)return;golfMatchMode=m;
   if(m==="offered"&&!golfMatchBoard){renderGolf();loadGolfMatchBoard().then(()=>{if(sport==="golf"&&golfView==="matchup")renderGolf();});}
   else renderGolf();}
 function gAm(v){return v==null?"\u2014":((v>0?"+":"")+v);}
+function filterMatchBoard(v){
+  golfBoardSearch=v;
+  const q=(v||"").trim().toLowerCase();
+  let shown=0;
+  document.querySelectorAll(".mb-list .mb-card").forEach(c=>{
+    const pl=c.getAttribute("data-players")||"";
+    const hide=q&&!pl.includes(q);
+    c.style.display=hide?"none":"";
+    if(!hide)shown++;
+  });
+  const nr=document.querySelector(".mb-nores");
+  if(nr)nr.style.display=(q&&shown===0)?"":"none";
+  const x=document.querySelector(".mb-search-x");
+  if(x)x.style.display=q?"":"none";
+}
+function clearBoardSearch(){
+  golfBoardSearch="";
+  const inp=document.getElementById("mb-search-input");
+  if(inp)inp.value="";
+  filterMatchBoard("");
+  if(inp)inp.focus();
+}
 function renderGolfMatchBoard(){
   const mb=golfMatchBoard;
   if(!mb)return '<div class="empty">Loading matchups\u2026</div>';
@@ -1799,7 +1827,16 @@ function renderGolfMatchBoard(){
     }
     recHTML='<div class="mb-rec">'+parts+'</div>';
   }
-  const groups=mb.groups.map((g,gi)=>{
+  const bq=(golfBoardSearch||"").trim().toLowerCase();
+  const search='<div class="mb-search"><span class="mb-search-ic">\u2315</span>'+
+    '<input id="mb-search-input" type="text" placeholder="Search players\u2026" value="'+
+    (golfBoardSearch||"").replace(/"/g,"&quot;")+'" oninput="filterMatchBoard(this.value)" autocomplete="off" autocapitalize="off">'+
+    (bq?'<button class="mb-search-x" onclick="clearBoardSearch()">\u2715</button>':'<button class="mb-search-x" onclick="clearBoardSearch()" style="display:none">\u2715</button>')+'</div>';
+  let shown=0;
+  const groups=mb.groups.map((g,gi)=>({g,gi})).map(({g,gi})=>{
+    const names=g.players.map(p=>(p.name||"").toLowerCase()).join("|");
+    const hidden=bq&&!names.includes(bq);
+    if(!hidden)shown++;
     const rows=g.players.map(p=>{
       const ev=p.edge;
       const ecol=ev==null?"var(--muted-2)":(ev>0?"#3fd07a":(ev<0?"#e0563f":"var(--fg)"));
@@ -1818,9 +1855,10 @@ function renderGolfMatchBoard(){
                 res==="push"?'<span class="mb-res push">PUSH</span>':'';
     const open=!!golfMatchExpanded[gi];
     const why=open?matchWhyHTML(g):'';
-    return '<div class="mb-card'+cardCls+(open?" mb-open":"")+'" onclick="toggleMatchWhy('+gi+')"><div class="mb-head"><span class="mb-tag">'+g.market+badge+'</span><span>Model</span><span>Best book</span><span>Edge <span class="mb-caret">'+(open?"\u25B4":"\u25BE")+'</span></span></div>'+rows+why+'</div>';
+    return '<div class="mb-card'+cardCls+(open?" mb-open":"")+'" data-players="'+names.replace(/"/g,"&quot;")+'"'+(hidden?' style="display:none"':'')+' onclick="toggleMatchWhy('+gi+')"><div class="mb-head"><span class="mb-tag">'+g.market+badge+'</span><span>Model</span><span>Best book</span><span>Edge <span class="mb-caret">'+(open?"\u25B4":"\u25BE")+'</span></span></div>'+rows+why+'</div>';
   }).join("");
-  return recHTML+legend+note+'<div class="mb-list">'+groups+'</div>';
+  const noRes='<div class="mb-nores"'+(bq&&shown===0?'':' style="display:none"')+'>No matchups with a player matching that name.</div>';
+  return recHTML+legend+note+search+'<div class="mb-list">'+groups+noRes+'</div>';
 }
 function renderGolfMatchup(){
   const modeTabs='<div class="ltabs" style="padding:2px 0 8px"><button class="ltab'+(golfMatchMode==="offered"?" on":"")+'" onclick="setMatchMode(\'offered\')">Offered matchups</button><button class="ltab'+(golfMatchMode==="custom"?" on":"")+'" onclick="setMatchMode(\'custom\')">Build your own</button></div>';
