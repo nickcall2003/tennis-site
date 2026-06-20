@@ -4364,10 +4364,52 @@ def _surface_diag(name: str = "A. Zverev", name2: str = "V. Kopriva"):
         "sample_keys": keys[:25],
         "zverev_like_keys": [k for k in keys if "zverev" in k][:10],
         "kopriva_like_keys": [k for k in keys if "kopriva" in k][:10],
+        "wta_coverage_probe": {nm: bool(_resolve_surface_rec(nm)) for nm in
+                               ("Iga Swiatek", "Aryna Sabalenka", "Coco Gauff",
+                                "Elena Rybakina", "Jessica Pegula")},
         "probe_a": probe(name),
         "probe_b": probe(name2),
     }
+    try:
+        from apitennis import _infer_surface
+        out["surface_inference_examples"] = {
+            t: _infer_surface(t, tr) for t, tr in (
+                ("French Open", "ATP"), ("Wimbledon", "WTA"),
+                ("Porsche Tennis Grand Prix Stuttgart", "WTA"),
+                ("Boss Open Stuttgart", "ATP"), ("Cincinnati Open", "ATP"))}
+    except Exception as e:
+        out["surface_inference_examples"] = {"error": str(e)}
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/tennis/surface-backfill")
+def _surface_backfill(confirm: str = ""):
+    """One-time fill-in: tennis matches stored before surface inference existed
+    carry surface='Unknown'. Recompute them with the same tournament inference new
+    matches now use. Safe to re-run; only touches rows still marked Unknown."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes to run",
+                             "effect": "sets surface for tennis matches currently 'Unknown'"})
+    try:
+        from apitennis import _infer_surface
+    except Exception as e:
+        return JSONResponse({"error": f"infer import failed: {e}"})
+    updated, by_surface = 0, {}
+    try:
+        with SessionLocal() as db:
+            rows = db.query(Match).filter(Match.surface == "Unknown").all()
+            for m in rows:
+                surf = _infer_surface(m.tournament, m.tier, m.scheduled)
+                if surf and surf != "Unknown":
+                    m.surface = surf
+                    by_surface[surf] = by_surface.get(surf, 0) + 1
+                    updated += 1
+            if updated:
+                db.commit()
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+    return JSONResponse({"updated": updated, "by_surface": by_surface},
+                        headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/surface/fetchtest")

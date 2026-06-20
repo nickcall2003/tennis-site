@@ -38,6 +38,49 @@ _TIER_MAP = {
 }
 
 
+_CLAY_KW = ("roland garros", "french open", "monte-carlo", "monte carlo", "madrid open",
+            "mutua madrid", "rome", "internazionali", "italian open", "barcelona",
+            "hamburg", "munich", "bavarian", "estoril", "geneva", "lyon", "gstaad",
+            "kitzbuhel", "kitzbuehel", "umag", "bastad", "marrakech", "rabat",
+            "bogota", "houston", "charleston", "parma", "belgrade", "cordoba",
+            "rio de janeiro", "rio open", "buenos aires", "santiago", "sao paulo",
+            "iasi", "palermo", "warsaw", "prague", "strasbourg", "rouen",
+            "saint-malo", "saint malo", "tunis", "porsche")
+_GRASS_KW = ("wimbledon", "halle", "queen", "eastbourne", "mallorca",
+             "hertogenbosch", "bois-le-duc", "'s-hertogenbosch", "newport",
+             "bad homburg", "nottingham", "birmingham", "ilkley", "surbiton")
+# Same city, different surface by tour: resolve with the tier we already classified.
+_SURFACE_OVERRIDE = (
+    ("stuttgart", "ATP", "Grass"),   # Boss Open is grass (men)
+    ("stuttgart", "WTA", "Clay"),    # Porsche Tennis GP is indoor clay (women)
+    ("berlin", "WTA", "Grass"),      # WTA Berlin is grass
+)
+
+
+def _infer_surface(name, tier=None, when=None):
+    """Best-effort surface for a tournament. api-tennis carries no surface field,
+    so map by tournament name (tier-aware for the few cities that differ by tour),
+    then fall back to the clay/grass calendar windows, else Hard (the modal
+    surface). Feeds both the Surface-tab highlight and surface-aware predictions."""
+    n = (name or "").lower()
+    for kw, tr, surf in _SURFACE_OVERRIDE:
+        if kw in n and tr == tier:
+            return surf
+    if any(k in n for k in _GRASS_KW):
+        return "Grass"
+    if any(k in n for k in _CLAY_KW):
+        return "Clay"
+    try:
+        mo, dy = when.month, when.day
+        if mo in (4, 5) or (mo == 6 and dy <= 8):              # European clay swing
+            return "Clay"
+        if (mo == 6 and dy >= 9) or (mo == 7 and dy <= 15):    # grass swing
+            return "Grass"
+    except Exception:
+        pass
+    return "Hard"
+
+
 def _classify_tier(fix):
     """
     Decide the tier from an API fixture, robustly. The feed's exact
@@ -223,7 +266,7 @@ class APITennisProvider(TennisProvider):
             out.append(MatchInfo(
                 provider_match_id=key, tier=tier,
                 tournament=fix.get("tournament_name", "Tennis"),
-                surface="Unknown",
+                surface=_infer_surface(fix.get("tournament_name", ""), tier, when),
                 player_a=fix.get("event_first_player", "Player A"),
                 player_b=fix.get("event_second_player", "Player B"),
                 scheduled=when, best_of=3, status=_status(fix),
