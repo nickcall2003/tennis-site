@@ -24,17 +24,24 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Get Sackmann data (token-authenticated clone)
-        env:
-            GH_TOKEN: ${{ secrets.DATA_TOKEN }}
+      - name: Check out ATP data
+        uses: actions/checkout@v4
+        with:
+          repository: JeffSackmann/tennis_atp
+          path: tennis_atp
+          token: ${{ secrets.DATA_TOKEN }}
 
+      - name: Check out WTA data
+        uses: actions/checkout@v4
+        with:
+          repository: JeffSackmann/tennis_wta
+          path: tennis_wta
+          token: ${{ secrets.DATA_TOKEN }}
+
+      - name: Show what we got
         run: |
-          for r in tennis_atp tennis_wta; do
-            echo "cloning $r ..."
-            git clone --branch master --depth 1 \
-                            "https://${GH_TOKEN}@github.com/JeffSackmann/${r}.git"
-            echo "$r: $(ls ${r}/*.csv 2>/dev/null | wc -l) csv files"
-          done
+          echo "tennis_atp: $(ls tennis_atp/*.csv 2>/dev/null | wc -l) csv files"
+          echo "tennis_wta: $(ls tennis_wta/*.csv 2>/dev/null | wc -l) csv files"
 
       - name: Build surface_records.json (ATP + WTA)
         run: python build_surface_records.py --start 2015 --from-dir tennis_atp --from-dir tennis_wta
