@@ -32,7 +32,7 @@ jobs:
           for r in tennis_atp tennis_wta; do
             echo "cloning $r ..."
             git clone --branch master --depth 1 \
-              "https://x-access-token:${GH_TOKEN}@github.com/JeffSackmann/${r}.git"
+                            "https://${GH_TOKEN}@github.com/JeffSackmann/${r}.git"
             echo "$r: $(ls ${r}/*.csv 2>/dev/null | wc -l) csv files"
           done
 
