@@ -26,7 +26,8 @@ jobs:
 
       - name: Get Sackmann data (token-authenticated clone)
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            GH_TOKEN: ${{ secrets.DATA_TOKEN }}
+
         run: |
           for r in tennis_atp tennis_wta; do
             echo "cloning $r ..."
