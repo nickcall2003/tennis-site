@@ -16,20 +16,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repo
+      - name: Check out this repo
         uses: actions/checkout@v4
+
+      - name: Check out ATP data
+        uses: actions/checkout@v4
+        with:
+          repository: JeffSackmann/tennis_atp
+          path: tennis_atp
+
+      - name: Check out WTA data
+        uses: actions/checkout@v4
+        with:
+          repository: JeffSackmann/tennis_wta
+          path: tennis_wta
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Clone Sackmann data repos
-        run: |
-          git clone --depth 1 https://github.com/JeffSackmann/tennis_atp.git
-          git clone --depth 1 https://github.com/JeffSackmann/tennis_wta.git
-
-      - name: Build surface_records.json (ATP + WTA) from local clones
+      - name: Build surface_records.json (ATP + WTA) from checkouts
         run: python build_surface_records.py --start 2015 --from-dir tennis_atp --from-dir tennis_wta
 
       - name: Verify build is healthy
@@ -47,7 +54,7 @@ jobs:
               sys.exit("REFUSING TO COMMIT: no WTA players found.")
           PY
 
-      - name: Clean up clones
+      - name: Remove data checkouts before committing
         run: rm -rf tennis_atp tennis_wta
 
       - name: Commit & push
