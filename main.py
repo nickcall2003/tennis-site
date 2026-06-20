@@ -223,7 +223,7 @@ def _load_surface_records():
     global SURFACE_RECORDS
     candidates = []
     _here = os.path.dirname(os.path.abspath(__file__))
-    for p in (_srf, "surface_records.json",
+    for p in ("/data/surface_records.json", _srf, "surface_records.json",
               os.path.join(_here, "surface_records.json"),
               "/app/surface_records.json"):
         if p and p not in candidates:
@@ -4456,6 +4456,100 @@ def _surface_fetchtest():
     reachable = [r["label"] for r in results if "status" in r]
     return JSONResponse({"file": fname, "hosts_that_answered": reachable, "results": results},
                         headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/surface/rebuild")
+def _surface_rebuild(confirm: str = "", start: int = 2015):
+    """Build surface_records.json on Railway via the GitHub Trees+Blobs API
+    (api.github.com is reachable here; raw/CDN hosts are not). Blobs come back
+    base64-inline in JSON, so nothing redirects to the blocked githubusercontent
+    CDN. Saves to the /data volume (survives redeploys) and hot-reloads memory.
+    Append ?confirm=yes to run. Optional &start=YYYY (default 2015)."""
+    if confirm != "yes":
+        return JSONResponse({
+            "note": "append ?confirm=yes to run",
+            "effect": "fetches ATP+WTA match CSVs via api.github.com, rebuilds "
+                      "surface_records.json, saves to /data, reloads in memory",
+            "start_year": start})
+    import urllib.request as _ur, urllib.error as _ue, base64 as _b64, csv as _csv, io as _io
+    global SURFACE_RECORDS
+    try:
+        import build_surface_records as _bsr
+    except Exception as e:
+        return JSONResponse({"error": f"cannot import build_surface_records: {e}"})
+    tok = (os.environ.get("DATA_TOKEN") or os.environ.get("GITHUB_DATA_TOKEN")
+           or os.environ.get("GH_DATA_TOKEN") or "")
+
+    def _api(url, accept="application/vnd.github+json"):
+        h = {"User-Agent": "linelogic-surface/1.0", "Accept": accept}
+        if tok:
+            h["Authorization"] = f"Bearer {tok}"
+        req = _ur.Request(url, headers=h)
+        with _ur.urlopen(req, timeout=90) as r:
+            return r.read()
+
+    end = dt.date.today().year
+    store: dict = {}
+    report = {"auth": "bearer-token" if tok else "anonymous(60/hr)",
+              "start": start, "end": end, "repos": {}, "errors": []}
+    for repo, pre in (("tennis_atp", "atp_matches_"), ("tennis_wta", "wta_matches_")):
+        try:
+            tree = json.loads(_api(
+                f"https://api.github.com/repos/JeffSackmann/{repo}/git/trees/master?recursive=1"))
+            wanted = []
+            for t in tree.get("tree", []):
+                p = t.get("path", "")
+                if p.startswith(pre) and p.endswith(".csv"):
+                    yr = p[len(pre):-4]
+                    if yr.isdigit() and start <= int(yr) <= end:
+                        wanted.append((p, t["sha"]))
+            picked, total = [], 0
+            for p, sha in sorted(wanted):
+                blob = json.loads(_api(
+                    f"https://api.github.com/repos/JeffSackmann/{repo}/git/blobs/{sha}"))
+                if blob.get("encoding") != "base64":
+                    continue
+                text = _b64.b64decode(blob["content"]).decode("utf-8", "replace")
+                rows = list(_csv.DictReader(_io.StringIO(text)))
+                n = _bsr.aggregate(rows, store)
+                total += n
+                picked.append(f"{p}:+{n}")
+            report["repos"][repo] = {"files": len(picked), "matches": total,
+                                     "tree_truncated": tree.get("truncated", False),
+                                     "picked": picked}
+        except _ue.HTTPError as e:
+            report["errors"].append(f"{repo}: HTTPError {e.code}")
+        except Exception as e:
+            report["errors"].append(f"{repo}: {type(e).__name__}: {e}")
+
+    report["players"] = len(store)
+    probe = {nm: bool(_resolve_surface_rec(nm)) or any(
+                 nm.split()[-1].lower() in k for k in store)
+             for nm in ("Aryna Sabalenka", "Coco Gauff", "Iga Swiatek")}
+    report["wta_present"] = probe
+
+    if len(store) >= 1500 and any(probe.values()):
+        save_path = _srf if str(_srf).startswith("/data") else "/data/surface_records.json"
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        except Exception:
+            pass
+        try:
+            with open(save_path, "w") as f:
+                json.dump(store, f, separators=(",", ":"))
+            SURFACE_RECORDS = store
+            _rebuild_surface_abbrev()
+            report["saved_to"] = save_path
+            report["status"] = "SAVED to volume + loaded into memory (Surface tab live now)"
+        except Exception as e:
+            SURFACE_RECORDS = store
+            _rebuild_surface_abbrev()
+            report["status"] = (f"loaded into memory but volume write failed ({e}); "
+                                "will rebuild on next restart")
+    else:
+        report["status"] = ("NOT saved \u2014 guard failed (need \u22651500 players AND a WTA "
+                             "name present). Check repos/errors above.")
+    return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
 # ---- favicon / app icons (embedded so they survive a forgotten git add) ----
