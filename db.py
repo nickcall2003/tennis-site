@@ -117,3 +117,20 @@ def init_db() -> None:
         metadatas.add(Base.metadata)
     for md in metadatas:
         md.create_all(bind=engine)    # idempotent: safe to run on every boot
+
+    # Lightweight forward migrations. create_all never ADDs columns to a table
+    # that already exists, so for columns added after a table shipped we issue a
+    # plain ALTER TABLE; a "duplicate column" error just means it's already there.
+    _added_columns = (
+        ("golf_matchup_picks", "edge", "REAL"),
+    )
+    try:
+        from sqlalchemy import text
+        with engine.begin() as conn:
+            for table, col, coltype in _added_columns:
+                try:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}"))
+                except Exception:
+                    pass  # column already exists — expected on every boot after the first
+    except Exception as e:
+        print(f"[init_db] column migration skipped: {e}")

@@ -3041,6 +3041,11 @@ def golf_matchup_board(tour: str = "pga"):
                         pl["fit_delta"] = round(fm["win"] - bm["win"], 1)
         except Exception:
             pass
+        try:
+            from golf_tracker import record_summary
+            b["record"] = record_summary()
+        except Exception:
+            b["record"] = None
         b["ready"] = True
         b["tour"] = tour
         return JSONResponse(b, headers={"Cache-Control": "no-store"})
