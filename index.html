@@ -795,7 +795,7 @@ function renderAccuracy(){if(!_accData)return;
       const l30=(stat.losses_30d!=null?stat.losses_30d:((stat.picks||0)-(stat.correct||0)));
       const aw=stat.alltime_wins||0,al=stat.alltime_losses||0;
       const u=stat.units_30d,priced=stat.priced_30d;
-      const uStr=(priced&&u!=null)?' <span class="acc-u '+(u>=0?"pos":"neg")+'" title="Units at flat 1u stake over '+priced+' priced picks (last 30d)">'+(u>=0?"+":"")+u+'u</span>':'';
+      const uStr=(priced&&u!=null&&sport!=="tennis")?' <span class="acc-u '+(u>=0?"pos":"neg")+'" title="Units at flat 1u stake over '+priced+' priced picks (last 30d)">'+(u>=0?"+":"")+u+'u</span>':'';
       const parts=["Today "+tw+"\u2013"+tl,"30d "+w30+"\u2013"+l30+uStr];
       if(aw+al)parts.push("All-time "+aw+"\u2013"+al);
       at.innerHTML=parts.join(" \u00b7 ");
@@ -804,7 +804,7 @@ function renderAccuracy(){if(!_accData)return;
   const clvEl=document.getElementById("acc-clv");
   if(clvEl){
     let c=null;
-    if(view==="sport"&&_clvData&&_clvData.by_sport)c=_clvData.by_sport[sport];
+    if(view==="sport"&&sport!=="tennis"&&_clvData&&_clvData.by_sport)c=_clvData.by_sport[sport];
     else if(view!=="sport"&&_clvData)c=_clvData.overall;
     if(c&&c.clv_sample){
       const sg=(c.avg_clv!=null&&c.avg_clv>0)?"+":"";
