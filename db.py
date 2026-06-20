@@ -120,17 +120,19 @@ def init_db() -> None:
 
     # Lightweight forward migrations. create_all never ADDs columns to a table
     # that already exists, so for columns added after a table shipped we issue a
-    # plain ALTER TABLE; a "duplicate column" error just means it's already there.
+    # plain ALTER TABLE. Each runs in its OWN transaction so a "duplicate column"
+    # (already added on a previous boot) can't poison the others.
     _added_columns = (
         ("golf_matchup_picks", "edge", "REAL"),
     )
     try:
         from sqlalchemy import text
-        with engine.begin() as conn:
-            for table, col, coltype in _added_columns:
-                try:
+        for table, col, coltype in _added_columns:
+            try:
+                with engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {coltype}"))
-                except Exception:
-                    pass  # column already exists — expected on every boot after the first
+                print(f"[init_db] added column {table}.{col}")
+            except Exception:
+                pass  # already exists (expected after first boot) or table absent
     except Exception as e:
         print(f"[init_db] column migration skipped: {e}")
