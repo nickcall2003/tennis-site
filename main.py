@@ -4417,18 +4417,31 @@ def _surface_fetchtest():
     """Probe, from the running server, several URL forms for one Sackmann CSV so
     we can see which (if any) the host actually serves. Decides network-vs-URL."""
     import urllib.request as _ur, urllib.error as _ue
+    repo = "tennis_wta"
     fname = "wta_matches_2024.csv"
+    _tok = (os.environ.get("DATA_TOKEN")
+            or os.environ.get("GITHUB_DATA_TOKEN")
+            or os.environ.get("GH_DATA_TOKEN") or "")
+    _ua = {"User-Agent": "linelogic-surface/1.0"}
+    # GitHub's contents API with the "raw" media type streams the file directly
+    # (no 1MB base64 cap) and api.github.com is essentially never IP-blocked.
+    _api_h = dict(_ua); _api_h["Accept"] = "application/vnd.github.raw"
+    if _tok:
+        _api_h["Authorization"] = f"Bearer {_tok}"
     candidates = [
-        ("jsdelivr",      f"https://cdn.jsdelivr.net/gh/JeffSackmann/tennis_wta@master/{fname}"),
-        ("raw_refs",      f"https://raw.githubusercontent.com/JeffSackmann/tennis_wta/refs/heads/master/{fname}"),
-        ("raw_master",    f"https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/{fname}"),
-        ("github_codeload", f"https://codeload.github.com/JeffSackmann/tennis_wta/raw/master/{fname}"),
+        ("jsdelivr",      f"https://cdn.jsdelivr.net/gh/JeffSackmann/{repo}@master/{fname}", _ua),
+        ("raw_master",    f"https://raw.githubusercontent.com/JeffSackmann/{repo}/master/{fname}", _ua),
+        ("githack",       f"https://raw.githack.com/JeffSackmann/{repo}/master/{fname}", _ua),
+        ("statically",    f"https://cdn.statically.io/gh/JeffSackmann/{repo}/master/{fname}", _ua),
+        ("github_api_raw", f"https://api.github.com/repos/JeffSackmann/{repo}/contents/{fname}?ref=master", _api_h),
     ]
     results = []
-    for label, url in candidates:
+    for label, url, hdrs in candidates:
         row = {"label": label, "url": url}
+        if label == "github_api_raw":
+            row["auth"] = "bearer-token" if _tok else "anonymous(60/hr)"
         try:
-            req = _ur.Request(url, headers={"User-Agent": "linelogic-surface/1.0"})
+            req = _ur.Request(url, headers=hdrs)
             with _ur.urlopen(req, timeout=30) as r:
                 data = r.read().decode("utf-8", "replace")
             row["status"] = getattr(r, "status", 200)
@@ -4440,7 +4453,8 @@ def _surface_fetchtest():
         except Exception as e:
             row["error"] = f"{type(e).__name__}: {e}"
         results.append(row)
-    return JSONResponse({"file": fname, "results": results},
+    ok = [r["label"] for r in results if r.get("lines", 0) > 100]
+    return JSONResponse({"file": fname, "working": ok, "results": results},
                         headers={"Cache-Control": "no-store"})
 
 
