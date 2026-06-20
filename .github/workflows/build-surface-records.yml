@@ -24,24 +24,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Get Sackmann data (tarball over HTTPS, clone as fallback)
+      - name: Get Sackmann data (token-authenticated clone)
         env:
-          GIT_TERMINAL_PROMPT: "0"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -o pipefail
-          get () {
-            echo "fetching $1 ..."
-            if curl -fsSL "https://github.com/JeffSackmann/$1/archive/refs/heads/master.tar.gz" | tar xz; then
-              mv "$1-master" "$1"
-            else
-              echo "tarball failed for $1, trying anonymous clone"
-              git -c http.https://github.com/.extraheader= -c credential.helper= \
-                  clone --depth 1 "https://github.com/JeffSackmann/$1.git"
-            fi
-            echo "$1: $(ls "$1"/*.csv 2>/dev/null | wc -l) csv files"
-          }
-          get tennis_atp
-          get tennis_wta
+          for r in tennis_atp tennis_wta; do
+            echo "cloning $r ..."
+            git clone --branch master --depth 1 \
+              "https://x-access-token:${GH_TOKEN}@github.com/JeffSackmann/${r}.git"
+            echo "$r: $(ls ${r}/*.csv 2>/dev/null | wc -l) csv files"
+          done
 
       - name: Build surface_records.json (ATP + WTA)
         run: python build_surface_records.py --start 2015 --from-dir tennis_atp --from-dir tennis_wta
