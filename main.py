@@ -4639,13 +4639,19 @@ function bump(store,name,surface,year,won){
   let y=sf.by_year[year];if(!y){y=[0,0];sf.by_year[year]=y;}
   sf.career[won?0:1]++;y[won?0:1]++;
 }
-async function fetchCsv(repo,fname){
+async function fetchCsv(repo,fname,verbose){
   const urls=[
     "https://raw.githubusercontent.com/JeffSackmann/"+repo+"/master/"+fname,
     "https://cdn.jsdelivr.net/gh/JeffSackmann/"+repo+"@master/"+fname,
     "https://cdn.statically.io/gh/JeffSackmann/"+repo+"/master/"+fname
   ];
-  for(const u of urls){try{const r=await fetch(u);if(r.ok)return await r.text();}catch(e){}}
+  const errs=[];
+  for(const u of urls){
+    const host=u.split("/")[2];
+    try{const r=await fetch(u);if(r.ok)return await r.text();errs.push(host+" HTTP "+r.status);}
+    catch(e){errs.push(host+" "+(e&&e.message?e.message:e));}
+  }
+  if(verbose)log("    tried: "+errs.join(" | "),"mut");
   return null;
 }
 function aggregate(text,store){
@@ -4668,11 +4674,11 @@ function aggregate(text,store){
 async function run(){
   B.disabled=true;L.innerHTML="";
   const store={};const y1=new Date().getFullYear();const start=2015;
-  let total=0;
+  let total=0, tries=0;
   for(const [repo,pre] of [["tennis_atp","atp_matches_"],["tennis_wta","wta_matches_"]]){
     for(let y=start;y<=y1;y++){
       const fname=pre+y+".csv";
-      const text=await fetchCsv(repo,fname);
+      const text=await fetchCsv(repo,fname,tries<2);tries++;
       if(!text){log("  skip "+fname+" (not found)","mut");continue;}
       const n=aggregate(text,store);total+=n;
       log("  "+fname+": +"+n.toLocaleString()+"  (players "+Object.keys(store).length.toLocaleString()+")");
