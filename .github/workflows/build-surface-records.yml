@@ -1,1 +1,52 @@
+name: Build surface records
+
+# Rebuilds surface_records.json (ATP + WTA) from Jeff Sackmann's CSVs and commits
+# it back to the repo. The build script defaults to ATP + WTA, so this always
+# includes the women's tour. Railway auto-deploys on the resulting commit.
+
+on:
+  workflow_dispatch:          # manual "Run workflow" button in the Actions tab
+  schedule:
+    - cron: "0 6 * * 1"       # weekly, Mondays 06:00 UTC — keeps current-year data fresh
+
+permissions:
+  contents: write             # needed so the job can commit the JSON back
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build surface_records.json (ATP + WTA)
+        run: python build_surface_records.py --start 2015
+
+      - name: Show what was built
+        run: |
+          python - <<'PY'
+          import json
+          d = json.load(open("surface_records.json"))
+          women = [k for k in d if any(w in k for w in
+                   ("swiatek","sabalenka","gauff","rybakina","pegula"))]
+          print(f"players: {len(d):,}")
+          print(f"WTA spot-check present: {women}")
+          PY
+
+      - name: Commit if changed
+        run: |
+          if git diff --quiet -- surface_records.json; then
+            echo "No changes to surface_records.json"
+          else
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add surface_records.json
+            git commit -m "Rebuild surface_records.json (ATP + WTA)"
+            git push
+          fi
 
