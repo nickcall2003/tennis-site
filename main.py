@@ -4492,6 +4492,15 @@ def _surface_rebuild(confirm: str = "", start: int = 2015):
     store: dict = {}
     report = {"auth": "bearer-token" if tok else "anonymous(60/hr)",
               "start": start, "end": end, "repos": {}, "errors": []}
+    if tok:
+        try:
+            rl = json.loads(_api("https://api.github.com/rate_limit"))
+            lim = rl.get("resources", {}).get("core", {}).get("limit", 0)
+            report["token_check"] = ("VALID (authenticated, limit %d/hr)" % lim
+                                     if lim >= 5000 else
+                                     "NOT APPLIED (limit %d \u2014 token missing/invalid)" % lim)
+        except Exception as e:
+            report["token_check"] = f"could not verify: {e}"
     for repo, pre in (("tennis_atp", "atp_matches_"), ("tennis_wta", "wta_matches_")):
         try:
             tree = json.loads(_api(
@@ -4547,8 +4556,11 @@ def _surface_rebuild(confirm: str = "", start: int = 2015):
             report["status"] = (f"loaded into memory but volume write failed ({e}); "
                                 "will rebuild on next restart")
     else:
+        hint = ("" if tok else " No token was set, so reads ran anonymously and Railway's "
+                "IP is filtered \u2014 add a CLASSIC GitHub token as the DATA_TOKEN env var on "
+                "Railway and rerun.")
         report["status"] = ("NOT saved \u2014 guard failed (need \u22651500 players AND a WTA "
-                             "name present). Check repos/errors above.")
+                             "name present)." + hint)
     return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
