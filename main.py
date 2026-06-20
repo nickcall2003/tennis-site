@@ -4564,6 +4564,145 @@ def _surface_rebuild(confirm: str = "", start: int = 2015):
     return JSONResponse(report, headers={"Cache-Control": "no-store"})
 
 
+@app.post("/api/surface/upload")
+def _surface_upload(payload: dict, confirm: str = ""):
+    """Receive a surface_records store built in the user's browser (which can
+    reach raw.githubusercontent / jsDelivr from a residential IP) and save it to
+    the /data volume + hot-reload memory. Guarded so a bad payload can't wipe a
+    good cache."""
+    global SURFACE_RECORDS
+    if confirm != "yes":
+        return JSONResponse({"error": "append ?confirm=yes"}, status_code=400)
+    store = payload or {}
+    n = len(store)
+    probe = {nm: any(nm in k for k in store)
+             for nm in ("sabalenka", "gauff", "swiatek")}
+    if n < 1500 or not any(probe.values()):
+        return JSONResponse({"saved": False, "players": n, "wta_probe": probe,
+                             "error": "guard failed: need >=1500 players AND a WTA name"},
+                            status_code=400)
+    # shape sanity-check on a sample
+    bad = 0
+    for k in list(store.keys())[:50]:
+        v = store[k]
+        if not isinstance(v, dict) or "surfaces" not in v:
+            bad += 1
+    if bad:
+        return JSONResponse({"saved": False, "error": f"payload shape invalid ({bad}/50 bad)"},
+                            status_code=400)
+    save_path = _srf if str(_srf).startswith("/data") else "/data/surface_records.json"
+    try:
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    except Exception:
+        pass
+    try:
+        with open(save_path, "w") as f:
+            json.dump(store, f, separators=(",", ":"))
+    except Exception as e:
+        SURFACE_RECORDS = store
+        _rebuild_surface_abbrev()
+        return JSONResponse({"saved": False, "players": n,
+                             "note": f"loaded into memory but volume write failed: {e}"})
+    SURFACE_RECORDS = store
+    _rebuild_surface_abbrev()
+    return JSONResponse({"saved": True, "players": n, "saved_to": save_path,
+                         "wta_probe": probe})
+
+
+_SURFACE_BUILDER_HTML = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Surface records builder</title>
+<style>
+ body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:18px;background:#0f1115;color:#e7e9ee}
+ h1{font-size:19px;margin:0 0 4px} p{font-size:14px;color:#aab;margin:6px 0 14px;line-height:1.4}
+ button{font-size:16px;font-weight:600;padding:13px 18px;border:0;border-radius:11px;background:#3b82f6;color:#fff;width:100%}
+ button:disabled{background:#334}
+ #log{margin-top:16px;font-size:12.5px;font-family:ui-monospace,monospace;white-space:pre-wrap;
+   background:#161922;border:1px solid #232838;border-radius:10px;padding:11px;max-height:62vh;overflow:auto}
+ .ok{color:#4ade80}.err{color:#f87171}.mut{color:#8b93a7}
+</style></head><body>
+<h1>Build surface records</h1>
+<p>This runs in <b>your browser</b>, so it pulls the tennis data from your normal connection (the server can't, but your phone can). It builds the file and sends it to the app. Takes ~30&ndash;60s. Leave this open while it runs.</p>
+<button id="go" onclick="run()">Build &amp; upload</button>
+<div id="log"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+const L=document.getElementById('log'), B=document.getElementById('go');
+function log(m,c){const s=document.createElement('div');if(c)s.className=c;s.textContent=m;L.appendChild(s);L.scrollTop=L.scrollHeight;}
+function normName(n){if(!n)return"";const d=n.normalize("NFKD");let o="";for(let i=0;i<d.length;i++){const c=d.charCodeAt(i);if(c>=768&&c<=879)continue;o+=d[i];}return o.toLowerCase().split(/\\s+/).filter(Boolean).join(" ");}
+const SURF=new Set(["Hard","Clay","Grass","Carpet"]);
+function titleSurf(s){s=(s||"").trim();if(!s)return"";return s.charAt(0).toUpperCase()+s.slice(1).toLowerCase();}
+function bump(store,name,surface,year,won){
+  const k=normName(name);if(!k)return;
+  let r=store[k];if(!r){r={name:name,surfaces:{}};store[k]=r;}
+  let sf=r.surfaces[surface];if(!sf){sf={career:[0,0],by_year:{}};r.surfaces[surface]=sf;}
+  let y=sf.by_year[year];if(!y){y=[0,0];sf.by_year[year]=y;}
+  sf.career[won?0:1]++;y[won?0:1]++;
+}
+async function fetchCsv(repo,fname){
+  const urls=[
+    "https://raw.githubusercontent.com/JeffSackmann/"+repo+"/master/"+fname,
+    "https://cdn.jsdelivr.net/gh/JeffSackmann/"+repo+"@master/"+fname,
+    "https://cdn.statically.io/gh/JeffSackmann/"+repo+"/master/"+fname
+  ];
+  for(const u of urls){try{const r=await fetch(u);if(r.ok)return await r.text();}catch(e){}}
+  return null;
+}
+function aggregate(text,store){
+  let added=0;
+  const out=Papa.parse(text,{header:true,skipEmptyLines:true});
+  for(const row of out.data){
+    const surface=titleSurf(row.surface);
+    if(!SURF.has(surface))continue;
+    const date=(row.tourney_date||"").toString().trim();
+    const year=date.slice(0,4);
+    if(year.length!==4||isNaN(year))continue;
+    const w=(row.winner_name||"").trim(), l=(row.loser_name||"").trim();
+    if(!w||!l)continue;
+    bump(store,w,surface,year,true);
+    bump(store,l,surface,year,false);
+    added++;
+  }
+  return added;
+}
+async function run(){
+  B.disabled=true;L.innerHTML="";
+  const store={};const y1=new Date().getFullYear();const start=2015;
+  let total=0;
+  for(const [repo,pre] of [["tennis_atp","atp_matches_"],["tennis_wta","wta_matches_"]]){
+    for(let y=start;y<=y1;y++){
+      const fname=pre+y+".csv";
+      const text=await fetchCsv(repo,fname);
+      if(!text){log("  skip "+fname+" (not found)","mut");continue;}
+      const n=aggregate(text,store);total+=n;
+      log("  "+fname+": +"+n.toLocaleString()+"  (players "+Object.keys(store).length.toLocaleString()+")");
+    }
+  }
+  const players=Object.keys(store).length;
+  const wta=["sabalenka","gauff","swiatek"].filter(nm=>Object.keys(store).some(k=>k.includes(nm)));
+  log("");
+  log("Built "+players.toLocaleString()+" players from "+total.toLocaleString()+" matches.");
+  log("WTA check: "+(wta.length?wta.join(", "):"NONE FOUND"),wta.length?"ok":"err");
+  if(players<1500||!wta.length){log("Aborting upload \\u2014 looks incomplete.","err");B.disabled=false;return;}
+  log("Uploading to the app \\u2026");
+  try{
+    const res=await fetch("/api/surface/upload?confirm=yes",{method:"POST",
+      headers:{"Content-Type":"application/json"},body:JSON.stringify(store)});
+    const j=await res.json();
+    if(j.saved){log("\\u2705 SAVED "+j.players.toLocaleString()+" players to the server. Surface tab is live now.","ok");}
+    else{log("Server rejected it: "+(j.error||JSON.stringify(j)),"err");}
+  }catch(e){log("Upload failed: "+e,"err");}
+  B.disabled=false;
+}
+</script></body></html>"""
+
+
+@app.get("/surface-builder")
+def _surface_builder_page():
+    return Response(content=_SURFACE_BUILDER_HTML, media_type="text/html",
+                    headers={"Cache-Control": "no-store"})
+
+
 # ---- favicon / app icons (embedded so they survive a forgotten git add) ----
 import base64 as _b64
 _FAVICON_ICO = _b64.b64decode("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")
