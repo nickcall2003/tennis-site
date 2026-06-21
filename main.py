@@ -4851,24 +4851,29 @@ def _run_feed_build(start: int, chunk_days: int = 7):
         start = 2010
     span = max(1, min(31, chunk_days))
     cur = dt.date(start, 1, 1)
+    empty_streak = 0
     try:
         while cur <= today:
             cend = min(cur + dt.timedelta(days=span - 1), today)
             try:
                 rows = _grab(cur, cend)
                 report["calls"] += 1
-            except Exception:
-                # api-tennis 500s on wide ranges; fall back to day-by-day. Single
-                # days are exactly the size the live board pulls, so they work.
+            except Exception as ex:
                 rows = []
-                d = cur
-                while d <= cend:
-                    try:
-                        rows += _grab(d, d) or []
-                        report["calls"] += 1
-                    except Exception as e2:
-                        report["errors"].append(f"{d:%Y-%m-%d}: {type(e2).__name__}")
-                    d += dt.timedelta(days=1)
+                # A timeout means the whole range is unreachable (e.g. a year not
+                # in the plan) — don't waste 7x20s on day-by-day. A 500 is usually
+                # a size issue, so a day-by-day retry is worth it there.
+                if "timeout" in (type(ex).__name__ + str(ex)).lower():
+                    report["errors"].append(f"{cur:%Y-%m-%d}: timeout (range skipped)")
+                else:
+                    d = cur
+                    while d <= cend:
+                        try:
+                            rows += _grab(d, d) or []
+                            report["calls"] += 1
+                        except Exception as e2:
+                            report["errors"].append(f"{d:%Y-%m-%d}: {type(e2).__name__}")
+                        d += dt.timedelta(days=1)
             n = 0
             for fix in rows or []:
                 if not fix.get("event_winner"):
@@ -4900,9 +4905,19 @@ def _run_feed_build(start: int, chunk_days: int = 7):
             if n:
                 yk = f"{cur:%Y}"
                 report.setdefault("by_year", {})[yk] = report["by_year"].get(yk, 0) + n
+                empty_streak = 0
+            else:
+                empty_streak += 1
             report["matches"] += n
             report["players_so_far"] = len(store)
             _FEED_BUILD["report"] = dict(report)  # live progress for polling
+            # If we're deep into a range with zero matches found, the data isn't
+            # there (e.g. a start year before your plan's history) — stop grinding.
+            if report["matches"] == 0 and empty_streak >= 8:
+                report["aborted"] = (f"no matches in first {empty_streak} chunks from "
+                                     f"{start} \u2014 that history isn't in your api-tennis plan; "
+                                     f"try a later &start=")
+                break
             cur = cend + dt.timedelta(days=1)
     except Exception as e:
         report["errors"].append(f"loop: {type(e).__name__}: {e}")
@@ -4947,26 +4962,30 @@ def _run_feed_build(start: int, chunk_days: int = 7):
 
 
 @app.get("/api/surface/build-from-feed")
-def _surface_from_feed(confirm: str = "", start: int = 2024, chunk: int = 7):
+def _surface_from_feed(confirm: str = "", start: int = 2024, chunk: int = 7, force: str = ""):
     """Plan B: build surface_records.json from the api-tennis feed (which Railway
-    reaches) instead of GitHub. Pulls finished ATP+WTA singles month-by-month from
-    ?start=YYYY (default 2024) to today, infers surface from the tournament name
-    the same way the board does, aggregates per-player W/L, saves to /data and
-    hot-reloads. Runs in the background; poll /api/surface/feed-status."""
+    reaches) instead of GitHub. Pulls finished ATP+WTA singles from ?start=YYYY
+    (default 2024) to today in small date-chunks, infers surface from the
+    tournament name the same way the board does, aggregates per-player W/L, saves
+    to /data and hot-reloads. Background; poll /api/surface/feed-status.
+    &force=yes clears a stuck/hung previous run."""
     if confirm != "yes":
         yrs = max(1, dt.date.today().year - start + 1)
         return JSONResponse({"note": "append ?confirm=yes to run",
                              "start": start, "approx_calls": yrs * 12,
                              "effect": "background build from api-tennis finished singles -> /data"})
-    if _FEED_BUILD["running"]:
-        return JSONResponse({"status": "already running", "poll": "/api/surface/feed-status"})
+    if _FEED_BUILD["running"] and force != "yes":
+        return JSONResponse({"status": "already running",
+                             "tip": "if it's stuck, add &force=yes to clear and restart",
+                             "poll": "/api/surface/feed-status"})
     _FEED_BUILD["running"] = True
     _FEED_BUILD["report"] = None
     import threading
     threading.Thread(target=_run_feed_build, args=(start, chunk), daemon=True).start()
-    return JSONResponse({"status": "build started in background",
+    return JSONResponse({"status": "build started in background"
+                                   + (" (forced over a stuck run)" if force == "yes" else ""),
                          "poll": "/api/surface/feed-status",
-                         "note": "takes ~1-2 min; refresh feed-status until running=false"})
+                         "note": "refresh feed-status until running=false"})
 
 
 @app.get("/api/surface/feed-status")
