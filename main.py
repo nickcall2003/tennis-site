@@ -1314,20 +1314,55 @@ def _tennis_odds_for(pmid, player_a, player_b):
 
 
 def _attach_tennis_market(p):
-    """Attach api-tennis market odds + de-vigged edge to a tennis pick, and
-    snapshot the line so units/ROI/CLV settle from the included feed (no Odds
-    API credits spent). Pick side is read from the 'A vs B' match string."""
+    """Attach api-tennis market odds + de-vigged edge to a tennis pick. The price
+    is aligned by matching the pick's NAME against the odds feed's own player
+    names (not by list position, which can differ from the board order and was
+    handing the pick the OPPONENT's price — a favorite showing +1176). Settlement
+    side stays in board order so grading is unaffected."""
     from clv import american_to_prob
+    from odds_api import _norm
     names = [n.strip() for n in p.get("match", "").split(" vs ")]
     if len(names) != 2:
         return
-    dec_a, dec_b = _tennis_odds_for(p.get("pmid"), names[0], names[1])
-    if not (dec_a and dec_b):
+    pmid = p.get("pmid")
+    prov = globals().get("provider")
+    if not pmid or prov is None or not hasattr(prov, "get_odds"):
         return
-    from odds_api import _norm
-    pick_name = _norm(p.get("pick", "").replace(" to win", "").strip())
-    side = "a" if pick_name == _norm(names[0]) else "b"
-    am = _dec_to_amer(dec_a if side == "a" else dec_b)
+    try:
+        od = (prov.get_odds(match_key=pmid) or {}).get(str(pmid))
+    except Exception:
+        return
+    if not od:
+        return
+    da, db = od.get("a"), od.get("b")          # 'a' aligns to feed 'first', 'b' to 'second'
+    if not (da and db):
+        return
+    f, s = od.get("first"), od.get("second")
+
+    def _same(x, y):
+        x, y = _norm(x or ""), _norm(y or "")
+        if not x or not y:
+            return False
+        return x == y or (x.split()[-1] == y.split()[-1])
+
+    pick = p.get("pick", "").replace(" to win", "").strip()
+    # Price alignment: prefer the odds feed's own names; fall back to board order.
+    if _same(pick, f):
+        dec, used = da, "a"
+    elif _same(pick, s):
+        dec, used = db, "b"
+    elif _same(pick, names[0]):
+        dec, used = da, "a"
+    elif _same(pick, names[1]):
+        dec, used = db, "b"
+    else:
+        return                                  # can't align confidently -> keep fair odds only
+    other = db if used == "a" else da
+    # Backstop: a model favorite handed a big-longshot price while the opponent is
+    # a heavy favorite means the alignment is still wrong -> take the short side.
+    if (p.get("prob") or 0) >= 0.55 and dec >= 4.0 and other <= 1.5:
+        dec = other
+    am = _dec_to_amer(dec)
     if am is None:
         return
     p["market_odds"] = am
@@ -1336,7 +1371,8 @@ def _attach_tennis_market(p):
         mp = american_to_prob(am)
         if fp is not None and mp is not None:
             p["edge_pct"] = round((fp - mp) * 100, 1)
-    _snapshot_odds("tennis", str(p["id"]), side, am)
+    bside = "a" if _same(pick, names[0]) else "b"   # settlement stays in board order
+    _snapshot_odds("tennis", str(p["id"]), bside, am)
 
 
 _acc_cache = {"ts": 0.0, "data": None}
