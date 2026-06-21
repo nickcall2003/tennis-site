@@ -3132,6 +3132,24 @@ def golf_dg_outrights_diag(tour: str = "pga", market: str = "win"):
         return JSONResponse({"error": str(e)})
 
 
+@app.get("/api/golf/tracker-settle")
+def golf_tracker_settle(confirm: str = "", tour: str = "pga"):
+    """Force a settle pass right now and report how many graded — or the exact
+    error + traceback if it throws. The hourly background settle swallows its
+    errors, so this surfaces why gradeable matchups aren't settling."""
+    if confirm != "yes":
+        return JSONResponse({"note": "add ?confirm=yes to force a settle pass", "tour": tour})
+    try:
+        import golf_tracker
+        n = golf_tracker.settle(tour)
+        return JSONResponse({"settled_this_pass": n, "tour": tour},
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": str(e), "trace": traceback.format_exc()[-1800:]},
+                            headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/golf/tracker-reset")
 def golf_tracker_reset(confirm: str = ""):
     """Wipes golf tracking: deletes golf PickResults and re-arms every tracked
@@ -4785,10 +4803,10 @@ def _surface_builder_page():
 _FEED_BUILD = {"running": False, "report": None}
 
 
-def _run_feed_build(start: int):
+def _run_feed_build(start: int, chunk_days: int = 7):
     global SURFACE_RECORDS
     import calendar as _cal
-    report = {"start": start, "months": [], "errors": [], "calls": 0, "matches": 0}
+    report = {"start": start, "chunk_days": chunk_days, "by_year": {}, "errors": [], "calls": 0, "matches": 0}
     try:
         import apitennis as _at
         prov = _at.APITennisProvider()
@@ -4831,26 +4849,26 @@ def _run_feed_build(start: int):
     today = dt.date.today()
     if start < 2010:
         start = 2010
+    span = max(1, min(31, chunk_days))
     cur = dt.date(start, 1, 1)
     try:
         while cur <= today:
-            last = _cal.monthrange(cur.year, cur.month)[1]
-            cend = min(dt.date(cur.year, cur.month, last), today)
+            cend = min(cur + dt.timedelta(days=span - 1), today)
             try:
                 rows = _grab(cur, cend)
                 report["calls"] += 1
             except Exception:
-                # api-tennis often 500s on a full-month range; retry in two halves
+                # api-tennis 500s on wide ranges; fall back to day-by-day. Single
+                # days are exactly the size the live board pulls, so they work.
                 rows = []
-                mid = cur + dt.timedelta(days=max(1, (cend - cur).days // 2))
-                for a, b in ((cur, mid), (mid + dt.timedelta(days=1), cend)):
-                    if a > b:
-                        continue
+                d = cur
+                while d <= cend:
                     try:
-                        rows += _grab(a, b) or []
+                        rows += _grab(d, d) or []
                         report["calls"] += 1
                     except Exception as e2:
-                        report["errors"].append(f"{a:%Y-%m-%d}\u2192{b:%m-%d}: {type(e2).__name__}")
+                        report["errors"].append(f"{d:%Y-%m-%d}: {type(e2).__name__}")
+                    d += dt.timedelta(days=1)
             n = 0
             for fix in rows or []:
                 if not fix.get("event_winner"):
@@ -4880,7 +4898,8 @@ def _run_feed_build(start: int):
                 bump(l, surface, year, False)
                 n += 1
             if n:
-                report["months"].append(f"{cur:%Y-%m}:+{n}")
+                yk = f"{cur:%Y}"
+                report.setdefault("by_year", {})[yk] = report["by_year"].get(yk, 0) + n
             report["matches"] += n
             report["players_so_far"] = len(store)
             _FEED_BUILD["report"] = dict(report)  # live progress for polling
@@ -4928,7 +4947,7 @@ def _run_feed_build(start: int):
 
 
 @app.get("/api/surface/build-from-feed")
-def _surface_from_feed(confirm: str = "", start: int = 2024):
+def _surface_from_feed(confirm: str = "", start: int = 2024, chunk: int = 7):
     """Plan B: build surface_records.json from the api-tennis feed (which Railway
     reaches) instead of GitHub. Pulls finished ATP+WTA singles month-by-month from
     ?start=YYYY (default 2024) to today, infers surface from the tournament name
@@ -4944,7 +4963,7 @@ def _surface_from_feed(confirm: str = "", start: int = 2024):
     _FEED_BUILD["running"] = True
     _FEED_BUILD["report"] = None
     import threading
-    threading.Thread(target=_run_feed_build, args=(start,), daemon=True).start()
+    threading.Thread(target=_run_feed_build, args=(start, chunk), daemon=True).start()
     return JSONResponse({"status": "build started in background",
                          "poll": "/api/surface/feed-status",
                          "note": "takes ~1-2 min; refresh feed-status until running=false"})
@@ -4973,6 +4992,31 @@ def _tennis_settle_stale(confirm: str = "", hours: int = 0):
         return JSONResponse({"pushed": pushed, "parlay_regrade_error": str(e)})
     return JSONResponse({"pushed_as_canceled": pushed, "parlays": "re-graded",
                          "window_hours": (hours or STALE_TENNIS_HOURS)},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/surface/reset-volume")
+def _surface_reset_volume(confirm: str = ""):
+    """Undo the last feed build: delete /data/surface_records.json so the app falls
+    back to the committed surface_records.json (your deep Sackmann ATP file, which
+    has real grass). Reports how many players load from the committed file so you
+    can see what the base actually contains."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes to wipe the volume file and "
+                             "revert to the committed surface_records.json"})
+    path = "/data/surface_records.json"
+    existed = os.path.exists(path)
+    try:
+        if existed:
+            os.remove(path)
+    except Exception as e:
+        return JSONResponse({"error": f"could not delete {path}: {e}"})
+    src = _load_surface_records()      # reloads from committed file now that /data is gone
+    return JSONResponse({"deleted_volume_file": existed,
+                         "now_loaded_from": src,
+                         "players_loaded": len(SURFACE_RECORDS),
+                         "note": "this is your committed base; rebuild WTA on top with "
+                                 "/api/surface/build-from-feed"},
                         headers={"Cache-Control": "no-store"})
 
 
