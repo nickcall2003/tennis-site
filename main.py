@@ -366,6 +366,10 @@ def _backfill_results(days: int) -> None:
         return
     import time as _t
     today = dt.date.today()
+    try:
+        _settle_stale_tennis()   # clear canceled/stuck tennis bets on startup too
+    except Exception as e:
+        print(f"[backfill] stale-tennis sweep failed: {e}")
 
     # Pass 1: team sports (cheap reads) — settles NCAA / MLB / NBA / NFL / UFC / soccer.
     for off in range(1, days + 1):
@@ -1205,6 +1209,59 @@ def _is_soccer_push(r):
             and str(getattr(r, "predicted", "")) in ("home", "away"))
 
 
+def _is_push(r):
+    """True if a settled pick is a PUSH (no win, no loss): a soccer 'to win' pick
+    that drew, OR any match recorded as canceled/walkover/abandoned. Pushes are
+    excluded from W/L, units, ROI and CLV, and they void a parlay leg (the slip
+    pays on its remaining legs)."""
+    if _is_soccer_push(r):
+        return True
+    return str(getattr(r, "actual", "")).strip().lower() in (
+        "canceled", "cancelled", "push", "void", "walkover", "abandoned")
+
+
+STALE_TENNIS_HOURS = int(os.environ.get("TENNIS_STALE_HOURS", "48"))
+
+
+def _settle_stale_tennis(hours=None):
+    """A tennis match that never reached 'finished' but whose start time is well
+    past (canceled / walkover / postponed / abandoned) settles as a PUSH, so single
+    bets and parlay legs stop hanging in 'pending' forever. Also mops up any
+    finished-but-unrecorded matches in the same window."""
+    from models import PickResult
+    now = dt.datetime.now()
+    cutoff = now - dt.timedelta(hours=(hours or STALE_TENNIS_HOURS))
+    lo = now - dt.timedelta(days=14)
+    pushed = 0
+    try:
+        with SessionLocal() as db:
+            have = {str(x.ref) for x in
+                    db.query(PickResult).filter(PickResult.sport == "tennis").all()}
+            stale = (db.query(Match)
+                       .filter(Match.scheduled < cutoff, Match.scheduled >= lo)
+                       .all())
+            wrote = False
+            for m in stale:
+                if str(m.id) in have:
+                    continue
+                row = _match_row(db, m)
+                pw = row.get("predicted_winner")
+                if not pw:
+                    continue                       # not a tracked pick
+                sc = row.get("score") or {}
+                if row.get("status") == "finished" and sc.get("winner") in ("a", "b"):
+                    _record_result(db, "tennis", m.id, pw, sc["winner"])
+                else:
+                    _record_result(db, "tennis", m.id, pw, "canceled")
+                    pushed += 1
+                wrote = True
+            if wrote:
+                db.commit()
+    except Exception as e:
+        print(f"[stale-tennis] settle failed: {e}")
+    return pushed
+
+
 def _record_result(db, sport, ref, predicted, actual):
     """Upsert a settled pick into the results log (no-op if already recorded).
     If we captured a market line for this pick, store taken (open) and close
@@ -1304,8 +1361,8 @@ def accuracy(days: int = 30):
     with SessionLocal() as db:
         rows = db.query(PickResult).filter(PickResult.settled_date >= since).all()
         for r in rows:
-            if _is_soccer_push(r):
-                continue                       # draw = push, excluded from record
+            if _is_push(r):
+                continue                       # draw/canceled = push, off the record
             s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0, "today_picks": 0,
                                               "today_correct": 0, "units": 0.0, "priced": 0})
             s["picks"] += 1
@@ -1330,8 +1387,8 @@ def accuracy(days: int = 30):
         # all-time record (no date filter), per sport and overall
         allrows = db.query(PickResult).all()
         for r in allrows:
-            if _is_soccer_push(r):
-                continue                       # draw = push, excluded from record
+            if _is_push(r):
+                continue                       # draw/canceled = push, off the record
             a = alltime.setdefault(r.sport, {"wins": 0, "losses": 0})
             at_p += 1
             if r.correct:
@@ -1926,6 +1983,7 @@ def _settle_parlays():
     are graded on demand here (other sports settle via their own boards)."""
     _ensure_parlay_table()
     from models import ParlaySlip, PickResult
+    _settle_stale_tennis()   # push out canceled/stuck tennis so legs stop hanging
     try:
         with SessionLocal() as db:
             pend = db.query(ParlaySlip).filter(ParlaySlip.result == "pending").all()
@@ -2011,7 +2069,7 @@ def _settle_parlays():
                     continue                       # not fully settled yet
                 # soccer draws are pushes: the leg is voided, the slip pays on the
                 # remaining legs (draws never sink a parlay).
-                live = [(L, r) for L, r in zip(legs, rows) if not _is_soccer_push(r)]
+                live = [(L, r) for L, r in zip(legs, rows) if not _is_push(r)]
                 if not live:                       # every leg pushed -> void slip
                     slip.result = "push"
                     slip.units_pl = 0.0
@@ -2371,6 +2429,8 @@ def _pick_result_status(sport, ref):
             r = db.query(PickResult).filter_by(sport=sport, ref=str(ref)).first()
             if r is None:
                 return None
+            if _is_push(r):
+                return "push"
             return "win" if r.correct else "loss"
     except Exception:
         return None
@@ -4183,6 +4243,8 @@ def clv_report(days: int = 30):
             PickResult.settled_date >= since,
             PickResult.taken_odds.isnot(None)).all()
     for r in rows:
+        if _is_push(r):
+            continue
         bet = {"odds": r.taken_odds, "won": bool(r.correct), "close_odds": r.close_odds}
         persport.setdefault(r.sport, []).append(bet)
         allbets.append(bet)
@@ -4214,8 +4276,8 @@ def performance(days: int = 30, sport: str | None = None):
         if sport:
             q = q.filter(PickResult.sport == sport)
         for r in q.all():
-            if _is_soccer_push(r):
-                continue                       # draw = push, excluded from record
+            if _is_push(r):
+                continue                       # draw/canceled = push, off the record
             if r.correct:
                 wins += 1
             else:
@@ -4748,6 +4810,24 @@ def _run_feed_build(start: int):
         sf["career"][0 if won else 1] += 1
         yr[0 if won else 1] += 1
 
+    # Deep base: start from the committed Sackmann ATP file (full career history),
+    # then overlay the feed (which adds WTA + any players the base lacks). Read the
+    # repo/app copy explicitly, NOT /data (that's the previous feed output).
+    base: dict = {}
+    for p in ("surface_records.json", os.path.join(_here, "surface_records.json"),
+              "/app/surface_records.json"):
+        try:
+            with open(p) as bf:
+                cand = json.load(bf)
+            if isinstance(cand, dict) and len(cand) > len(base):
+                base, report["base_file"] = cand, p
+        except Exception:
+            continue
+    report["base_players"] = len(base)
+
+    def _grab(d0, d1):
+        return prov._call("get_fixtures", date_start=d0.isoformat(), date_stop=d1.isoformat())
+
     today = dt.date.today()
     if start < 2010:
         start = 2010
@@ -4757,12 +4837,20 @@ def _run_feed_build(start: int):
             last = _cal.monthrange(cur.year, cur.month)[1]
             cend = min(dt.date(cur.year, cur.month, last), today)
             try:
-                rows = prov._call("get_fixtures", date_start=cur.isoformat(),
-                                  date_stop=cend.isoformat())
+                rows = _grab(cur, cend)
                 report["calls"] += 1
-            except Exception as e:
-                report["errors"].append(f"{cur:%Y-%m}: {type(e).__name__}: {e}")
+            except Exception:
+                # api-tennis often 500s on a full-month range; retry in two halves
                 rows = []
+                mid = cur + dt.timedelta(days=max(1, (cend - cur).days // 2))
+                for a, b in ((cur, mid), (mid + dt.timedelta(days=1), cend)):
+                    if a > b:
+                        continue
+                    try:
+                        rows += _grab(a, b) or []
+                        report["calls"] += 1
+                    except Exception as e2:
+                        report["errors"].append(f"{a:%Y-%m-%d}\u2192{b:%m-%d}: {type(e2).__name__}")
             n = 0
             for fix in rows or []:
                 if not fix.get("event_winner"):
@@ -4800,6 +4888,17 @@ def _run_feed_build(start: int):
     except Exception as e:
         report["errors"].append(f"loop: {type(e).__name__}: {e}")
 
+    # Overlay: keep every deep base (Sackmann ATP) record; add feed players the
+    # base doesn't have (all WTA + any new entrants). No double-counting of ATP.
+    report["feed_players"] = len(store)
+    if base:
+        added = 0
+        for k, v in store.items():
+            if k not in base:
+                base[k] = v
+                added += 1
+        report["feed_added_to_base"] = added
+        store = base
     report["players"] = len(store)
     probe = {nm: any(nm in k for k in store) for nm in ("sabalenka", "gauff", "swiatek")}
     report["wta_present"] = probe
@@ -4854,6 +4953,26 @@ def _surface_from_feed(confirm: str = "", start: int = 2024):
 @app.get("/api/surface/feed-status")
 def _feed_status():
     return JSONResponse({"running": _FEED_BUILD["running"], "report": _FEED_BUILD["report"]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/tennis/settle-stale")
+def _tennis_settle_stale(confirm: str = "", hours: int = 0):
+    """Force-settle canceled/stuck tennis (start time past the staleness window,
+    not finished) as PUSHES right now, so hanging single bets and parlay legs
+    clear immediately. ?confirm=yes to run; optional &hours=N overrides the
+    window for this run."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes to run",
+                             "window_hours": STALE_TENNIS_HOURS,
+                             "tip": "use &hours=24 to be more aggressive for old stuck bets"})
+    pushed = _settle_stale_tennis(hours if hours and hours > 0 else None)
+    try:
+        _settle_parlays()   # re-grade slips now that legs settled
+    except Exception as e:
+        return JSONResponse({"pushed": pushed, "parlay_regrade_error": str(e)})
+    return JSONResponse({"pushed_as_canceled": pushed, "parlays": "re-graded",
+                         "window_hours": (hours or STALE_TENNIS_HOURS)},
                         headers={"Cache-Control": "no-store"})
 
 
