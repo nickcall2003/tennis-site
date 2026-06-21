@@ -4988,6 +4988,44 @@ def _surface_from_feed(confirm: str = "", start: int = 2024, chunk: int = 7, for
                          "note": "refresh feed-status until running=false"})
 
 
+@app.get("/api/surface/feed-probe")
+def _feed_probe(date: str = ""):
+    """Test ONE api-tennis get_fixtures call in isolation, wrapped so it can't hang
+    the request. Tells us if the calls work, error, or hang — which is what's
+    been stalling the background build."""
+    import time as _t, threading
+    d = date or (dt.date.today() - dt.timedelta(days=2)).isoformat()
+    out = {}
+
+    def _do():
+        try:
+            import apitennis as _at
+            prov = _at.APITennisProvider()
+            out["req_count"] = getattr(prov, "_req_count", None)
+            out["daily_max"] = getattr(_at, "_DAILY_MAX", None)
+            t0 = _t.time()
+            rows = prov._call("get_fixtures", date_start=d, date_stop=d)
+            out["seconds"] = round(_t.time() - t0, 1)
+            out["rows"] = len(rows or [])
+            out["finished"] = sum(1 for f in (rows or []) if f.get("event_winner"))
+            out["sample"] = [{"t": (f.get("tournament_name") or "")[:28],
+                              "p1": f.get("event_first_player"),
+                              "p2": f.get("event_second_player"),
+                              "w": f.get("event_winner")} for f in (rows or [])[:3]]
+        except Exception as e:
+            out["error"] = f"{type(e).__name__}: {e}"
+            out["last_error"] = getattr(locals().get("prov", None), "last_error", None)
+
+    th = threading.Thread(target=_do, daemon=True)
+    th.start()
+    th.join(25)
+    if th.is_alive():
+        return JSONResponse({"date": d, "result": "HUNG \u2014 the call did not return in 25s; "
+                             "the deployed apitennis._call has no working timeout",
+                             "partial": out}, headers={"Cache-Control": "no-store"})
+    return JSONResponse({"date": d, **out}, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/surface/feed-status")
 def _feed_status():
     return JSONResponse({"running": _FEED_BUILD["running"], "report": _FEED_BUILD["report"]},
