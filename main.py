@@ -4804,6 +4804,21 @@ _FEED_BUILD = {"running": False, "report": None}
 
 
 def _run_feed_build(start: int, chunk_days: int = 7):
+    """Wrapper: guarantees the running flag is cleared no matter what, so a build
+    can never again get stuck 'running' with no report."""
+    try:
+        _run_feed_build_inner(start, chunk_days)
+    except Exception as e:
+        import traceback
+        cur = _FEED_BUILD.get("report") or {}
+        cur["fatal"] = f"{type(e).__name__}: {e}"
+        cur["trace"] = traceback.format_exc()[-1200:]
+        _FEED_BUILD["report"] = cur
+    finally:
+        _FEED_BUILD["running"] = False
+
+
+def _run_feed_build_inner(start: int, chunk_days: int = 7):
     global SURFACE_RECORDS
     import calendar as _cal
     report = {"start": start, "chunk_days": chunk_days, "by_year": {}, "errors": [], "calls": 0, "matches": 0}
@@ -4832,7 +4847,8 @@ def _run_feed_build(start: int, chunk_days: int = 7):
     # then overlay the feed (which adds WTA + any players the base lacks). Read the
     # repo/app copy explicitly, NOT /data (that's the previous feed output).
     base: dict = {}
-    for p in ("surface_records.json", os.path.join(_here, "surface_records.json"),
+    _basedir = os.path.dirname(os.path.abspath(__file__))
+    for p in ("surface_records.json", os.path.join(_basedir, "surface_records.json"),
               "/app/surface_records.json"):
         try:
             with open(p) as bf:
