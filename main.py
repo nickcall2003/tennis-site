@@ -5026,6 +5026,16 @@ def _feed_probe(date: str = ""):
     return JSONResponse({"date": d, **out}, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/whoami")
+def _whoami():
+    import threading
+    return JSONResponse({"pid": os.getpid(),
+                         "threads": threading.active_count(),
+                         "feed_running": _FEED_BUILD["running"],
+                         "feed_report_null": _FEED_BUILD["report"] is None},
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/surface/feed-status")
 def _feed_status():
     return JSONResponse({"running": _FEED_BUILD["running"], "report": _FEED_BUILD["report"]},
