@@ -1217,7 +1217,8 @@ def _is_push(r):
     if _is_soccer_push(r):
         return True
     return str(getattr(r, "actual", "")).strip().lower() in (
-        "canceled", "cancelled", "push", "void", "walkover", "abandoned")
+        "canceled", "cancelled", "push", "void", "walkover", "abandoned",
+        "postponed", "suspended", "ppd")
 
 
 STALE_TENNIS_HOURS = int(os.environ.get("TENNIS_STALE_HOURS", "48"))
@@ -1534,11 +1535,36 @@ def mlb_games(date: str | None = None):
                     predicted = "home" if g["prob_home"] >= 0.5 else "away"
                     _record_result(db, "mlb", g["id"], predicted, g["winner"])
                     wrote = True
+                elif g.get("status") == "postponed":
+                    # clear any bogus result a prior postponed-as-finished bug recorded
+                    from models import PickResult
+                    if db.query(PickResult).filter_by(sport="mlb", ref=str(g["id"])).delete():
+                        wrote = True
             if wrote:
                 db.commit()
     except Exception as e:
         print(f"[accuracy] mlb log skipped: {e}")
     return games
+
+
+@app.get("/api/mlb/regrade")
+def mlb_regrade(confirm: str = "", days: int = 4):
+    """Re-sweep recent MLB days: records finished games and voids any bogus result
+    a postponed/cancelled game left behind. Use to clear a postponed game (e.g. a
+    rain-out) that was wrongly marked a loss."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes to re-grade recent MLB days"})
+    today = dt.date.today()
+    swept = []
+    for off in range(0, max(1, days)):
+        d = (today - dt.timedelta(days=off)).isoformat()
+        try:
+            mlb_games(d)
+            swept.append(d)
+        except Exception as e:
+            swept.append(f"{d}: {type(e).__name__}")
+    return JSONResponse({"reswept": swept, "note": "postponed games voided, finished re-recorded"},
+                        headers={"Cache-Control": "no-store"})
 
 
 def _mlb_writeup(g):
