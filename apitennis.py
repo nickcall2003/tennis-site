@@ -309,6 +309,24 @@ class APITennisProvider(TennisProvider):
                                    status="live", winner=None)
         self._live_cache = cache
 
+    def final_results(self, day):
+        """{event_key: (status, winner)} for a day's fixtures. Used to reconcile
+        matches the live feed dropped before they were marked finished (a finished
+        match leaves get_livescore, so the per-match poll can't see its winner)."""
+        d = day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)
+        try:
+            rows = self._call("get_fixtures", date_start=d, date_stop=d)
+        except Exception:
+            return {}
+        out = {}
+        for fix in rows or []:
+            k = str(fix.get("event_key"))
+            if not k:
+                continue
+            st = _status(fix)
+            out[k] = (st, _winner(fix.get("event_winner")) if st == "finished" else None)
+        return out
+
     def get_live_score(self, provider_match_id):
         self._refresh_live()
         key = str(provider_match_id)

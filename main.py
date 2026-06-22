@@ -2148,6 +2148,38 @@ def parlays(date: str | None = None):
     return {"parlays": built, "date": target.isoformat(), "locked": False}
 
 
+@app.get("/api/parlays/rebuild")
+def parlays_rebuild(confirm: str = "", date: str | None = None):
+    """Clear the frozen slips for a date and rebuild them at current prices (slips
+    are normally locked on first view, so use this after a pricing fix). Returns a
+    preview of the new legs + odds so you can verify favorites read correctly.
+    Defaults to today."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes to clear & rebuild this date's slips"})
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    _ensure_parlay_table()
+    from models import ParlaySlip
+    d0 = dt.datetime.combine(target, dt.time.min)
+    d1 = d0 + dt.timedelta(days=1)
+    try:
+        with SessionLocal() as db:
+            n = (db.query(ParlaySlip)
+                   .filter(ParlaySlip.slip_date >= d0, ParlaySlip.slip_date < d1)
+                   .delete())
+            db.commit()
+    except Exception as e:
+        return JSONResponse({"error": str(e)})
+    built = _build_parlays(target)
+    if built:
+        _save_slips(target, built)
+    preview = [{"name": p["name"],
+                "legs": [{"pick": L.get("pick"), "odds": L.get("odds"),
+                          "priced": L.get("priced")} for L in p["legs"]]}
+               for p in built]
+    return JSONResponse({"cleared": n, "rebuilt": len(built), "date": target.isoformat(),
+                         "preview": preview}, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/parlays/record")
 def parlays_record(days: int = 30):
     """Rolling W/L and unit P&L across the locked parlays."""

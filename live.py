@@ -46,6 +46,12 @@ MAX_POLL_PER_TICK = int(os.environ.get("LIVE_MAX_POLL_PER_TICK", "60"))  # ceili
 # status). Zombies show as "live" forever AND eat the poll budget, so we retire
 # them each tick.
 ZOMBIE_HOURS = int(os.environ.get("LIVE_ZOMBIE_HOURS", "12"))
+# Reconcile: matches past their start that the live feed dropped before they were
+# marked finished. We check the day's fixtures (which carry the winner) so a
+# completed match stops showing as "live"/pending and its pick can grade.
+FINALIZE_GRACE_HOURS = int(os.environ.get("LIVE_FINALIZE_GRACE_HOURS", "3"))
+RECONCILE_EVERY_TICKS = int(os.environ.get("LIVE_RECONCILE_EVERY_TICKS", "15"))
+RECONCILE_MAX_DAYS = 4
 
 
 def _score_to_dict(s: LiveScore) -> dict:
@@ -86,10 +92,63 @@ class LiveEngine:
         while self.running:
             try:
                 await self._poll_once()
+                if self._tick % RECONCILE_EVERY_TICKS == 0:
+                    await self._reconcile_finals()
             except Exception as e:  # never let the loop die silently
                 print(f"[live] poll error: {e}")
             self._tick += 1
             await asyncio.sleep(POLL_SECONDS)
+
+    async def _reconcile_finals(self) -> None:
+        """Finalize matches the live poll missed: past their start time, still not
+        'finished', but the day's fixtures show the match is over. Stops a completed
+        match from showing 'live'/pending until the 12h zombie sweep, and records
+        the real winner so its pick can grade instead of hanging."""
+        if not hasattr(self.provider, "final_results"):
+            return
+        now = dt.datetime.utcnow()
+        grace = now - dt.timedelta(hours=FINALIZE_GRACE_HOURS)
+        floor = now - dt.timedelta(days=4)
+        with SessionLocal() as db:
+            stuck = (db.query(Match)
+                       .filter(Match.status != "finished",
+                               Match.scheduled < grace, Match.scheduled >= floor)
+                       .all())
+            by_day: dict = {}
+            for m in stuck:
+                if m.scheduled:
+                    by_day.setdefault(m.scheduled.date(), []).append(
+                        (m.id, str(m.provider_match_id)))
+        if not by_day:
+            return
+        fixed = 0
+        for day, items in list(by_day.items())[:RECONCILE_MAX_DAYS]:
+            try:
+                res = await asyncio.to_thread(self.provider.final_results, day)
+            except Exception as e:
+                print(f"[live] reconcile fetch failed {day}: {e}")
+                continue
+            if not res:
+                continue
+            with SessionLocal() as db:
+                for mid, pid in items:
+                    got = res.get(pid)
+                    if not got or got[0] != "finished":
+                        continue
+                    m = db.get(Match, mid)
+                    if m is not None:
+                        m.status = "finished"
+                    live = db.query(LiveState).filter_by(match_id=mid).one_or_none()
+                    if live is None:
+                        live = LiveState(match_id=mid)
+                        db.add(live)
+                    live.status = "finished"
+                    if got[1] in ("a", "b"):
+                        live.winner = got[1]
+                    fixed += 1
+                db.commit()
+        if fixed:
+            print(f"[live] reconciled {fixed} finished match(es) the live feed missed")
 
     async def _poll_once(self) -> None:
         # Figure out which matches are plausibly in play right now. We bound the
