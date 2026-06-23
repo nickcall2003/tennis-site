@@ -872,7 +872,41 @@ def list_matches(date: str | None = None):
                           Match.scheduled <= dt.datetime.combine(target, dt.time.max))
                   .order_by(Match.scheduled).all())
         rows = [m for m in rows if not _is_tennis_team_event(m)]
-        result = [_match_row(db, m) for m in rows]
+        # Pull the day's market lines in ONE cached call so each card can show the
+        # market price + model edge like the other sports. Aligned by player name
+        # so ml_home always = player_a's price (the model's prob_a side).
+        odds_book = {}
+        try:
+            prov = globals().get("provider")
+            if prov is not None and hasattr(prov, "get_odds"):
+                odds_book = prov.get_odds(day=target) or {}
+        except Exception:
+            odds_book = {}
+
+        def _ml_pair(m):
+            od = odds_book.get(str(m.provider_match_id))
+            if not od or not (od.get("a") and od.get("b")):
+                return None
+            from odds_api import _norm
+            da, db2, f, s = od["a"], od["b"], od.get("first"), od.get("second")
+
+            def _same(x, y):
+                x, y = _norm(x or ""), _norm(y or "")
+                return bool(x) and bool(y) and (x == y or x.split()[-1] == y.split()[-1])
+            if _same(m.player_a, s) or _same(m.player_b, f):
+                da, db2 = db2, da           # feed order is flipped vs player_a/b
+            am_a, am_b = _dec_to_amer(da), _dec_to_amer(db2)
+            if am_a is None or am_b is None:
+                return None
+            return {"ml_home": am_a, "ml_away": am_b}
+
+        result = []
+        for m in rows:
+            row = _match_row(db, m)
+            ml = _ml_pair(m)
+            if ml:
+                row["odds"] = ml
+            result.append(row)
         # log settled tennis picks for the accuracy tracker (best-effort)
         try:
             wrote = False
