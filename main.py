@@ -942,6 +942,64 @@ def ratings_build_status():
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/refresh/ncaaf")
+def refresh_ncaaf(confirm: str = "", year: int = 0):
+    """Build NCAAF SP+ ratings from CFBD (your CFBD_API_KEY) -> /data, hot-reload.
+    SP+ preseason ratings are published over the summer, so this is useful now."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes (optional &year=2026)"})
+    path = "/data/ncaaf_sp.json"
+    try:
+        import refresh_cfbd_sp as _r
+        _r.OUT = path
+        data = _r.build(year or None)
+    except SystemExit as e:
+        return JSONResponse({"error": str(e), "tip": "set CFBD_API_KEY on Railway"}, status_code=400)
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-800:]},
+                            status_code=500)
+    n = 0
+    try:
+        import ncaaf_provider
+        ncaaf_provider._PATH = path
+        n = ncaaf_provider.reload()
+    except Exception as e:
+        return JSONResponse({"status": "built but reload failed", "error": str(e),
+                             "teams": len(data.get("teams", {})), "path": path})
+    return JSONResponse({"status": "done", "teams": len(data.get("teams", {})),
+                         "loaded": n, "path": path, "season": data.get("season")})
+
+
+@app.get("/api/refresh/ncaab")
+def refresh_ncaab(confirm: str = "", season: int = 0):
+    """Build NCAAB adjusted ratings from CBBD (your CBBD_API_KEY) -> /data, hot-reload.
+    Note: college-hoops ratings may be sparse until the season tips off (Nov)."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes (optional &season=2026)"})
+    path = "/data/ncaab_ratings.json"
+    try:
+        import refresh_cbbd_ratings as _r
+        _r.OUT = path
+        data = _r.build(season or None)
+    except SystemExit as e:
+        return JSONResponse({"error": str(e), "tip": "set CBBD_API_KEY on Railway"}, status_code=400)
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-800:]},
+                            status_code=500)
+    n = 0
+    try:
+        import ncaab_provider
+        ncaab_provider._PATH = path
+        n = ncaab_provider.reload()
+    except Exception as e:
+        return JSONResponse({"status": "built but reload failed", "error": str(e),
+                             "teams": len(data.get("teams", {})), "path": path})
+    return JSONResponse({"status": "done", "teams": len(data.get("teams", {})),
+                         "loaded": n, "path": path, "season": data.get("season")})
+
+
 @app.get("/api/models/diag")
 def models_diag():
     """One-shot health check of every sport's model: is it running on real ratings
