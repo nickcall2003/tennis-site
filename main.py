@@ -74,9 +74,14 @@ if USE_REAL:
     from seed import build_day
     provider = APITennisProvider()
     engine = PredictionEngine()
-    # Prefer the precomputed ratings file (low memory, no pandas at runtime).
-    loaded = engine.load_ratings(os.environ.get("RATINGS_FILE", "ratings.json"))
+    _MODEL_STATUS = {"ratings_loaded": 0, "ranking_fallback": 0, "mode": "ranking-only"}
+    # Prefer the feed-built ratings on the persistent volume (survives redeploys),
+    # then any committed ratings.json. Either gets us out of ranking-only mode.
+    _rfile = os.environ.get("RATINGS_FILE", "ratings.json")
+    loaded = engine.load_ratings("/data/ratings.json") or engine.load_ratings(_rfile)
     if loaded:
+        _MODEL_STATUS["ratings_loaded"] = loaded
+        _MODEL_STATUS["mode"] = "surface-elo"
         print(f"[predictions] loaded {loaded} precomputed ratings (low-memory mode)")
     elif os.environ.get("TRAIN_AT_RUNTIME", "").lower() in ("1", "true", "yes"):
         # Heavy fallback: train live from CSVs. Only if explicitly enabled, since
@@ -103,6 +108,7 @@ if USE_REAL:
     try:
         ranks = provider.get_rankings()
         engine.load_rankings(ranks)
+        _MODEL_STATUS["ranking_fallback"] = len(ranks)
         print(f"[predictions] loaded {len(ranks)} ranked players as fallback")
     except Exception as e:
         print(f"[predictions] ranking fallback skipped ({e})")
@@ -790,6 +796,168 @@ def tennis_debug(date: str | None = None):
     except Exception as e:
         out["error"] = str(e)
     return out
+
+
+_RATINGS_BUILD = {"running": False, "report": None}
+
+
+def _run_ratings_build(start, chunk_days=1):
+    """Wrapper: always clears the running flag, captures any fatal error."""
+    try:
+        _run_ratings_build_inner(start, chunk_days)
+    except Exception as e:
+        import traceback
+        cur = _RATINGS_BUILD.get("report") or {}
+        cur["fatal"] = f"{type(e).__name__}: {e}"
+        cur["trace"] = traceback.format_exc()[-1200:]
+        _RATINGS_BUILD["report"] = cur
+    finally:
+        _RATINGS_BUILD["running"] = False
+
+
+def _run_ratings_build_inner(start, chunk_days=1):
+    """Train the surface-Elo from the api-tennis feed (which Railway reaches) and
+    export ratings.json to the volume, then hot-load it — moving the tennis model
+    from ranking-only to full surface-Elo. Mirrors the surface-records build."""
+    global engine
+    import apitennis as _at
+    from predictions import PredictionEngine, _name_key
+    report = {"start": start, "chunk_days": chunk_days, "matches": 0,
+              "players_so_far": 0, "calls": 0, "errors": [], "by_year": {}}
+    _RATINGS_BUILD["report"] = report
+    prov = _at.APITennisProvider()
+    eng = PredictionEngine()                      # fresh, empty surface-Elo
+
+    def _grab(d0, d1):
+        return prov._call("get_fixtures", date_start=d0.isoformat(), date_stop=d1.isoformat())
+
+    today = dt.date.today()
+    if start < 2010:
+        start = 2010
+    span = max(1, min(31, chunk_days))
+    cur = dt.date(start, 1, 1)
+    empty = 0
+    while cur <= today:
+        cend = min(cur + dt.timedelta(days=span - 1), today)
+        try:
+            rows = _grab(cur, cend)
+            report["calls"] += 1
+        except Exception as ex:
+            rows = []
+            if "timeout" not in (type(ex).__name__ + str(ex)).lower():
+                d = cur
+                while d <= cend:
+                    try:
+                        rows += _grab(d, d) or []
+                        report["calls"] += 1
+                    except Exception:
+                        pass
+                    d += dt.timedelta(days=1)
+        n = 0
+        for fix in rows or []:
+            if not fix.get("event_winner"):
+                continue
+            win = _at._winner(fix.get("event_winner"))
+            if not win:
+                continue
+            pa = (fix.get("event_first_player") or "").strip()
+            pb = (fix.get("event_second_player") or "").strip()
+            if not pa or not pb or "/" in pa or "/" in pb:
+                continue
+            tier = _at._classify_tier(fix)
+            if tier not in ("ATP", "WTA"):
+                continue
+            ds = (fix.get("event_date") or "").strip()
+            try:
+                when = dt.date.fromisoformat(ds)
+            except Exception:
+                when = cur
+            surface = _at._infer_surface(fix.get("tournament_name") or "", tier, when)
+            w = pa if win == "a" else pb
+            l = pb if win == "a" else pa
+            eng.model.update(w, l, surface)       # sequential Elo update (chronological)
+            n += 1
+        report["matches"] += n
+        if n:
+            report["by_year"][f"{cur:%Y}"] = report["by_year"].get(f"{cur:%Y}", 0) + n
+            empty = 0
+        else:
+            empty += 1
+        report["players_so_far"] = len(eng.model.overall)
+        _RATINGS_BUILD["report"] = dict(report)
+        if report["matches"] == 0 and empty >= 8:
+            report["aborted"] = f"no matches from {start} — try a later &start="
+            break
+        cur = cend + dt.timedelta(days=1)
+
+    # index best rating per name-key (mirrors train_from_sackmann)
+    for name, rating in eng.model.overall.items():
+        k = _name_key(name)
+        if k and rating > eng._by_key.get(k, 0):
+            eng._by_key[k] = rating
+    report["players"] = len(eng.model.overall)
+    if len(eng.model.overall) >= 100:
+        path = "/data/ratings.json"
+        try:
+            eng.export_ratings(path)
+            report["saved_to"] = path
+        except Exception as e:
+            report["save_error"] = str(e)
+        try:
+            if engine is not None:
+                n2 = engine.load_ratings(path)
+                if "_MODEL_STATUS" in globals():
+                    _MODEL_STATUS["ratings_loaded"] = n2
+                    _MODEL_STATUS["mode"] = "surface-elo"
+                report["live_loaded"] = n2
+        except Exception as e:
+            report["load_error"] = str(e)
+        report["status"] = "DONE \u2014 ratings.json saved + loaded; tennis model is now surface-Elo"
+    else:
+        report["status"] = f"too few players ({len(eng.model.overall)}) \u2014 not saved"
+    _RATINGS_BUILD["report"] = report
+
+
+@app.get("/api/ratings/build-from-feed")
+def ratings_build_from_feed(confirm: str = "", start: int = 2024, chunk: int = 1, force: str = ""):
+    """Train the tennis surface-Elo from the api-tennis feed and write ratings.json
+    to the volume (then hot-load it). Moves the model off ranking-only. Background;
+    poll /api/ratings/build-status. &force=yes clears a stuck run."""
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes to run",
+                             "effect": "train surface-Elo from feed -> /data/ratings.json -> live"})
+    if _RATINGS_BUILD["running"] and force != "yes":
+        return JSONResponse({"status": "already running",
+                             "tip": "add &force=yes if stuck", "poll": "/api/ratings/build-status"})
+    _RATINGS_BUILD["running"] = True
+    _RATINGS_BUILD["report"] = None
+    import threading
+    threading.Thread(target=_run_ratings_build, args=(start, chunk), daemon=True).start()
+    return JSONResponse({"status": "ratings build started", "poll": "/api/ratings/build-status"})
+
+
+@app.get("/api/ratings/build-status")
+def ratings_build_status():
+    return JSONResponse({"running": _RATINGS_BUILD["running"], "report": _RATINGS_BUILD["report"]},
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/api/tennis/model-diag")
+def tennis_model_diag():
+    """Reports whether the tennis model is running its full surface-Elo (a
+    ratings.json was loaded) or the weak ranking-only fallback. Ranking-only is
+    what makes it over-pick underdogs the market correctly fades."""
+    st = dict(globals().get("_MODEL_STATUS",
+                            {"ratings_loaded": 0, "ranking_fallback": 0, "mode": "ranking-only"}))
+    st["explanation"] = ("surface-elo = full strength; ranking-only = predicting from "
+                         "ATP/WTA rank position only (no form/surface/matchups), which "
+                         "disagrees with the market and over-picks underdogs")
+    st["ratings_file"] = os.environ.get("RATINGS_FILE", "ratings.json")
+    for p in ("/data/ratings.json", "ratings.json", "/app/ratings.json"):
+        if os.path.exists(p):
+            st["ratings_file_on_disk"] = p
+            break
+    return JSONResponse(st, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/tennis/odds-diag")
