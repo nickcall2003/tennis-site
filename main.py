@@ -942,6 +942,63 @@ def ratings_build_status():
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/models/diag")
+def models_diag():
+    """One-shot health check of every sport's model: is it running on real ratings
+    or a fallback? For each team sport we look for its ratings/stats file (the
+    thing a refresh script builds from an external stats API) and report whether
+    it's present, how fresh it is, and how many teams it covers. Mirrors what
+    tennis model-diag does, across all sports."""
+    import time as _t
+
+    def _probe(fname, envk):
+        cands = []
+        if envk and os.environ.get(envk):
+            cands.append(os.environ[envk])
+        cands += [fname, f"/data/{fname}", f"/app/{fname}",
+                  os.path.join(os.path.dirname(os.path.abspath(__file__)), fname)]
+        for p in cands:
+            try:
+                if os.path.exists(p):
+                    age_h = round((_t.time() - os.path.getmtime(p)) / 3600.0, 1)
+                    teams = None
+                    try:
+                        with open(p) as f:
+                            d = json.load(f)
+                        teams = len(d) if isinstance(d, (dict, list)) else None
+                    except Exception:
+                        pass
+                    status = "full" if age_h <= 24 * 10 else "STALE (refresh)"
+                    return {"file": p, "teams": teams, "age_hours": age_h, "status": status}
+            except Exception:
+                continue
+        return {"file": None, "status": "FALLBACK (no ratings file \u2014 records-only)"}
+
+    out = {}
+    out["tennis"] = dict(globals().get("_MODEL_STATUS",
+                         {"ratings_loaded": 0, "mode": "ranking-only"}))
+    for sport, (fname, envk) in {
+        "nba": ("nba_stats.json", "NBA_STATS_PATH"),
+        "nfl": ("nfl_stats.json", "NFL_STATS_PATH"),
+        "nhl": ("nhl_stats.json", "NHL_STATS_PATH"),
+        "ncaab": ("ncaab_ratings.json", "NCAAB_RATINGS_PATH"),
+        "ncaaf": ("ncaaf_sp.json", "NCAAF_SP_PATH"),
+        "ncaa_baseball": ("ncaa_stats.json", None),
+    }.items():
+        out[sport] = _probe(fname, envk)
+    try:
+        import datagolf_api
+        out["golf"] = {"status": "full (DataGolf live)" if datagolf_api.enabled()
+                       else "FALLBACK (DataGolf not configured)"}
+    except Exception as e:
+        out["golf"] = {"status": f"unknown ({e})"}
+    out["mlb"] = {"status": "live (MLB Stats API records/Elo \u2014 no static ratings file)"}
+    out["soccer"] = {"status": "live (provider form/odds \u2014 no static ratings file)"}
+    out["_legend"] = ("full = real ratings loaded; FALLBACK = running on records/win% "
+                      "only (weaker, like tennis ranking-only was); STALE = file too old, re-run refresh")
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/tennis/model-diag")
 def tennis_model_diag():
     """Reports whether the tennis model is running its full surface-Elo (a
