@@ -171,9 +171,11 @@ def build_day(provider, engine: PredictionEngine, day) -> int:
                     except Exception:
                         cx = None
                     if cx:
-                        prob_a, confidence = engine.predict_feed_ctx(info.player_a, info.player_b, cx)
+                        prob_a, confidence = engine.predict_feed_ctx(
+                            info.player_a, info.player_b, cx, surface=info.surface)
                 if prob_a is None:
-                    prob_a, confidence = engine.predict_feed(info.player_a, info.player_b)
+                    prob_a, confidence = engine.predict_feed(
+                        info.player_a, info.player_b, surface=info.surface)
 
                 ra, _ = engine._rating(info.player_a)
                 rb, _ = engine._rating(info.player_b)

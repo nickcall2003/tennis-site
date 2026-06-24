@@ -161,22 +161,34 @@ class PredictionEngine:
             return self._rank_key[k], "ranking"
         return None, None
 
-    def predict_feed(self, name_a, name_b):
+    def predict_feed(self, name_a, name_b, surface=None):
         """
         Returns (prob_a, confidence) where confidence is:
           'high'   - both from match history
           'medium' - at least one from ranking fallback
           'low'    - a player couldn't be rated at all (prob defaults to 0.5)
+
+        When `surface` is supplied and both players are history-rated, the base
+        probability uses the surface-aware Elo (overall blended with how each
+        player performs ON THAT SURFACE) instead of overall-only.
         """
         ra, sa = self._rating(name_a)
         rb, sb = self._rating(name_b)
         if ra is None or rb is None:
             return 0.5, "low"
+        both_history = (sa == "history" and sb == "history")
+        if surface and both_history:
+            try:
+                p = self.model.win_probability(name_a, name_b, surface, surface_weight=0.5)
+                if p is not None:
+                    return p, "high"
+            except Exception:
+                pass
         prob = expected_score(ra, rb)
-        conf = "high" if (sa == "history" and sb == "history") else "medium"
+        conf = "high" if both_history else "medium"
         return prob, conf
 
-    def predict_feed_ctx(self, name_a, name_b, ctx=None):
+    def predict_feed_ctx(self, name_a, name_b, ctx=None, surface=None):
         """
         Like predict_feed, but applies small, data-backed adjustments when
         context is supplied. ctx (all optional):
@@ -184,9 +196,10 @@ class PredictionEngine:
           fatigue_a / fatigue_b: recent load score (higher = more tired), 0..1
           h2h_a / h2h_b        : prior meetings won by each player (ints)
         Adjustments are deliberately conservative so the proven Elo base stays
-        dominant; these refine the edge, they don't override it.
+        dominant; these refine the edge, they don't override it. `surface` is
+        passed through so the base is surface-aware.
         """
-        base, conf = self.predict_feed(name_a, name_b)
+        base, conf = self.predict_feed(name_a, name_b, surface=surface)
         if conf == "low" or not ctx:
             return base, conf
         # Work in Elo-point space: convert nudges to a rating delta, then re-expand.
@@ -258,4 +271,3 @@ class PredictionEngine:
                     f"{surface} suits {better} more than their overall level suggests")
             facts["surface_aligned"] = (fav_overall == fav_surface)
         return facts
-
