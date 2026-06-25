@@ -61,6 +61,20 @@ _MAX_TEAM = {"mlb": 80.0}        # baseball capped lower; everything else below
 _MAX_DEFAULT = 230.0
 _TTL = 3600
 _cache = {}
+_USAGE = {}                      # sport -> {normalized player name: value multiplier}
+
+
+def load_usage(sport):
+    """Load a per-player value multiplier map (e.g. NBA scoring usage) so injured
+    stars cost more than bench players. Absent -> everyone scales by 1.0."""
+    import json
+    try:
+        with open(f"/data/{sport}_usage.json") as f:
+            d = json.load(f)
+        _USAGE[sport] = {k: float(v) for k, v in (d.get("usage") or {}).items()}
+    except Exception:
+        _USAGE[sport] = {}
+    return len(_USAGE.get(sport) or {})
 
 
 def _norm(s):
@@ -84,10 +98,17 @@ def _status_factor(s):
     return 0.3
 
 
-def _player_value(sport, pos, status):
+def _player_value(sport, pos, status, name=None):
     table = _POS.get(sport, {})
     base = table.get((pos or "").upper(), table.get("_", 25))
-    return base * _status_factor(status)
+    mult = 1.0
+    um = _USAGE.get(sport)
+    if um is None:                      # lazy-load once per process
+        load_usage(sport)
+        um = _USAGE.get(sport)
+    if um and name:
+        mult = um.get(_norm(name), 1.0)
+    return base * _status_factor(status) * mult
 
 
 def _build(sport):
@@ -114,7 +135,7 @@ def _build(sport):
                    or (ath.get("position") or {}).get("name") or "")
             status = (it.get("status") or (it.get("type") or {}).get("description")
                       or (it.get("details") or {}).get("type") or "")
-            val = _player_value(sport, pos, status)
+            val = _player_value(sport, pos, status, ath.get("displayName"))
             if val <= 0:
                 continue
             pen += val

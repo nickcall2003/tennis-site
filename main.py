@@ -1052,6 +1052,85 @@ def refresh_ncaab(confirm: str = "", season: int = 0):
                          "loaded": n, "path": path, "season": data.get("season")})
 
 
+def _extract_ppg(athlete_row, ppg_idx):
+    """Pull points-per-game from an ESPN byathlete row using the offensive
+    avgPoints column index resolved from the page schema. Defensive: returns
+    None if the shape isn't what we expect."""
+    try:
+        for cat in (athlete_row.get("categories") or []):
+            if (cat.get("name") or "").lower().startswith("off"):
+                totals = cat.get("totals") or cat.get("values") or []
+                if ppg_idx is not None and ppg_idx < len(totals):
+                    return float(totals[ppg_idx])
+        # fallback: a flat stats list
+        st = athlete_row.get("stats") or []
+        if ppg_idx is not None and ppg_idx < len(st):
+            return float(st[ppg_idx])
+    except Exception:
+        return None
+    return None
+
+
+@app.get("/api/injuries/usage/build")
+def injuries_usage_build(sport: str = "nba", confirm: str = "", season: int = 0):
+    """Best-effort: weight injured players by real scoring so a star out costs
+    more than a bench player. Pulls ESPN per-athlete season scoring, writes
+    /data/{sport}_usage.json. Off-season the feed is sparse -> reports few
+    players and the model keeps using position value. In-season this makes NBA
+    injuries individual rather than positional."""
+    sport = (sport or "").lower()
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes (sport=nba)", "supported": ["nba"]})
+    league = {"nba": ("basketball", "nba")}.get(sport)
+    if not league:
+        return JSONResponse({"error": f"usage build only supports nba right now"}, status_code=400)
+    import espn_provider as ep, injuries, json as _json
+    yr = season or dt.date.today().year
+    url = (f"https://site.web.api.espn.com/apis/common/v3/sports/"
+           f"{league[0]}/{league[1]}/statistics/byathlete")
+    usage = {}
+    got = 0
+    try:
+        for page in range(1, 8):
+            data = ep._get(url, {"region": "us", "lang": "en", "season": yr, "seasontype": 2,
+                                 "limit": 50, "page": page, "sort": "offensive.avgPoints:desc"})
+            # resolve the avgPoints column index from the page schema once
+            ppg_idx = None
+            for cat in (data.get("categories") or []):
+                if (cat.get("name") or "").lower().startswith("off"):
+                    names = cat.get("names") or cat.get("labels") or []
+                    for i, nm in enumerate(names):
+                        if str(nm).lower() in ("avgpoints", "pts", "ppg", "points"):
+                            ppg_idx = i
+                            break
+            aths = data.get("athletes") or []
+            if not aths:
+                break
+            for row in aths:
+                name = ((row.get("athlete") or {}).get("displayName"))
+                ppg = _extract_ppg(row, ppg_idx)
+                if name and ppg is not None and ppg >= 0:
+                    usage[injuries._norm(name)] = round(max(0.3, min(1.8, ppg / 14.0)), 3)
+                    got += 1
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-700:]},
+                            status_code=500)
+    if got < 20:
+        return JSONResponse({"status": "too few players parsed (likely off-season or schema change)",
+                             "parsed": got, "season": yr,
+                             "note": "model keeps using position value until this populates in-season"})
+    path = f"/data/{sport}_usage.json"
+    try:
+        with open(path, "w") as f:
+            _json.dump({"sport": sport, "season": yr, "usage": usage}, f)
+    except Exception as e:
+        return JSONResponse({"error": f"write failed: {e}"}, status_code=500)
+    n = injuries.load_usage(sport)
+    injuries.reload(sport)
+    return JSONResponse({"status": "done", "players": got, "loaded": n, "path": path, "season": yr})
+
+
 @app.get("/api/injuries/diag")
 def injuries_diag(sport: str = "nba"):
     """Show the per-team injury penalties (Elo pts) and the weighted players the

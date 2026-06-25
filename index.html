@@ -635,6 +635,12 @@
     font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
   .proj-line .pr{color:var(--ink)}.proj-line .pr b{font-family:"Fraunces",serif;font-size:21px;color:var(--clay-bright);font-weight:900;vertical-align:middle;margin:0 2px}
   .mu-side{margin-bottom:22px}
+  .inj-note{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:8px 2px 0;padding-top:7px;
+    border-top:1px dashed var(--line);font-size:10.5px;line-height:1.5;color:var(--muted)}
+  .inj-ico{color:#e0563f;font-size:12px;font-weight:700}
+  .inj-team b{color:var(--ink);font-weight:700;font-family:"Space Mono",monospace;letter-spacing:.04em}
+  .inj-team i{font-style:normal;color:#e0563f;font-size:8.5px;font-weight:700;border:1px solid var(--line);border-radius:3px;padding:0 3px;margin-left:1px;vertical-align:middle}
+  .inj-sep{color:var(--line)}
   .mu-h{font-family:"Fraunces",serif;font-size:17px;font-weight:600;margin-bottom:4px}
   .mu-h span{font-family:"Hanken Grotesque",sans-serif;font-size:13px;color:var(--muted);font-weight:400}
   .bvp-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px}
@@ -1440,6 +1446,23 @@ function predBarHTML(leftLabel,leftPct,rightLabel,rightPct,status){
   }
   return '<div class="pred"><div class="bar a" style="width:'+leftPct+'%">'+leftLabel+' '+leftPct+'%</div><div class="bar b" style="width:'+rightPct+'%">'+rightPct+'% '+rightLabel+'</div></div>';
 }
+function injStatusShort(s){s=(s||"").toLowerCase();
+  if(s.indexOf("doubt")>=0)return"DBT";
+  if(s.indexOf("quest")>=0)return"QST";
+  if(s.indexOf("game-time")>=0)return"GTD";
+  if(s.indexOf("day-to-day")>=0||s.indexOf("day to day")>=0)return"DTD";
+  if(s.indexOf("probable")>=0)return"PRB";
+  if(s.indexOf("out")>=0||s.indexOf("ir")>=0||s.indexOf("injured")>=0||/\d+-day/.test(s)||s.indexOf("suspen")>=0)return"OUT";
+  return (s.slice(0,3)||"INJ").toUpperCase();}
+function injSideHTML(lbl,arr){if(!arr||!arr.length)return"";
+  const names=arr.slice(0,2).map(p=>{const last=(p.name||"").split(" ").slice(-1)[0];return last+(p.pos?" "+p.pos:"")+' <i>'+injStatusShort(p.status)+'</i>';}).join(", ");
+  const more=arr.length>2?" +"+(arr.length-2):"";
+  return '<span class="inj-team"><b>'+lbl+'</b> '+names+more+'</span>';}
+function injuryNoteHTML(g){if(!g||!g.injuries)return"";
+  const ih=g.injuries.home||[],ia=g.injuries.away||[];if(!ih.length&&!ia.length)return"";
+  const parts=[injSideHTML(g.away.abbr,ia),injSideHTML(g.home.abbr,ih)].filter(Boolean);
+  if(!parts.length)return"";
+  return '<div class="inj-note"><span class="inj-ico">\u2695</span>'+parts.join('<span class="inj-sep">\u00b7</span>')+'</div>';}
 function teamCardHTML(g){const fin=g.status==="finished",live=g.status==="live";const ph=Math.round(g.prob_home*100),pa=100-ph;
   const sa=g.score&&g.score.away!=null?g.score.away:"",sh=g.score&&g.score.home!=null?g.score.home:"";
   let mid;
@@ -1458,7 +1481,7 @@ function teamCardHTML(g){const fin=g.status==="finished",live=g.status==="live";
   // model price always; market + edge + book count when a line exists
   const edgeLine=edgeLineHTML(g,g.prob_home);
   return '<div class="card-top"><span class="tier" style="background:'+(TIER_COLOR[sport]||"#3f7fc4")+'">'+SPORT_LABEL[sport]+'</span><span class="tourn">'+(g.venue||"")+'</span>'+lc+'<span class="status">'+mark+'</span></div>'+
-    '<div class="mlb-card">'+teamColHTML(g.away,winAway)+mid+teamColHTML(g.home,winHome)+'</div>'+proj+edgeLine+
+    '<div class="mlb-card">'+teamColHTML(g.away,winAway)+mid+teamColHTML(g.home,winHome)+'</div>'+proj+edgeLine+injuryNoteHTML(g)+
     '<div style="margin-top:11px">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div>';}
 function renderTabsTeam(){const liveCount=teamGames.filter(g=>g.status==="live").length;const el=document.getElementById("tabs");el.innerHTML="";
   [["all","All games"],["live","Live "+(liveCount?'<span class="lv">('+liveCount+')</span>':"")]].forEach(p=>{
