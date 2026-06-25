@@ -942,6 +942,54 @@ def ratings_build_status():
                         headers={"Cache-Control": "no-store"})
 
 
+_ELO_BUILD = {"running": False, "report": None}
+
+
+def _run_elo_build(sport, start, end):
+    try:
+        import espn_elo
+        s = dt.date.fromisoformat(start) if start else None
+        e = dt.date.fromisoformat(end) if end else None
+        rep = espn_elo.build(sport, s, e, progress=lambda r: _ELO_BUILD.__setitem__("report", r))
+        try:
+            espn_elo.reload(sport)
+        except Exception:
+            pass
+        _ELO_BUILD["report"] = rep
+    except Exception as ex:
+        import traceback
+        _ELO_BUILD["report"] = {"fatal": f"{type(ex).__name__}: {ex}",
+                                "trace": traceback.format_exc()[-1000:]}
+    finally:
+        _ELO_BUILD["running"] = False
+
+
+@app.get("/api/elo/build")
+def elo_build(sport: str = "", confirm: str = "", start: str = "", end: str = "", force: str = ""):
+    """Build a team-strength Elo from ESPN results for a team sport (nba/nfl/
+    ncaaf/ncaab), writing /data/{sport}_elo.json and hot-loading it. Lets
+    team_model predict from real strength instead of win% when a sport has no
+    stats file. Background; poll /api/elo/build-status."""
+    sport = (sport or "").lower()
+    if confirm != "yes" or not sport:
+        return JSONResponse({"note": "append ?sport=nba&confirm=yes (optional &start=YYYY-MM-DD&end=YYYY-MM-DD)",
+                             "sports": ["nba", "nfl", "ncaaf", "ncaab", "wncaab"]})
+    if _ELO_BUILD["running"] and force != "yes":
+        return JSONResponse({"status": "already running", "poll": "/api/elo/build-status",
+                             "tip": "add &force=yes if stuck"})
+    _ELO_BUILD["running"] = True
+    _ELO_BUILD["report"] = None
+    import threading
+    threading.Thread(target=_run_elo_build, args=(sport, start or None, end or None), daemon=True).start()
+    return JSONResponse({"status": f"{sport} elo build started", "poll": "/api/elo/build-status"})
+
+
+@app.get("/api/elo/build-status")
+def elo_build_status():
+    return JSONResponse({"running": _ELO_BUILD["running"], "report": _ELO_BUILD["report"]},
+                        headers={"Cache-Control": "no-store"})
+
+
 @app.get("/api/refresh/ncaaf")
 def refresh_ncaaf(confirm: str = "", year: int = 0):
     """Build NCAAF SP+ ratings from CFBD (your CFBD_API_KEY) -> /data, hot-reload.
@@ -1023,7 +1071,12 @@ def models_diag():
                     try:
                         with open(p) as f:
                             d = json.load(f)
-                        teams = len(d) if isinstance(d, (dict, list)) else None
+                        if isinstance(d, dict) and isinstance(d.get("teams"), (dict, list)):
+                            teams = len(d["teams"])           # nba/nfl/ncaa*/nhl stats files
+                        elif isinstance(d, dict) and isinstance(d.get("ratings"), dict):
+                            teams = len(d["ratings"])         # espn_elo files
+                        elif isinstance(d, (dict, list)):
+                            teams = len(d)
                     except Exception:
                         pass
                     status = "full" if age_h <= 24 * 10 else "STALE (refresh)"
@@ -1044,6 +1097,20 @@ def models_diag():
         "ncaa_baseball": ("ncaa_stats.json", None),
     }.items():
         out[sport] = _probe(fname, envk)
+    # Sports with no stats file may still have an ESPN-results Elo we built.
+    for sport in ("nba", "nfl", "ncaaf", "ncaab"):
+        if out.get(sport, {}).get("file") is None:
+            ep = f"/data/{sport}_elo.json"
+            try:
+                if os.path.exists(ep):
+                    with open(ep) as f:
+                        ed = json.load(f)
+                    n = len(ed.get("ratings", {}) or {})
+                    age = round((_t.time() - os.path.getmtime(ep)) / 3600.0, 1)
+                    out[sport] = {"file": ep, "teams": n, "age_hours": age,
+                                  "status": "elo (ESPN results)" if n else "FALLBACK (empty elo)"}
+            except Exception:
+                pass
     try:
         import datagolf_api
         out["golf"] = {"status": "full (DataGolf live)" if datagolf_api.enabled()
