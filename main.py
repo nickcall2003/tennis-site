@@ -945,12 +945,13 @@ def ratings_build_status():
 _ELO_BUILD = {"running": False, "report": None}
 
 
-def _run_elo_build(sport, start, end):
+def _run_elo_build(sport, start, end, seasons):
     try:
         import espn_elo
         s = dt.date.fromisoformat(start) if start else None
         e = dt.date.fromisoformat(end) if end else None
-        rep = espn_elo.build(sport, s, e, progress=lambda r: _ELO_BUILD.__setitem__("report", r))
+        rep = espn_elo.build(sport, s, e, seasons=seasons,
+                             progress=lambda r: _ELO_BUILD.__setitem__("report", r))
         try:
             espn_elo.reload(sport)
         except Exception:
@@ -965,14 +966,15 @@ def _run_elo_build(sport, start, end):
 
 
 @app.get("/api/elo/build")
-def elo_build(sport: str = "", confirm: str = "", start: str = "", end: str = "", force: str = ""):
-    """Build a team-strength Elo from ESPN results for a team sport (nba/nfl/
-    ncaaf/ncaab), writing /data/{sport}_elo.json and hot-loading it. Lets
-    team_model predict from real strength instead of win% when a sport has no
-    stats file. Background; poll /api/elo/build-status."""
+def elo_build(sport: str = "", confirm: str = "", start: str = "", end: str = "",
+              seasons: int = 2, force: str = ""):
+    """Build MOV-weighted team Elo from ESPN results (nba/nfl/ncaaf/ncaab) with
+    multi-season carryover, writing /data/{sport}_elo.json and hot-loading it.
+    &seasons=N controls how many past seasons to fold in (default 2). Background;
+    poll /api/elo/build-status."""
     sport = (sport or "").lower()
     if confirm != "yes" or not sport:
-        return JSONResponse({"note": "append ?sport=nba&confirm=yes (optional &start=YYYY-MM-DD&end=YYYY-MM-DD)",
+        return JSONResponse({"note": "append ?sport=nba&confirm=yes (optional &seasons=2 &start=&end=)",
                              "sports": ["nba", "nfl", "ncaaf", "ncaab", "wncaab"]})
     if _ELO_BUILD["running"] and force != "yes":
         return JSONResponse({"status": "already running", "poll": "/api/elo/build-status",
@@ -980,8 +982,10 @@ def elo_build(sport: str = "", confirm: str = "", start: str = "", end: str = ""
     _ELO_BUILD["running"] = True
     _ELO_BUILD["report"] = None
     import threading
-    threading.Thread(target=_run_elo_build, args=(sport, start or None, end or None), daemon=True).start()
-    return JSONResponse({"status": f"{sport} elo build started", "poll": "/api/elo/build-status"})
+    threading.Thread(target=_run_elo_build, args=(sport, start or None, end or None, max(1, seasons)),
+                     daemon=True).start()
+    return JSONResponse({"status": f"{sport} elo build started ({seasons} season(s), MOV)",
+                         "poll": "/api/elo/build-status"})
 
 
 @app.get("/api/elo/build-status")
@@ -3407,6 +3411,12 @@ def golf_projections(tour: str = "pga"):
                                "win": base["win"], "top5": base["top5"],
                                "top10": base["top10"], "top20": base["top20"],
                                "make_cut": base["make_cut"], "base": base}
+                        fnum, flab = golf_model.estimate_finish(
+                            base["win"], base["top5"], base["top10"], base["top20"],
+                            base["make_cut"], len(board.get("players") or []))
+                        if flab:
+                            row["proj_finish"] = flab
+                            row["proj_finish_num"] = fnum
                         if has_fit and f:
                             row["fit"] = {"win": f.get("win"), "top5": f.get("top5"),
                                           "top10": f.get("top10"), "top20": f.get("top20"),
@@ -4752,6 +4762,67 @@ def clv_report(days: int = 30):
             "by_sport": {sp: _clv_only(b) for sp, b in persport.items()},
             "overall": _clv_only(allbets),
             "odds_enabled": odds_api.enabled()}
+
+
+@app.get("/api/edges")
+def edges_report(days: int = 90, sport: str | None = None):
+    """Profitability x-ray: settled priced picks sliced by odds range and by
+    sport, each with hit rate, units (flat 1u), ROI, and CLV (did we beat the
+    close). This is the bet-selection tool — it shows WHERE the edge actually
+    is, so you can lean into the profitable buckets and skip the rest."""
+    from models import PickResult
+
+    def _dec(a):
+        return 1.0 + (a / 100.0 if a > 0 else 100.0 / (-a))
+
+    def _imp(a):
+        return (100.0 / (a + 100.0)) if a > 0 else ((-a) / ((-a) + 100.0))
+
+    def _bucket(o):
+        if o <= -250: return "1 heavy_fav (<=-250)"
+        if o <= -120: return "2 fav (-250..-120)"
+        if o < 120:   return "3 pickem (-120..+120)"
+        if o < 250:   return "4 dog (+120..+250)"
+        return "5 big_dog (>=+250)"
+
+    def _summarize(bets):
+        n = len(bets)
+        if not n:
+            return None
+        wins = sum(1 for b in bets if b["won"])
+        units = sum((_dec(b["odds"]) - 1.0) if b["won"] else -1.0 for b in bets)
+        clv = [b for b in bets if b["close"] is not None]
+        beat = sum(1 for b in clv if _imp(b["odds"]) < _imp(b["close"]))
+        avg_clv = (sum(_imp(b["close"]) - _imp(b["odds"]) for b in clv) / len(clv) * 100.0) if clv else None
+        return {
+            "n": n, "wins": wins, "losses": n - wins,
+            "hit_rate": round(100.0 * wins / n, 1),
+            "units": round(units, 2), "roi_pct": round(100.0 * units / n, 1),
+            "clv_beat_pct": round(100.0 * beat / len(clv), 1) if clv else None,
+            "avg_clv_pts": round(avg_clv, 2) if avg_clv is not None else None,
+            "priced_for_clv": len(clv),
+        }
+
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    by_bucket, by_sport = {}, {}
+    with SessionLocal() as db:
+        q = db.query(PickResult).filter(PickResult.settled_date >= since)
+        if sport:
+            q = q.filter(PickResult.sport == sport)
+        for r in q.all():
+            if _is_push(r) or r.taken_odds is None:
+                continue
+            bet = {"odds": r.taken_odds, "won": bool(r.correct), "close": r.close_odds}
+            by_bucket.setdefault(_bucket(r.taken_odds), []).append(bet)
+            by_sport.setdefault(r.sport, []).append(bet)
+
+    out = {"days": days, "sport": sport or "all",
+           "by_odds_bucket": {k: _summarize(v) for k, v in sorted(by_bucket.items())},
+           "by_sport": {k: _summarize(v) for k, v in sorted(by_sport.items())},
+           "note": ("CLV beat% > 50 and positive avg_clv_pts means you're systematically "
+                    "getting better prices than the close \u2014 the strongest signal you're +EV. "
+                    "Chase ROI/units, not hit rate.")}
+    return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/performance")
