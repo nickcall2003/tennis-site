@@ -1749,7 +1749,7 @@ function renderGolfProj(){
   const head='<div class="glf-head proj"><span class="gn">Player</span><span class="pw">Win</span><span class="pc">T5</span><span class="pc">T10</span><span class="pc">'+lastLab+'</span></div>';
   const rows=pj.projections.map(p=>'<div class="glf-row proj" onclick="openGolfDetail(\''+p.id+'\')">'+
       '<span class="gn">'+p.name+' <span class="gpm">'+(p.total||"")+'</span>'+
-      (p.proj_finish?' <span class="gproj">proj '+p.proj_finish+(p.proj_round!=null?' \u00b7 R '+(p.proj_round>0?'+':'')+p.proj_round:'')+'</span>':'')+'</span>'+
+      (p.proj_finish?' <span class="gproj">proj '+p.proj_finish+(p.proj_round!=null?(p.proj_round_strokes?' \u00b7 '+p.proj_round.toFixed(1):' \u00b7 R '+(p.proj_round>0?'+':'')+p.proj_round):'')+'</span>':'')+'</span>'+
       '<span class="pw">'+gPct(p.win)+'</span>'+
       '<span class="pc">'+gPct(p.top5)+'</span>'+
       '<span class="pc">'+gPct(p.top10)+'</span>'+

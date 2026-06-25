@@ -1052,6 +1052,36 @@ def refresh_ncaab(confirm: str = "", season: int = 0):
                          "loaded": n, "path": path, "season": data.get("season")})
 
 
+@app.get("/api/injuries/diag")
+def injuries_diag(sport: str = "nba"):
+    """Show the per-team injury penalties (Elo pts) and the weighted players the
+    model is docking for. Confirms the ESPN injuries feed is parsing."""
+    sport = (sport or "").lower()
+    try:
+        import injuries
+        if not injuries.enabled(sport):
+            supported = [s for s in injuries._POS if injuries._inj_url(s)]
+            return JSONResponse({"sport": sport, "enabled": False, "supported": supported})
+        injuries.reload(sport)
+        tbl = injuries._table(sport)
+        by_id = tbl.get("by_id") or {}
+        seen, teams = set(), []
+        for src in (by_id, tbl.get("by_name") or {}):
+            for v in src.values():
+                key = v.get("team") or id(v)
+                if key in seen:
+                    continue
+                seen.add(key)
+                teams.append(v)
+        teams.sort(key=lambda x: -x.get("penalty", 0))
+        return JSONResponse({"sport": sport, "enabled": True, "teams_with_injuries": len(teams),
+                             "teams": teams[:40]}, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        import traceback
+        return JSONResponse({"sport": sport, "error": f"{type(e).__name__}: {e}",
+                             "trace": traceback.format_exc()[-800:]}, status_code=500)
+
+
 @app.get("/api/models/diag")
 def models_diag():
     """One-shot health check of every sport's model: is it running on real ratings
@@ -1914,6 +1944,13 @@ def mlb_games(date: str | None = None):
     except Exception as e:
         print(f"[mlb] games failed: {e}")
         return []
+    try:
+        import injuries
+        for g in games:
+            if g.get("status") != "finished":
+                injuries.game_adjust("mlb", g)
+    except Exception as e:
+        print(f"[mlb] injuries skipped: {e}")
     games = _attach_odds("mlb", games)
     try:
         with SessionLocal() as db:
@@ -4088,6 +4125,13 @@ def nhl_slate(date: str | None = None, debug: int = 0):
         games = nhl_get(target) or []
     except Exception as e:
         print(f"[nhl] games failed: {e}")
+    try:
+        import injuries
+        for g in games:
+            if g.get("status") != "finished":
+                injuries.game_adjust("nhl", g)
+    except Exception as e:
+        print(f"[nhl] injuries skipped: {e}")
     # settle finished games for accuracy
     try:
         with SessionLocal() as db:
