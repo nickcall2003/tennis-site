@@ -249,6 +249,9 @@ class GolfMatchupPick(Base):
     fav_slot: Mapped[str] = mapped_column(String(2))  # p1|p2|p3
     taken_odds: Mapped[int] = mapped_column(Integer)  # american, best book on the fav
     edge: Mapped[float | None] = mapped_column(Float, nullable=True)  # model% - market% at record time (pts)
+    s1: Mapped[float | None] = mapped_column(Float, nullable=True)  # snapshotted round score per slot
+    s2: Mapped[float | None] = mapped_column(Float, nullable=True)
+    s3: Mapped[float | None] = mapped_column(Float, nullable=True)
     recorded_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     settled: Mapped[bool] = mapped_column(default=False, index=True)
     result: Mapped[str | None] = mapped_column(String(8), nullable=True)  # win|loss|push

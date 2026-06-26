@@ -641,6 +641,17 @@
   .inj-team b{color:var(--ink);font-weight:700;font-family:"Space Mono",monospace;letter-spacing:.04em}
   .inj-team i{font-style:normal;color:#e0563f;font-size:8.5px;font-weight:700;border:1px solid var(--line);border-radius:3px;padding:0 3px;margin-left:1px;vertical-align:middle}
   .inj-sep{color:var(--line)}
+  .injp{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .injp-h{display:flex;align-items:center;gap:6px;padding:9px 12px;background:rgba(224,86,63,.07);
+    font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
+  .injp-cols{display:grid;grid-template-columns:1fr 1fr}
+  .injp-col{padding:10px 12px}.injp-col:first-child{border-right:1px solid var(--line)}
+  .injp-team{font-family:"Space Mono",monospace;font-weight:700;font-size:12px;color:var(--ink);margin-bottom:7px;letter-spacing:.05em}
+  .injp-row{display:flex;align-items:center;gap:6px;margin:4px 0;font-size:12px}
+  .injp-nm{color:var(--ink);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .injp-pos{color:var(--muted-2);font-size:10px}
+  .injp-st{color:#e0563f;font-size:9px;font-weight:700;border:1px solid var(--line);border-radius:3px;padding:0 4px}
+  .injp-none{color:var(--muted-2);font-size:12px;font-style:italic}
   .mu-h{font-family:"Fraunces",serif;font-size:17px;font-weight:600;margin-bottom:4px}
   .mu-h span{font-family:"Hanken Grotesque",sans-serif;font-size:13px;color:var(--muted);font-weight:400}
   .bvp-row{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:13.5px}
@@ -1463,6 +1474,12 @@ function injuryNoteHTML(g){if(!g||!g.injuries)return"";
   const parts=[injSideHTML(g.away.abbr,ia),injSideHTML(g.home.abbr,ih)].filter(Boolean);
   if(!parts.length)return"";
   return '<div class="inj-note"><span class="inj-ico">\u2695</span>'+parts.join('<span class="inj-sep">\u00b7</span>')+'</div>';}
+function injuryPanelHTML(g){if(!g||!g.injuries)return"";
+  const ih=g.injuries.home||[],ia=g.injuries.away||[];if(!ih.length&&!ia.length)return"";
+  const col=(abbr,arr)=>{const rows=arr.length?arr.map(p=>'<div class="injp-row"><span class="injp-nm">'+p.name+'</span><span class="injp-pos">'+(p.pos||"")+'</span><span class="injp-st">'+injStatusShort(p.status)+'</span></div>').join(""):'<div class="injp-none">no key injuries</div>';
+    return '<div class="injp-col"><div class="injp-team">'+abbr+'</div>'+rows+'</div>';};
+  return '<div class="injp"><div class="injp-h"><span class="inj-ico">\u2695</span> Injuries factored into this prediction</div>'+
+    '<div class="injp-cols">'+col(g.away.abbr,ia)+col(g.home.abbr,ih)+'</div></div>';}
 function teamCardHTML(g){const fin=g.status==="finished",live=g.status==="live";const ph=Math.round(g.prob_home*100),pa=100-ph;
   const sa=g.score&&g.score.away!=null?g.score.away:"",sh=g.score&&g.score.home!=null?g.score.home:"";
   let mid;
@@ -1668,6 +1685,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
   else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
     teamFactorsHTML(g,sp)+
+    injuryPanelHTML(g)+
     teamLinesHTML(g)+
     '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
