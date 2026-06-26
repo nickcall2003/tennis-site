@@ -641,6 +641,8 @@
   .inj-team b{color:var(--ink);font-weight:700;font-family:"Space Mono",monospace;letter-spacing:.04em}
   .inj-team i{font-style:normal;color:#e0563f;font-size:8.5px;font-weight:700;border:1px solid var(--line);border-radius:3px;padding:0 3px;margin-left:1px;vertical-align:middle}
   .inj-sep{color:var(--line)}
+  .rest-note{display:flex;align-items:center;gap:6px;margin:6px 2px 0;font-size:10px;color:var(--muted)}
+  .rest-ico{font-size:11px;opacity:.8}
   .injp{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .injp-h{display:flex;align-items:center;gap:6px;padding:9px 12px;background:rgba(224,86,63,.07);
     font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -1457,6 +1459,13 @@ function predBarHTML(leftLabel,leftPct,rightLabel,rightPct,status){
   }
   return '<div class="pred"><div class="bar a" style="width:'+leftPct+'%">'+leftLabel+' '+leftPct+'%</div><div class="bar b" style="width:'+rightPct+'%">'+rightPct+'% '+rightLabel+'</div></div>';
 }
+function restNoteHTML(g){if(!g||!g.rest)return"";
+  const r=g.rest;const days=(r.home_days!=null&&r.away_days!=null);
+  let txt="";
+  if(r.note)txt=r.note.toUpperCase();
+  else if(days)txt=g.away.abbr+" "+r.away_days+"d rest \u00b7 "+g.home.abbr+" "+r.home_days+"d";
+  if(!txt)return"";
+  return '<div class="rest-note"><span class="rest-ico">\u23F1</span>'+txt+'</div>';}
 function injStatusShort(s){s=(s||"").toLowerCase();
   if(s.indexOf("doubt")>=0)return"DBT";
   if(s.indexOf("quest")>=0)return"QST";
@@ -1498,7 +1507,7 @@ function teamCardHTML(g){const fin=g.status==="finished",live=g.status==="live";
   // model price always; market + edge + book count when a line exists
   const edgeLine=edgeLineHTML(g,g.prob_home);
   return '<div class="card-top"><span class="tier" style="background:'+(TIER_COLOR[sport]||"#3f7fc4")+'">'+SPORT_LABEL[sport]+'</span><span class="tourn">'+(g.venue||"")+'</span>'+lc+'<span class="status">'+mark+'</span></div>'+
-    '<div class="mlb-card">'+teamColHTML(g.away,winAway)+mid+teamColHTML(g.home,winHome)+'</div>'+proj+edgeLine+injuryNoteHTML(g)+
+    '<div class="mlb-card">'+teamColHTML(g.away,winAway)+mid+teamColHTML(g.home,winHome)+'</div>'+proj+edgeLine+injuryNoteHTML(g)+restNoteHTML(g)+
     '<div style="margin-top:11px">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div>';}
 function renderTabsTeam(){const liveCount=teamGames.filter(g=>g.status==="live").length;const el=document.getElementById("tabs");el.innerHTML="";
   [["all","All games"],["live","Live "+(liveCount?'<span class="lv">('+liveCount+')</span>':"")]].forEach(p=>{

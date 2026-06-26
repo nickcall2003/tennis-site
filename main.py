@@ -1131,6 +1131,27 @@ def injuries_usage_build(sport: str = "nba", confirm: str = "", season: int = 0)
     return JSONResponse({"status": "done", "players": got, "loaded": n, "path": path, "season": yr})
 
 
+@app.get("/api/rest/diag")
+def rest_diag(sport: str = "nba", date: str = ""):
+    """Show computed rest days per team for a date (scanned from ESPN)."""
+    sport = (sport or "").lower()
+    try:
+        import schedule
+        if not schedule.enabled(sport):
+            return JSONResponse({"sport": sport, "enabled": False,
+                                 "supported": [s for s in schedule._CFG]})
+        target = dt.date.fromisoformat(date) if date else dt.date.today()
+        tbl = schedule.rest_table(sport, target)
+        return JSONResponse({"sport": sport, "date": target.isoformat(),
+                             "teams_found": len(tbl),
+                             "rest_days": dict(sorted(tbl.items(), key=lambda x: x[1]))},
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-700:]},
+                            status_code=500)
+
+
 @app.get("/api/injuries/diag")
 def injuries_diag(sport: str = "nba"):
     """Show the per-team injury penalties (Elo pts) and the weighted players the
@@ -4244,10 +4265,11 @@ def nhl_slate(date: str | None = None, debug: int = 0):
     except Exception as e:
         print(f"[nhl] games failed: {e}")
     try:
-        import injuries
+        import injuries, schedule
         for g in games:
             if g.get("status") != "finished":
                 injuries.game_adjust("nhl", g)
+                schedule.game_adjust("nhl", g, target)
     except Exception as e:
         print(f"[nhl] injuries skipped: {e}")
     # settle finished games for accuracy
