@@ -1258,6 +1258,33 @@ def models_diag():
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/tennis/stats-probe")
+def tennis_stats_probe(match_key: str = "", date: str = ""):
+    """Confirm what a tennis fixture actually carries (statistics / point-by-point)
+    so the serve-return detail sheet is built against real data. Best run during
+    or just after a live match. Call with no match_key first to list loaded IDs."""
+    if not USE_REAL:
+        return JSONResponse({"error": "tennis provider not active (mock mode)"})
+    try:
+        d = dt.date.fromisoformat(date) if date else dt.date.today()
+        try:
+            provider.get_schedule(dt.datetime.combine(d, dt.time()))
+            provider._refresh_live()
+        except Exception:
+            pass
+        if not match_key:
+            ids = list(getattr(provider, "_fixtures", {}).keys())[:60]
+            return JSONResponse({"hint": "pass ?match_key=<id> (ideally a live match)",
+                                 "loaded_match_ids": ids},
+                                headers={"Cache-Control": "no-store"})
+        return JSONResponse(provider.raw_fixture_probe(match_key),
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-800:]},
+                            status_code=500)
+
+
 @app.get("/api/tennis/model-diag")
 def tennis_model_diag():
     """Reports whether the tennis model is running its full surface-Elo (a
@@ -3680,6 +3707,20 @@ def golf_matchup_board(tour: str = "pga"):
         try:
             import golf_tracker
             golf_tracker.settle(tour, board=board)   # snapshot/grade while board is live
+            # self-heal: if matchups are still pending (board may have rolled to
+            # the next event), grade them against the last few finished days too.
+            with SessionLocal() as _db:
+                from models import GolfMatchupPick
+                _pending = _db.query(GolfMatchupPick).filter_by(tour=tour, settled=False).count()
+            if _pending:
+                _today = dt.date.today()
+                for _i in (1, 2, 3):
+                    _d = _today - dt.timedelta(days=_i)
+                    try:
+                        _pb = golf_provider.get_board(tour, dates=_d.strftime("%Y%m%d"))
+                        golf_tracker.settle(tour, board=_pb, stale_days=999)
+                    except Exception:
+                        pass
         except Exception as _e:
             print(f"[golf] inline settle skipped: {_e}")
         gidx = _gidx(board.get("players") or [])
