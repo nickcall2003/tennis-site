@@ -1273,9 +1273,17 @@ def tennis_stats_probe(match_key: str = "", date: str = ""):
         except Exception:
             pass
         if not match_key:
-            ids = list(getattr(provider, "_fixtures", {}).keys())[:60]
-            return JSONResponse({"hint": "pass ?match_key=<id> (ideally a live match)",
-                                 "loaded_match_ids": ids},
+            fx = getattr(provider, "_fixtures", {}) or {}
+            # prefer an in-play match so the probe actually shows live stats
+            live_ids = [k for k, v in fx.items()
+                        if str((v or {}).get("event_live") or "") == "1"]
+            if live_ids:
+                probe = provider.raw_fixture_probe(live_ids[0])
+                probe["auto_picked_live_match"] = live_ids[0]
+                return JSONResponse(probe, headers={"Cache-Control": "no-store"})
+            return JSONResponse({"hint": "no live match right now — run this while a match is in play, "
+                                         "or pass ?match_key=<id>",
+                                 "loaded_match_ids": list(fx.keys())[:60]},
                                 headers={"Cache-Control": "no-store"})
         return JSONResponse(provider.raw_fixture_probe(match_key),
                             headers={"Cache-Control": "no-store"})

@@ -274,19 +274,22 @@ class APITennisProvider(TennisProvider):
         return out
 
     def raw_fixture_probe(self, match_id):
-        """Report what data a cached fixture actually carries — used to confirm
-        whether serve/return statistics are available from the feed for a given
-        (ideally live or just-finished) match before building the detail sheet."""
-        fix = self._fixtures.get(str(match_id), {})
-        stats = fix.get("statistics")
+        """Report what data a match's FULL fixture carries (statistics /
+        point-by-point) — fetched per-match via raw_fixture so it includes detail
+        the bulk day cache strips out. Best run on a live or just-finished match."""
+        fix = self.raw_fixture(match_id) or {}
+        stats = fix.get("statistics") or fix.get("statistic")
         pbp = fix.get("pointbypoint") or fix.get("point_by_point")
+        scores = fix.get("scores") or fix.get("score")
         return {
             "found": bool(fix),
             "top_level_keys": sorted(fix.keys()),
             "has_statistics": bool(stats),
             "statistics_sample": (stats[:12] if isinstance(stats, list) else stats),
             "has_pointbypoint": bool(pbp),
+            "has_scores": bool(scores),
             "status": fix.get("event_status") or fix.get("event_live"),
+            "players": [fix.get("event_first_player"), fix.get("event_second_player")],
         }
 
     def fixture_meta(self, provider_match_id):
