@@ -643,6 +643,9 @@
   .inj-sep{color:var(--line)}
   .rest-note{display:flex;align-items:center;gap:6px;margin:6px 2px 0;font-size:10px;color:var(--muted)}
   .rest-ico{font-size:11px;opacity:.8}
+  .season-hdr{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
+    padding:8px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:8px;background:rgba(127,127,127,.05)}
+  .season-hdr span{text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted-2)}
   .injp{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .injp-h{display:flex;align-items:center;gap:6px;padding:9px 12px;background:rgba(224,86,63,.07);
     font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -996,16 +999,25 @@ function setDetailTab(t){detailTab=t;refreshDetail(true);}
 function statsHTML(m){const s=m.stats;
   if(!s||!s.has_data)return '<div class="stat-na" style="padding:30px 0">Live match stats will appear once the match is underway and the feed reports points.</div>';
   const a=s.a,b=s.b;function pctTxt(won,tot,pct){return pct==null?"\u2014":pct+"% ("+won+"/"+tot+")";}
-  let h='<div class="stat-sec">Service</div>';
+  function plain(x){return (x==null||x==="")?"\u2014":x;}
+  let h="";
+  if(s.season){const na=s.matches_a||0,nb=s.matches_b||0;
+    h+='<div class="season-hdr">Season form \u00b7 '+m.player_a+' last '+na+' \u00b7 '+m.player_b+' last '+nb+'<br><span>Live match stats take over once play begins</span></div>';}
+  h+='<div class="stat-sec">Serve</div>';
+  if(a.aces!=null||b.aces!=null)h+=statRow("Aces",plain(a.aces),plain(b.aces),parseFloat(a.aces)||0,parseFloat(b.aces)||0);
+  if(a.double_faults!=null||b.double_faults!=null)h+=statRow("Double Faults",plain(a.double_faults),plain(b.double_faults),-(parseFloat(a.double_faults)||0),-(parseFloat(b.double_faults)||0));
+  if(a.first_serve_pct!=null||b.first_serve_pct!=null)h+=statRow("1st Serve In",a.first_serve_pct==null?"\u2014":a.first_serve_pct+"%",b.first_serve_pct==null?"\u2014":b.first_serve_pct+"%",a.first_serve_pct||0,b.first_serve_pct||0);
+  if(a.first_serve_won_pct!=null||b.first_serve_won_pct!=null)h+=statRow("1st Serve Won",a.first_serve_won_pct==null?"\u2014":a.first_serve_won_pct+"%",b.first_serve_won_pct==null?"\u2014":b.first_serve_won_pct+"%",a.first_serve_won_pct||0,b.first_serve_won_pct||0);
+  if(a.second_serve_won_pct!=null||b.second_serve_won_pct!=null)h+=statRow("2nd Serve Won",a.second_serve_won_pct==null?"\u2014":a.second_serve_won_pct+"%",b.second_serve_won_pct==null?"\u2014":b.second_serve_won_pct+"%",a.second_serve_won_pct||0,b.second_serve_won_pct||0);
   h+=statRow("Service Points Won",pctTxt(a.service_points_won,a.service_points_total,a.service_points_pct),pctTxt(b.service_points_won,b.service_points_total,b.service_points_pct),a.service_points_pct,b.service_points_pct);
   h+=statRow("Break Points Saved",a.break_points_saved+"/"+a.break_points_faced,b.break_points_saved+"/"+b.break_points_faced,a.break_points_faced?a.break_points_saved/a.break_points_faced*100:0,b.break_points_faced?b.break_points_saved/b.break_points_faced*100:0);
   h+='<div class="stat-sec">Return</div>';
   h+=statRow("Return Points Won",pctTxt(a.return_points_won,a.return_points_total,a.return_points_pct),pctTxt(b.return_points_won,b.return_points_total,b.return_points_pct),a.return_points_pct,b.return_points_pct);
   h+=statRow("Break Points Won",a.break_points_won+"/"+a.break_points_chances,b.break_points_won+"/"+b.break_points_chances,a.break_points_chances?a.break_points_won/a.break_points_chances*100:0,b.break_points_chances?b.break_points_won/b.break_points_chances*100:0);
-  h+='<div class="stat-sec">Games &amp; Points</div>';
-  h+=statRow("Service Games Won",a.service_games_won+"/"+a.service_games_total,b.service_games_won+"/"+b.service_games_total,a.service_games_pct,b.service_games_pct);
-  h+=statRow("Total Games Won",a.games_won,b.games_won,a.games_won,b.games_won);
-  h+=statRow("Total Points Won",a.total_points_won,b.total_points_won,a.total_points_won,b.total_points_won);
+  if(a.service_games_total||b.service_games_total){h+='<div class="stat-sec">Games</div>';
+    h+=statRow("Service Games Won",a.service_games_won+"/"+a.service_games_total,b.service_games_won+"/"+b.service_games_total,a.service_games_pct,b.service_games_pct);}
+  if(a.total_points_won!=null||b.total_points_won!=null){h+='<div class="stat-sec">Points</div>';
+    h+=statRow("Total Points Won",plain(a.total_points_won),plain(b.total_points_won),parseFloat(a.total_points_won)||0,parseFloat(b.total_points_won)||0);}
   return h;}
 function srfRow(pl,s,cls){
   if(!pl||!pl.surfaces||!pl.surfaces[s])

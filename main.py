@@ -1258,6 +1258,23 @@ def models_diag():
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/tennis/match-detail")
+def tennis_match_detail(match_key: str = ""):
+    """Serve/return detail sheet for one match. While the match is live (or
+    finished) this returns the in-match stats that take over the sheet."""
+    if not USE_REAL:
+        return JSONResponse({"error": "tennis provider not active (mock mode)"})
+    if not match_key:
+        return JSONResponse({"error": "pass ?match_key=<id>"})
+    try:
+        return JSONResponse(provider.match_statistics(match_key),
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-800:]},
+                            status_code=500)
+
+
 @app.get("/api/tennis/stats-probe")
 def tennis_stats_probe(match_key: str = "", date: str = ""):
     """Confirm what a tennis fixture actually carries (statistics / point-by-point)
@@ -1465,6 +1482,57 @@ def list_tournaments(date: str | None = None):
         return sorted(groups.values(), key=lambda g: (-g["live"], -g["count"], g["name"]))
 
 
+def _tennis_stats_from_array(fix):
+    """Build the match-stats structure the detail sheet expects directly from the
+    feed's clean `statistics` array (aces, serve %, break points, return points),
+    which is far more reliable than reconstructing it from point-by-point."""
+    arr = (fix or {}).get("statistics") or []
+    if not arr:
+        return None
+    p1key = str(fix.get("first_player_key") or "")
+    p2key = str(fix.get("second_player_key") or "")
+    sides = {p1key: {}, p2key: {}}
+    for s in arr:
+        if not isinstance(s, dict) or s.get("stat_period") != "match":
+            continue
+        pk = str(s.get("player_key") or "")
+        if pk in sides:
+            sides[pk][s.get("stat_name")] = s
+
+    def _pct(v):
+        try:
+            return round(float(str(v).replace("%", "").strip()))
+        except (TypeError, ValueError):
+            return None
+
+    def _build(d):
+        def g(name):
+            return d.get(name) or {}
+        sp, rp = g("Service Points Won"), g("Return Points Won")
+        bps, bpc = g("Break Points Saved"), g("Break Points Converted")
+        tp = g("Total Points Won")
+        return {
+            "service_points_won": sp.get("stat_won"), "service_points_total": sp.get("stat_total"),
+            "service_points_pct": _pct(sp.get("stat_value")),
+            "break_points_saved": bps.get("stat_won") or 0, "break_points_faced": bps.get("stat_total") or 0,
+            "return_points_won": rp.get("stat_won"), "return_points_total": rp.get("stat_total"),
+            "return_points_pct": _pct(rp.get("stat_value")),
+            "break_points_won": bpc.get("stat_won") or 0, "break_points_chances": bpc.get("stat_total") or 0,
+            "service_games_won": 0, "service_games_total": 0, "service_games_pct": None,
+            "games_won": 0,
+            "total_points_won": (tp.get("stat_won") if tp.get("stat_won") is not None else _pct(tp.get("stat_value"))),
+            "aces": g("Aces").get("stat_value"),
+            "double_faults": g("Double Faults").get("stat_value"),
+            "first_serve_pct": _pct(g("1st serve percentage").get("stat_value")),
+            "first_serve_won_pct": _pct(g("1st serve points won").get("stat_value")),
+            "second_serve_won_pct": _pct(g("2nd serve points won").get("stat_value")),
+        }
+    a, b = _build(sides.get(p1key, {})), _build(sides.get(p2key, {}))
+    if a.get("service_points_total") is None and b.get("service_points_total") is None:
+        return None
+    return {"has_data": True, "a": a, "b": b}
+
+
 def _parse_h2h(raw, name_a, name_b):
     """Best-effort parse of get_H2H into (h2h_string, form_a, form_b, recent_a, recent_b)."""
     if not raw:
@@ -1532,15 +1600,28 @@ def match_detail(match_id: int):
         ra_list = rb_list = []
         stats = None
 
+        raw_h2h = {}
         if USE_REAL and hasattr(provider, "raw_fixture"):
             try:
-                raw_h2h = provider.get_h2h(m.player_a_key, m.player_b_key)
+                raw_h2h = provider.get_h2h(m.player_a_key, m.player_b_key) or {}
                 h2h, fa, fb, ra_list, rb_list = _parse_h2h(raw_h2h, m.player_a, m.player_b)
             except Exception as e:
                 print(f"[detail] h2h failed: {e}")
             try:
                 fix = provider.raw_fixture(m.provider_match_id)
-                stats = compute_stats(fix.get("pointbypoint"))
+                stats = _tennis_stats_from_array(fix) or compute_stats(fix.get("pointbypoint"))
+                # pre-match (no live stats yet): show each player's SEASON serve/
+                # return form, aggregated from their recent matches.
+                if not (stats and stats.get("has_data")) and hasattr(provider, "player_serve_averages"):
+                    ka = [str(r.get("event_key")) for r in (raw_h2h.get("firstPlayerResults") or []) if r.get("event_key")]
+                    kb = [str(r.get("event_key")) for r in (raw_h2h.get("secondPlayerResults") or []) if r.get("event_key")]
+                    sa = provider.player_serve_averages(m.player_a_key, ka)
+                    sb = provider.player_serve_averages(m.player_b_key, kb)
+                    if sa or sb:
+                        stats = {"has_data": True, "season": True,
+                                 "matches_a": (sa or {}).get("_matches"),
+                                 "matches_b": (sb or {}).get("_matches"),
+                                 "a": sa or {}, "b": sb or {}}
             except Exception as e:
                 print(f"[detail] stats failed: {e}")
 

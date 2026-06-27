@@ -205,6 +205,7 @@ class APITennisProvider(TennisProvider):
         self._live_cache = {}
         self._live_fetched_at = 0.0
         self._detail_cache = {}        # event_key -> (ts, raw fixture with pbp)
+        self._pavg_cache = {}          # player_key -> (ts, season serve/return averages)
         self._odds_cache = {}          # day/match key -> (ts, parsed odds dict)
         self._req_count = 0            # API requests made today (usage meter)
         self._req_day = None
@@ -365,6 +366,108 @@ class APITennisProvider(TennisProvider):
         return MatchStats()
 
     # ---- detail (point-by-point, for the match page) ---------------------
+
+    def match_statistics(self, match_id):
+        """Parsed serve/return detail for ONE match, ready for the detail sheet.
+        Returns per-player match-level stats (aces, 1st/2nd serve, break points,
+        return points, etc.) plus live status, score, and who's serving."""
+        fix = self.raw_fixture(match_id) or {}
+        p1key = str(fix.get("first_player_key") or "")
+        p2key = str(fix.get("second_player_key") or "")
+        out = {
+            "match_key": str(match_id),
+            "live": str(fix.get("event_live") or "") == "1",
+            "status": fix.get("event_status"),
+            "score": fix.get("event_final_result") or fix.get("event_game_result"),
+            "serving": fix.get("event_serve"),
+            "tournament": fix.get("tournament_name"),
+            "round": fix.get("tournament_round"),
+            "p1": {"name": fix.get("event_first_player"), "key": p1key, "stats": {}},
+            "p2": {"name": fix.get("event_second_player"), "key": p2key, "stats": {}},
+        }
+        for s in (fix.get("statistics") or []):
+            if not isinstance(s, dict) or s.get("stat_period") != "match":
+                continue                         # match totals only (skip per-set)
+            pk = str(s.get("player_key") or "")
+            slot = "p1" if pk == p1key else ("p2" if pk == p2key else None)
+            if not slot:
+                continue
+            out[slot]["stats"][s.get("stat_name")] = {
+                "type": s.get("stat_type"),
+                "value": s.get("stat_value"),
+                "won": s.get("stat_won"),
+                "total": s.get("stat_total"),
+            }
+        out["has_stats"] = bool(out["p1"]["stats"] or out["p2"]["stats"])
+        return out
+
+    def player_serve_averages(self, player_key, match_keys, max_matches=6):
+        """Aggregate a player's serve/return stats across their recent matches
+        into season-form averages, shaped like the live per-match stats so the
+        same detail sheet renders them before a match starts. Cached 24h/player;
+        capped to a few recent matches to stay well under the API budget."""
+        if not player_key:
+            return None
+        ck = str(player_key)
+        c = self._pavg_cache.get(ck)
+        if c and time.time() - c[0] < 86400:
+            return c[1]
+        pk = str(player_key)
+        acc, counts, used = {}, {}, 0
+        for mk in (match_keys or [])[:max_matches * 2]:
+            if used >= max_matches:
+                break
+            try:
+                fix = self.raw_fixture(mk)
+            except Exception:
+                continue
+            got = False
+            for s in ((fix or {}).get("statistics") or []):
+                if not isinstance(s, dict) or s.get("stat_period") != "match":
+                    continue
+                if str(s.get("player_key")) != pk:
+                    continue
+                name = s.get("stat_name")
+                w, t = s.get("stat_won"), s.get("stat_total")
+                if w is not None and t:                       # ratio stat -> sum won/total
+                    a = acc.setdefault(name, [0, 0])
+                    a[0] += w; a[1] += t; got = True
+                else:                                         # count stat (aces, DFs) -> average
+                    val = s.get("stat_value")
+                    try:
+                        counts.setdefault(name, []).append(float(str(val).replace("%", "")))
+                        got = True
+                    except (TypeError, ValueError):
+                        pass
+            if got:
+                used += 1
+        if used == 0:
+            self._pavg_cache[ck] = (time.time(), None)
+            return None
+
+        def rpct(name):
+            a = acc.get(name)
+            return round(a[0] / a[1] * 100) if a and a[1] else None
+
+        def cavg(name):
+            v = counts.get(name)
+            return round(sum(v) / len(v), 1) if v else None
+        sp, rp = acc.get("Service Points Won", [0, 0]), acc.get("Return Points Won", [0, 0])
+        out = {
+            "_matches": used,
+            "service_points_won": sp[0], "service_points_total": sp[1], "service_points_pct": rpct("Service Points Won"),
+            "return_points_won": rp[0], "return_points_total": rp[1], "return_points_pct": rpct("Return Points Won"),
+            "break_points_saved": acc.get("Break Points Saved", [0, 0])[0], "break_points_faced": acc.get("Break Points Saved", [0, 0])[1],
+            "break_points_won": acc.get("Break Points Converted", [0, 0])[0], "break_points_chances": acc.get("Break Points Converted", [0, 0])[1],
+            "service_games_won": 0, "service_games_total": 0, "service_games_pct": None, "games_won": 0,
+            "total_points_won": rpct("Total Points Won"),
+            "aces": cavg("Aces"), "double_faults": cavg("Double Faults"),
+            "first_serve_pct": rpct("1st serve points won") if "1st serve points won" in acc else cavg("1st serve percentage"),
+            "first_serve_won_pct": rpct("1st serve points won"),
+            "second_serve_won_pct": rpct("2nd serve points won"),
+        }
+        self._pavg_cache[ck] = (time.time(), out)
+        return out
 
     def raw_fixture(self, provider_match_id):
         """
