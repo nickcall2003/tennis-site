@@ -3474,7 +3474,7 @@ def _golf_pretourney_matchup(board, id_list, tour="pga"):
     sel = [by_id[i] for i in id_list if i in by_id][:3]
     if len(sel) < 2:
         return None
-    pred = datagolf_api.pre_tournament(tour)
+    pred = datagolf_api.pre_tournament(tour, "fit")  # course history & fit, not neutral
     mkt = (pred or {}).get("players") or {}
     if not mkt:
         return None
@@ -3548,9 +3548,10 @@ def golf_projections(tour: str = "pga"):
                                "win": base["win"], "top5": base["top5"],
                                "top10": base["top10"], "top20": base["top20"],
                                "make_cut": base["make_cut"], "base": base}
+                        fsrc = f if (has_fit and f and f.get("win") is not None) else base
                         fnum, flab = golf_model.estimate_finish(
-                            base["win"], base["top5"], base["top10"], base["top20"],
-                            base["make_cut"], len(board.get("players") or []))
+                            fsrc.get("win"), fsrc.get("top5"), fsrc.get("top10"), fsrc.get("top20"),
+                            fsrc.get("make_cut"), len(board.get("players") or []))
                         if flab:
                             row["proj_finish"] = flab
                             row["proj_finish_num"] = fnum
