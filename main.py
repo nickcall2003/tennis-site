@@ -3894,11 +3894,25 @@ def golf_tracker_regrade(confirm: str = "", tour: str = "pga", days: int = 30, e
                 db.query(PickResult).filter(PickResult.sport == "golf").delete(synchronize_session=False)
             db.commit()
 
-        # 2) sweep dated boards oldest->newest; settle against each (never void)
+        # 2) fetch ONLY the dates these matchups actually came from (plus today),
+        #    deduped — fetching any date during an event returns that event's full
+        #    final leaderboard, so this is a few calls, not a 31-day sweep that
+        #    times out and leaves everything wiped.
+        dates_needed = set()
+        with SessionLocal() as db:
+            for mp in db.query(GolfMatchupPick).filter_by(tour=tour).all():
+                if want and want not in _evnorm(mp.event):
+                    continue
+                if mp.recorded_date:
+                    base = mp.recorded_date.date()
+                    for off in range(0, 5):       # round may be played a few days after offer
+                        dates_needed.add(base + dt.timedelta(days=off))
         today = dt.date.today()
+        dates_needed.add(today)
+        dates_list = sorted(d for d in dates_needed if d <= today)
+
         passes = []
-        for i in range(days, -1, -1):
-            d = today - dt.timedelta(days=i)
+        for d in dates_list:
             try:
                 board = golf_provider.get_board(tour, dates=d.strftime("%Y%m%d"))
                 ev = (board or {}).get("event") or {}
@@ -3909,6 +3923,16 @@ def golf_tracker_regrade(confirm: str = "", tour: str = "pga", days: int = 30, e
                     passes.append({"date": d.isoformat(), "event": ev.get("name"), "settled": n})
             except Exception:
                 continue
+        # final pass against the live current board for the in-progress event
+        try:
+            cur = golf_provider.get_board(tour)
+            n = golf_tracker.settle(tour, board=cur, stale_days=10 ** 9)
+            if n:
+                ev = (cur or {}).get("event") or {}
+                passes.append({"date": today.isoformat(), "event": ev.get("name"),
+                               "settled": n, "live": True})
+        except Exception:
+            pass
 
         # 3) report the clean record
         with SessionLocal() as db:
