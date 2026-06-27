@@ -1665,10 +1665,15 @@ def match_detail(match_id: int):
                 # pre-match (no live stats yet): show each player's SEASON serve/
                 # return form, aggregated from their recent matches.
                 if not (stats and stats.get("has_data")) and hasattr(provider, "player_serve_averages"):
-                    ka = [str(r.get("event_key")) for r in (raw_h2h.get("firstPlayerResults") or []) if r.get("event_key")]
-                    kb = [str(r.get("event_key")) for r in (raw_h2h.get("secondPlayerResults") or []) if r.get("event_key")]
-                    sa = provider.player_serve_averages(m.player_a_key, ka)
-                    sb = provider.player_serve_averages(m.player_b_key, kb)
+                    # use the FIXTURE's player keys (what the stats are keyed by),
+                    # and pull H2H with those same keys so recent matches line up.
+                    p1k = str((fix or {}).get("first_player_key") or m.player_a_key or "")
+                    p2k = str((fix or {}).get("second_player_key") or m.player_b_key or "")
+                    h2hs = (provider.get_h2h(p1k, p2k) or raw_h2h or {}) if (p1k and p2k) else (raw_h2h or {})
+                    ka = [str(r.get("event_key")) for r in (h2hs.get("firstPlayerResults") or []) if isinstance(r, dict) and r.get("event_key")]
+                    kb = [str(r.get("event_key")) for r in (h2hs.get("secondPlayerResults") or []) if isinstance(r, dict) and r.get("event_key")]
+                    sa = provider.player_serve_averages(p1k, ka)
+                    sb = provider.player_serve_averages(p2k, kb)
                     if sa or sb:
                         stats = {"has_data": True, "season": True,
                                  "matches_a": (sa or {}).get("_matches"),
