@@ -646,6 +646,7 @@
   .season-hdr{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;
     padding:8px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:8px;background:rgba(127,127,127,.05)}
   .season-hdr span{text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted-2)}
+  .pm-line{font-size:13px;color:var(--ink);padding:4px 2px 10px;line-height:1.5}
   .injp{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .injp-h{display:flex;align-items:center;gap:6px;padding:9px 12px;background:rgba(224,86,63,.07);
     font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -996,8 +997,17 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
   }else{body='<div class="panel">'+statsHTML(m)+'</div>';}
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;}
 function setDetailTab(t){detailTab=t;refreshDetail(true);}
+function preMatchFormHTML(m){
+  let h='<div class="season-hdr">Pre-match form<br><span>Serve &amp; return stats take over once play begins</span></div>';
+  let any=false;
+  if(m.h2h){h+='<div class="stat-sec">Head-to-Head</div><div class="pm-line">'+m.h2h+'</div>';any=true;}
+  if(m.form_a||(m.recent_a&&m.recent_a.length)){h+='<div class="stat-sec">'+(m.player_a||"Player 1")+'</div><div class="pm-line">'+(m.form_a||"")+' '+formPills(m.recent_a)+'</div>';any=true;}
+  if(m.form_b||(m.recent_b&&m.recent_b.length)){h+='<div class="stat-sec">'+(m.player_b||"Player 2")+'</div><div class="pm-line">'+(m.form_b||"")+' '+formPills(m.recent_b)+'</div>';any=true;}
+  if(m.surface){h+='<div class="stat-sec">Surface</div><div class="pm-line">'+m.surface+'</div>';any=true;}
+  if(!any)return '<div class="stat-na" style="padding:30px 0">Live match stats will appear once the match is underway and the feed reports points.</div>';
+  return h;}
 function statsHTML(m){const s=m.stats;
-  if(!s||!s.has_data)return '<div class="stat-na" style="padding:30px 0">Live match stats will appear once the match is underway and the feed reports points.</div>';
+  if(!s||!s.has_data)return preMatchFormHTML(m);
   const a=s.a,b=s.b;function pctTxt(won,tot,pct){return pct==null?"\u2014":pct+"% ("+won+"/"+tot+")";}
   function plain(x){return (x==null||x==="")?"\u2014":x;}
   let h="";
