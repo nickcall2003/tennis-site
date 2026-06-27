@@ -401,20 +401,63 @@ class APITennisProvider(TennisProvider):
         out["has_stats"] = bool(out["p1"]["stats"] or out["p2"]["stats"])
         return out
 
-    def player_serve_averages(self, player_key, match_keys, max_matches=6):
-        """Aggregate a player's serve/return stats across their recent matches
-        into season-form averages, shaped like the live per-match stats so the
-        same detail sheet renders them before a match starts. Cached 24h/player;
-        capped to a few recent matches to stay well under the API budget."""
+    def player_season_keys(self, player_key, since_days=300, limit=30):
+        """Most-recent-first finished match keys for a player over the season,
+        via a single get_fixtures(player_key) call. Used to widen serve/return
+        averages beyond the handful the H2H call returns."""
+        import datetime as _dt
+        pk = str(player_key or "")
+        if not pk:
+            return []
+        today = _dt.date.today()
+        start = today - _dt.timedelta(days=since_days)
+        try:
+            rows = self._call("get_fixtures", date_start=start.strftime("%Y-%m-%d"),
+                              date_stop=today.strftime("%Y-%m-%d"), player_key=pk)
+        except Exception:
+            return []
+        dated = []
+        for fx in (rows or []):
+            if not isinstance(fx, dict) or str(fx.get("event_live") or "") == "1":
+                continue
+            k = str(fx.get("event_key") or "")
+            if k:
+                surf = _infer_surface(fx.get("tournament_name"), when=fx.get("event_date"))
+                dated.append((fx.get("event_date") or "", k, surf))
+        dated.sort(reverse=True)
+        out, seen = [], set()
+        for d, k, surf in dated:
+            if k in seen:
+                continue
+            seen.add(k); out.append({"key": k, "surface": surf, "date": d})
+            if len(out) >= limit:
+                break
+        return out
+
+    def player_serve_averages(self, player_key, match_keys, surface=None, max_matches=15, min_surface=5):
+        """Aggregate a player's serve/return stats into season averages. When a
+        surface is given and the player has at least `min_surface` matches on it,
+        average ONLY those (surface profiles differ a lot in tennis); otherwise
+        fall back to their rolling recent matches across all surfaces. Pulls the
+        season match list (falling back to supplied recent keys) and caches 24h."""
         if not player_key:
             return None
-        ck = str(player_key)
+        ck = f"{player_key}|{surface or 'all'}"
         c = self._pavg_cache.get(ck)
         if c and time.time() - c[0] < 86400:
             return c[1]
         pk = str(player_key)
+        season = self.player_season_keys(player_key)            # [{key,surface,date}...]
+        surf_keys = [m["key"] for m in season if surface and m.get("surface") == surface]
+        surface_filtered = bool(surface) and len(surf_keys) >= min_surface
+        if surface_filtered:
+            keys = surf_keys
+        elif season:
+            keys = [m["key"] for m in season]
+        else:
+            keys = list(match_keys or [])
         acc, counts, used = {}, {}, 0
-        for mk in (match_keys or [])[:max_matches * 2]:
+        for mk in keys[:max_matches * 2]:
             if used >= max_matches:
                 break
             try:
@@ -455,6 +498,8 @@ class APITennisProvider(TennisProvider):
         sp, rp = acc.get("Service Points Won", [0, 0]), acc.get("Return Points Won", [0, 0])
         out = {
             "_matches": used,
+            "_surface": surface if surface_filtered else None,
+            "_surface_filtered": surface_filtered,
             "service_points_won": sp[0], "service_points_total": sp[1], "service_points_pct": rpct("Service Points Won"),
             "return_points_won": rp[0], "return_points_total": rp[1], "return_points_pct": rpct("Return Points Won"),
             "break_points_saved": acc.get("Break Points Saved", [0, 0])[0], "break_points_faced": acc.get("Break Points Saved", [0, 0])[1],

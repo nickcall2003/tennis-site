@@ -163,8 +163,9 @@
   .soc-mid .t.live{color:var(--live);font-family:"Space Mono",monospace}
   .soc-ev .tm{font-family:"Space Mono",monospace;font-size:10px;color:var(--muted-2);margin-left:4px}
 
-  .d-tabs{display:flex;gap:8px;margin-bottom:14px}
-  .d-tab{background:transparent;border:1px solid var(--line);color:var(--muted);padding:8px 18px;border-radius:9px;cursor:pointer;font-size:13.5px;font-weight:600}
+  .d-tabs{display:flex;gap:7px;margin-bottom:14px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px;scroll-snap-type:x proximity}
+  .d-tabs::-webkit-scrollbar{display:none}
+  .d-tab{flex:0 0 auto;white-space:nowrap;scroll-snap-align:start;background:transparent;border:1px solid var(--line);color:var(--muted);padding:7px 13px;border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:600}
   .d-tab.active{background:var(--clay);border-color:var(--clay);color:#0e1014}
   .panel{background:linear-gradient(180deg,var(--panel),var(--panel-2));border:1px solid var(--line);border-radius:16px;padding:22px}
   .analysis{font-family:"Fraunces",serif;font-size:16px;line-height:1.6;color:#eef1f5}
@@ -647,6 +648,36 @@
     padding:8px 10px;margin-bottom:8px;border:1px solid var(--line);border-radius:8px;background:rgba(127,127,127,.05)}
   .season-hdr span{text-transform:none;letter-spacing:0;font-size:11px;color:var(--muted-2)}
   .pm-line{font-size:13px;color:var(--ink);padding:4px 2px 10px;line-height:1.5}
+  .sload{padding:46px 0 30px;text-align:center}
+  .sload-track{position:relative;height:48px;max-width:300px;margin:0 auto 12px;overflow:hidden}
+  .sload-ball{position:absolute;left:-10%;top:8px;font-size:30px;will-change:left,top,transform;animation:sload-roll 1.5s cubic-bezier(.4,0,.6,1) infinite}
+  @keyframes sload-roll{0%{left:-10%;transform:rotate(0)}100%{left:100%;transform:rotate(900deg)}}
+  .sload-ball.s-mlb,.sload-ball.s-ncaabb{animation:sload-hr 1.7s ease-in-out infinite}
+  @keyframes sload-hr{0%{left:-8%;top:34px;transform:rotate(0)}45%{top:-4px}100%{left:100%;top:34px;transform:rotate(360deg)}}
+  .sload-ball.s-nba,.sload-ball.s-ncaab,.sload-ball.s-wncaab{animation:sload-bounce 1.25s linear infinite}
+  @keyframes sload-bounce{0%{left:-8%;top:2px}25%{top:26px}50%{left:48%;top:0}75%{top:26px}100%{left:100%;top:2px}}
+  .sload-ball.s-ufc{animation:sload-jab 0.85s cubic-bezier(.36,0,.2,1) infinite}
+  @keyframes sload-jab{0%{left:18%;transform:scale(1) rotate(-8deg)}40%{left:60%;transform:scale(1.25) rotate(6deg)}55%{left:58%;transform:scale(1.1)}100%{left:18%;transform:scale(1) rotate(-8deg)}}
+  .sload-ball.s-nhl{animation:sload-slide 1.15s ease-in-out infinite}
+  @keyframes sload-slide{0%{left:-8%}50%{left:60%}100%{left:100%}}
+  .sload-ball.s-golf{animation:sload-putt 1.8s ease-out infinite}
+  @keyframes sload-putt{0%{left:-8%;transform:rotate(0)}80%{left:88%}100%{left:100%;transform:rotate(360deg)}}
+  .sload-msg{color:var(--muted);font-size:12.5px;letter-spacing:.03em}
+  .rec-hero{text-align:center;padding:26px 0 18px;border-bottom:1px solid var(--line);margin-bottom:14px}
+  .rec-hero-u{font-family:"Space Mono",monospace;font-size:46px;font-weight:700;line-height:1}
+  .rec-hero-sub{color:var(--muted);font-size:13px;margin-top:8px}
+  .rec-note{color:var(--muted-2);font-size:12px;line-height:1.5;margin:0 2px 14px;font-style:italic}
+  .rec-row{border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-bottom:9px}
+  .rec-row-top{display:flex;justify-content:space-between;align-items:baseline}
+  .rec-sport{font-weight:700;font-size:15px;color:var(--ink)}
+  .rec-u{font-family:"Space Mono",monospace;font-size:20px;font-weight:700}
+  .rec-row-sub{display:flex;gap:12px;align-items:center;margin-top:5px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .rec-roi{font-weight:600}
+  .rec-rec{color:var(--muted-2)}
+  .rec-clv{margin-left:auto;border:1px solid var(--line);border-radius:4px;padding:1px 6px;font-size:11px;color:var(--muted-2)}
+  .rec-clv.good{color:#3a9e5a;border-color:#3a9e5a}
+  .u-pos{color:#3a9e5a}
+  .u-neg{color:#e0563f}
   .injp{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .injp-h{display:flex;align-items:center;gap:6px;padding:9px 12px;background:rgba(224,86,63,.07);
     font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -712,6 +743,7 @@
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           <div class="menu-sec">More</div>
+          <div class="menu-item" data-view="record">&#128202; Track Record</div>
           <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
           <div class="menu-sec">Text size</div>
           <div class="ts-row" id="ts-row">
@@ -1019,7 +1051,9 @@ function statsHTML(m){const s=m.stats;
   function plain(x){return (x==null||x==="")?"\u2014":x;}
   let h="";
   if(s.season){const na=s.matches_a||0,nb=s.matches_b||0;
-    h+='<div class="season-hdr">Season form \u00b7 '+m.player_a+' last '+na+' \u00b7 '+m.player_b+' last '+nb+'<br><span>Live match stats take over once play begins</span></div>';}
+    const sf=(s.a&&s.a._surface)||(s.b&&s.b._surface);
+    const lbl=sf?('On '+sf+' \u00b7 '+m.player_a+' '+na+' \u00b7 '+m.player_b+' '+nb):('Season averages \u00b7 '+m.player_a+' '+na+' matches \u00b7 '+m.player_b+' '+nb+' matches');
+    h+='<div class="season-hdr">'+lbl+'<br><span>Live match stats take over once play begins</span></div>';}
   h+='<div class="stat-sec">Serve</div>';
   if(a.aces!=null||b.aces!=null)h+=statRow("Aces",plain(a.aces),plain(b.aces),parseFloat(a.aces)||0,parseFloat(b.aces)||0);
   if(a.double_faults!=null||b.double_faults!=null)h+=statRow("Double Faults",plain(a.double_faults),plain(b.double_faults),-(parseFloat(a.double_faults)||0),-(parseFloat(b.double_faults)||0));
@@ -1092,8 +1126,12 @@ function applySportsMeta(){
   }catch(e){}
 }
 function isTeam(s){return TEAM_SPORTS.indexOf(s)>=0;}
-async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help")return;const tok=++loadToken;const mySport=sport;
-  renderDatebar();document.getElementById("list").innerHTML='<div class="empty">Loading&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
+function sportLoader(sp,msg){
+  const icons={tennis:"\u{1F3BE}",mlb:"\u26BE",ncaabb:"\u26BE",nba:"\u{1F3C0}",ncaab:"\u{1F3C0}",wncaab:"\u{1F3C0}",nfl:"\u{1F3C8}",ncaaf:"\u{1F3C8}",nhl:"\u{1F3D2}",soccer:"\u26BD",golf:"\u26F3",ufc:"\u{1F94A}"};
+  const ic=icons[sp]||"\u{1F3BE}";
+  return '<div class="sload"><div class="sload-track"><span class="sload-ball s-'+(sp||"tennis")+'">'+ic+'</span></div><div class="sload-msg">'+(msg||"Loading")+'</div></div>';}
+async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record")return;const tok=++loadToken;const mySport=sport;
+  renderDatebar();document.getElementById("list").innerHTML=sportLoader(mySport,'Loading &middot; first load after idle can take ~30s');
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
   else if(mySport==="golf"){await loadGolf();if(tok!==loadToken||sport!=="golf"||view!=="sport")return;renderGolf();}
@@ -1149,6 +1187,7 @@ function selectMenu(el){
   if(el.dataset.sport){view="sport";setSport(el.dataset.sport);}
   else if(el.dataset.view==="home"){openHome();}
   else if(el.dataset.view==="news"){openNews();}
+  else if(el.dataset.view==="record"){openRecord();}
   else if(el.dataset.view==="parlays"){openParlays();}
   else if(el.dataset.view==="help"){openHelp();}
   else if(el.dataset.view){openPicks(el.dataset.view);}
@@ -1168,7 +1207,9 @@ function setSport(s){view="sport";if(s===sport&&document.getElementById("main").
   document.querySelector(".shell").style.gridTemplateColumns=useSide?"":"1fr";
   document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
   renderAccuracy();
-  toggleMenu(false);reload();}
+  toggleMenu(false);
+  document.getElementById("list").innerHTML=sportLoader(s);   // play the new sport's animation on swap
+  setTimeout(reload,520);}
 function toggleMenu(force){const m=document.getElementById("menu");const open=force===undefined?!m.classList.contains("open"):force;m.classList.toggle("open",open);}
 document.getElementById("menu-btn").onclick=e=>{e.stopPropagation();toggleMenu();};
 document.querySelectorAll(".menu-item").forEach(it=>it.onclick=()=>{toggleMenu(false);selectMenu(it);});
@@ -2576,6 +2617,43 @@ function openPicks(which){view=which;if(detailId)closeDetail();
   renderPicksDatebar();
   renderPicks();}
 function _picksRefresh(){if(view==="parlays")renderParlays();else renderPicks();}
+function openRecord(){view="record";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";
+  document.getElementById("detail").style.display="none";
+  document.getElementById("sport-tag").textContent="Track Record";
+  document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="record"));
+  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  document.getElementById("side").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+  document.getElementById("datebar")&&(document.getElementById("datebar").innerHTML="");
+  renderRecord();}
+async function renderRecord(){
+  const list=document.getElementById("list");
+  list.innerHTML=sportLoader("tennis","Crunching your numbers");
+  let d;
+  try{d=await getJSON("/api/edges?days=365");}catch(e){list.innerHTML='<div class="empty">Couldn\u2019t load your record right now.</div>';return;}
+  const bs=d.by_sport||{};
+  const rows=Object.entries(bs).filter(([k,v])=>v&&v.n).map(([k,v])=>Object.assign({sport:k},v));
+  if(!rows.length){list.innerHTML='<div class="empty">No graded picks yet \u2014 your record builds as picks settle.</div>';return;}
+  let tU=0,tN=0,tW=0,tL=0;rows.forEach(r=>{tU+=r.units;tN+=r.n;tW+=r.wins;tL+=r.losses;});
+  const tROI=tN?100*tU/tN:0;
+  rows.sort((a,b)=>b.units-a.units);
+  const uc=u=>u>0?"u-pos":(u<0?"u-neg":"");
+  const sg=u=>(u>0?"+":"")+u.toFixed(2)+"u";
+  let h='<div class="rec-hero"><div class="rec-hero-u '+uc(tU)+'">'+sg(tU)+'</div>'+
+    '<div class="rec-hero-sub">'+tROI.toFixed(1)+'% ROI &middot; '+tW+'-'+tL+' &middot; last 12 months</div></div>'+
+    '<div class="rec-note">Ranked by units won &mdash; the only number that pays. A winning record can still lose money to the juice.</div>';
+  rows.forEach(r=>{
+    const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[r.sport])||r.sport.toUpperCase();
+    const clv=(r.clv_beat_pct!=null)?('<span class="rec-clv'+(r.clv_beat_pct>=50?' good':'')+'">CLV '+r.clv_beat_pct+'%</span>'):'';
+    h+='<div class="rec-row"><div class="rec-row-top"><span class="rec-sport">'+lbl+'</span>'+
+       '<span class="rec-u '+uc(r.units)+'">'+sg(r.units)+'</span></div>'+
+       '<div class="rec-row-sub"><span class="rec-roi '+uc(r.roi_pct)+'">'+r.roi_pct+'% ROI</span>'+
+       '<span class="rec-rec">'+r.wins+'-'+r.losses+' &middot; '+r.hit_rate+'%</span>'+clv+'</div></div>';
+  });
+  list.innerHTML=h;}
 function openParlays(){view="parlays";if(detailId)closeDetail();
   selected=startOfDay(new Date());
   document.getElementById("home").classList.remove("show");

@@ -1291,8 +1291,10 @@ def tennis_season_diag(match_key: str = ""):
             hist = {"match_key": ka[0], "top_level_keys": sorted(tf.keys()),
                     "has_statistics": bool(tf.get("statistics")),
                     "stat_count": len(tf.get("statistics") or [])}
-        sa = provider.player_serve_averages(pa, ka)
-        sb = provider.player_serve_averages(pb, kb)
+        from apitennis import _infer_surface as _surf
+        msurf = _surf(fix.get("tournament_name"), when=fix.get("event_date"))
+        sa = provider.player_serve_averages(pa, ka, surface=msurf)
+        sb = provider.player_serve_averages(pb, kb, surface=msurf)
         return JSONResponse({
             "players": {"a": pa, "b": pb,
                         "names": [fix.get("event_first_player"), fix.get("event_second_player")]},
@@ -1672,8 +1674,8 @@ def match_detail(match_id: int):
                     h2hs = (provider.get_h2h(p1k, p2k) or raw_h2h or {}) if (p1k and p2k) else (raw_h2h or {})
                     ka = [str(r.get("event_key")) for r in (h2hs.get("firstPlayerResults") or []) if isinstance(r, dict) and r.get("event_key")]
                     kb = [str(r.get("event_key")) for r in (h2hs.get("secondPlayerResults") or []) if isinstance(r, dict) and r.get("event_key")]
-                    sa = provider.player_serve_averages(p1k, ka)
-                    sb = provider.player_serve_averages(p2k, kb)
+                    sa = provider.player_serve_averages(p1k, ka, surface=getattr(m, "surface", None))
+                    sb = provider.player_serve_averages(p2k, kb, surface=getattr(m, "surface", None))
                     if sa or sb:
                         stats = {"has_data": True, "season": True,
                                  "matches_a": (sa or {}).get("_matches"),
