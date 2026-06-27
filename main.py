@@ -3856,6 +3856,75 @@ def golf_tracker_recover(confirm: str = "", tour: str = "pga", date: str = "", d
                             headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/golf/tracker-regrade")
+def golf_tracker_regrade(confirm: str = "", tour: str = "pga", days: int = 30, event: str = ""):
+    """Clean re-grade: wipe stored scores + results for tracked matchups, then
+    re-settle each against ITS OWN event's finished leaderboard (fetched by date,
+    oldest->newest). The event guard in settle() keeps a player who is in this
+    week's field too from contaminating an older matchup. Optionally limit to one
+    event with &event=<substring> (e.g. event=open for the U.S. Open).
+    Add ?confirm=yes (optional &days=30 &event= &tour=pga)."""
+    if confirm != "yes":
+        return JSONResponse({"note": "add ?confirm=yes; optional &days=30 &event=<substr> &tour=pga",
+                             "example": "?confirm=yes&tour=pga&event=open"})
+    try:
+        import golf_provider, golf_tracker
+        from models import GolfMatchupPick, PickResult
+
+        def _evnorm(s):
+            return "".join(ch for ch in (s or "").lower() if ch.isalnum())
+        want = _evnorm(event)
+
+        # 1) wipe results + stored scores (only the targeted event if given)
+        wiped, refs = 0, []
+        with SessionLocal() as db:
+            for mp in db.query(GolfMatchupPick).filter_by(tour=tour).all():
+                if want and want not in _evnorm(mp.event):
+                    continue
+                mp.settled, mp.result, mp.settled_date = False, None, None
+                mp.s1 = mp.s2 = mp.s3 = None
+                refs.append(mp.ref)
+                wiped += 1
+            if want:
+                for i in range(0, len(refs), 400):
+                    db.query(PickResult).filter(
+                        PickResult.sport == "golf",
+                        PickResult.ref.in_(refs[i:i + 400])).delete(synchronize_session=False)
+            else:
+                db.query(PickResult).filter(PickResult.sport == "golf").delete(synchronize_session=False)
+            db.commit()
+
+        # 2) sweep dated boards oldest->newest; settle against each (never void)
+        today = dt.date.today()
+        passes = []
+        for i in range(days, -1, -1):
+            d = today - dt.timedelta(days=i)
+            try:
+                board = golf_provider.get_board(tour, dates=d.strftime("%Y%m%d"))
+                ev = (board or {}).get("event") or {}
+                if want and want not in _evnorm(ev.get("name")):
+                    continue
+                n = golf_tracker.settle(tour, board=board, stale_days=10 ** 9)
+                if n:
+                    passes.append({"date": d.isoformat(), "event": ev.get("name"), "settled": n})
+            except Exception:
+                continue
+
+        # 3) report the clean record
+        with SessionLocal() as db:
+            rows = db.query(GolfMatchupPick).filter_by(tour=tour).all()
+            rec = {"wins": sum(1 for r in rows if r.result == "win"),
+                   "losses": sum(1 for r in rows if r.result == "loss"),
+                   "pushes": sum(1 for r in rows if r.result == "push"),
+                   "still_pending": sum(1 for r in rows if not r.settled)}
+        return JSONResponse({"tour": tour, "wiped": wiped, "passes": passes, "record": rec},
+                            headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-1500:]},
+                            status_code=500)
+
+
 @app.get("/api/golf/tracker-reset")
 def golf_tracker_reset(confirm: str = ""):
     """Wipes golf tracking: deletes golf PickResults and re-arms every tracked
