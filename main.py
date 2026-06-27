@@ -1258,6 +1258,58 @@ def models_diag():
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
+@app.get("/api/tennis/season-diag")
+def tennis_season_diag(match_key: str = ""):
+    """Trace why the pre-match season form is or isn't populating for a match:
+    shows the H2H shape, whether recent results carry a match id, whether an old
+    match still serves statistics, and the aggregated averages."""
+    if not USE_REAL:
+        return JSONResponse({"error": "tennis provider not active (mock mode)"})
+    if not match_key:
+        try:
+            provider.get_schedule(dt.datetime.combine(dt.date.today(), dt.time()))
+            provider._refresh_live()
+        except Exception:
+            pass
+        fx = getattr(provider, "_fixtures", {}) or {}
+        if not fx:
+            return JSONResponse({"error": "no matches loaded right now; try again when matches are scheduled"})
+        match_key = next(iter(fx.keys()))
+    try:
+        fix = provider.raw_fixture(match_key) or {}
+        pa = str(fix.get("first_player_key") or "")
+        pb = str(fix.get("second_player_key") or "")
+        h2h = provider.get_h2h(pa, pb) or {}
+        fpr = h2h.get("firstPlayerResults") or []
+        spr = h2h.get("secondPlayerResults") or []
+        sample = fpr[0] if fpr else {}
+        ka = [str(r.get("event_key")) for r in fpr if isinstance(r, dict) and r.get("event_key")]
+        kb = [str(r.get("event_key")) for r in spr if isinstance(r, dict) and r.get("event_key")]
+        hist = None
+        if ka:
+            tf = provider.raw_fixture(ka[0]) or {}
+            hist = {"match_key": ka[0], "top_level_keys": sorted(tf.keys()),
+                    "has_statistics": bool(tf.get("statistics")),
+                    "stat_count": len(tf.get("statistics") or [])}
+        sa = provider.player_serve_averages(pa, ka)
+        sb = provider.player_serve_averages(pb, kb)
+        return JSONResponse({
+            "players": {"a": pa, "b": pb,
+                        "names": [fix.get("event_first_player"), fix.get("event_second_player")]},
+            "h2h_top_keys": sorted(h2h.keys()),
+            "firstPlayerResults_count": len(fpr),
+            "secondPlayerResults_count": len(spr),
+            "sample_result_keys": sorted(sample.keys()) if isinstance(sample, dict) else None,
+            "match_keys_found_a": len(ka), "match_keys_found_b": len(kb),
+            "historical_fixture_test": hist,
+            "season_avg_a": sa, "season_avg_b": sb,
+        }, headers={"Cache-Control": "no-store"})
+    except Exception as e:
+        import traceback
+        return JSONResponse({"error": f"{type(e).__name__}: {e}", "trace": traceback.format_exc()[-1000:]},
+                            status_code=500)
+
+
 @app.get("/api/tennis/match-detail")
 def tennis_match_detail(match_key: str = ""):
     """Serve/return detail sheet for one match. While the match is live (or

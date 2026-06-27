@@ -1000,6 +1000,13 @@ function setDetailTab(t){detailTab=t;refreshDetail(true);}
 function preMatchFormHTML(m){
   let h='<div class="season-hdr">Pre-match form<br><span>Serve &amp; return stats take over once play begins</span></div>';
   let any=false;
+  const p=m.prediction||{};
+  if(p.prob_a!=null){const pa=Math.round(p.prob_a*100),pb=100-pa;
+    h+='<div class="stat-sec">Model Projection</div>';
+    h+=statRow("Win Probability",pa+"%",pb+"%",pa,pb);
+    if(m.odds&&(m.odds.ml_a!=null&&m.odds.ml_b!=null))
+      h+=statRow("Moneyline",(m.odds.ml_a>0?"+":"")+m.odds.ml_a,(m.odds.ml_b>0?"+":"")+m.odds.ml_b,0,0);
+    any=true;}
   if(m.h2h){h+='<div class="stat-sec">Head-to-Head</div><div class="pm-line">'+m.h2h+'</div>';any=true;}
   if(m.form_a||(m.recent_a&&m.recent_a.length)){h+='<div class="stat-sec">'+(m.player_a||"Player 1")+'</div><div class="pm-line">'+(m.form_a||"")+' '+formPills(m.recent_a)+'</div>';any=true;}
   if(m.form_b||(m.recent_b&&m.recent_b.length)){h+='<div class="stat-sec">'+(m.player_b||"Player 2")+'</div><div class="pm-line">'+(m.form_b||"")+' '+formPills(m.recent_b)+'</div>';any=true;}
