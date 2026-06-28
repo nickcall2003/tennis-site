@@ -124,6 +124,7 @@ def init_db() -> None:
     # (already added on a previous boot) can't poison the others.
     _added_columns = (
         ("golf_matchup_picks", "edge", "REAL"),
+        ("pick_log", "prob", "REAL"),
     )
     try:
         from sqlalchemy import text

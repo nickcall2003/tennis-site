@@ -10,6 +10,14 @@
 <link rel="shortcut icon" href="/favicon.ico">
 <meta name="theme-color" content="#0e1014">
 <meta name="apple-mobile-web-app-title" content="Line Logic">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<script>
+if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js").catch(function(){});});}
+window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();window._deferredInstall=e;try{var b=document.getElementById("install-btn");if(b)b.style.display="";}catch(_){}});
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -260,6 +268,10 @@
   .pick-name{font-size:16px;font-weight:600;margin-bottom:3px}
   .pick-match{color:var(--muted);font-size:12.5px}
   .pick-reason{font-size:13px;color:var(--ink);margin-top:8px;line-height:1.5;opacity:.9}
+  .line-move{margin-top:9px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:6px 9px;border-radius:8px;border:1px solid var(--line)}
+  .line-move.toward{color:#3a9e5a;border-color:rgba(58,158,90,.4);background:rgba(58,158,90,.07)}
+  .line-move.away{color:#c98b3f;border-color:rgba(201,139,63,.4);background:rgba(201,139,63,.06)}
+  .lm-odds{font-family:"Space Mono",monospace;color:var(--muted);font-weight:700}
   .pick-premium{margin-top:10px;padding:10px 12px;border-radius:10px;background:linear-gradient(180deg,rgba(212,160,80,.10),rgba(212,160,80,.04));border:1px solid rgba(212,160,80,.28)}
   .prem-head{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.02em;color:#e7c88a;text-transform:uppercase}
   .prem-stake{margin-left:auto;background:rgba(212,160,80,.18);color:#f0d6a0;border:1px solid rgba(212,160,80,.4);border-radius:999px;padding:2px 8px;font-size:12px;font-weight:700;letter-spacing:0;text-transform:none}
@@ -704,6 +716,28 @@
   .rec-hero-u{font-family:"Space Mono",monospace;font-size:46px;font-weight:700;line-height:1}
   .rec-hero-sub{color:var(--muted);font-size:13px;margin-top:8px}
   .rec-note{color:var(--muted-2);font-size:12px;line-height:1.5;margin:0 2px 14px;font-style:italic}
+  .cal-head{margin-bottom:6px}
+  .cal-h1{font-family:"Fraunces",serif;font-weight:900;font-size:22px}
+  .cal-sub{color:var(--muted);font-size:12.5px;line-height:1.5;margin-top:5px}
+  .cal-svg{width:100%;max-width:340px;display:block;margin:10px auto 4px}
+  .cal-ax{fill:var(--muted-2);font-size:11px;font-family:"Space Mono",monospace}
+  .cal-ax2{fill:var(--muted);font-size:12px}
+  .cal-stats{display:flex;justify-content:center;gap:18px;font-size:13px;color:var(--muted);margin-bottom:6px}
+  .cal-stats b{color:var(--ink);font-family:"Space Mono",monospace}
+  .cal-row{border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-bottom:8px}
+  .cal-r-top{display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:8px}
+  .cal-n{color:var(--muted-2);font-family:"Space Mono",monospace;font-weight:400}
+  .cal-bar{display:flex;align-items:center;gap:8px;margin-top:5px}
+  .cal-lab{font-size:11px;color:var(--muted);width:30px;flex:0 0 30px}
+  .cal-track{flex:1;height:9px;background:var(--panel-3);border-radius:5px;overflow:hidden}
+  .cal-fill{height:100%;border-radius:5px}
+  .cal-fill.pred{background:var(--muted)}
+  .cal-fill.act-good{background:#3a9e5a}
+  .cal-fill.act-off{background:#c98b3f}
+  .cal-val{font-family:"Space Mono",monospace;font-size:12px;color:var(--ink);width:42px;text-align:right}
+  .install-hint{margin:14px 0 4px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2);font-size:13px;color:var(--muted);line-height:1.5}
+  .install-hint b{color:var(--ink)}
+  .install-btn{display:block;width:100%;margin:14px 0 4px;padding:12px;border:1px solid var(--clay);background:transparent;color:var(--clay-bright);border-radius:12px;font-weight:700;font-size:14px;cursor:pointer}
   .rec-row{border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin-bottom:9px}
   .rec-row-top{display:flex;justify-content:space-between;align-items:baseline}
   .rec-sport{font-weight:700;font-size:15px;color:var(--ink)}
@@ -826,6 +860,7 @@
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           <div class="menu-sec">More</div>
           <div class="menu-item" data-view="record">&#128202; Track Record</div>
+          <div class="menu-item" data-view="calibration">&#128208; Model Accuracy</div>
           <div class="menu-item" data-view="bets">&#128176; My Bets</div>
           <div class="menu-item" id="menu-account" data-view="auth">&#128100; Sign in</div>
           <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
@@ -1238,7 +1273,7 @@ function sportLoader(sp,msg){
   const icons={tennis:"\u{1F3BE}",mlb:"\u26BE",ncaabb:"\u26BE",nba:"\u{1F3C0}",ncaab:"\u{1F3C0}",wncaab:"\u{1F3C0}",nfl:"\u{1F3C8}",ncaaf:"\u{1F3C8}",nhl:"\u{1F3D2}",soccer:"\u26BD",golf:"\u26F3",ufc:"\u{1F94A}"};
   const ic=icons[sp]||"\u{1F3BE}";
   return '<div class="sload"><div class="sload-track"><span class="sload-ball s-'+(sp||"tennis")+'">'+ic+'</span></div><div class="sload-msg">'+(msg||"Loading")+'</div></div>';}
-async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record"||view==="bets"||view==="auth")return;const tok=++loadToken;const mySport=sport;
+async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record"||view==="bets"||view==="auth"||view==="calibration")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML=sportLoader(mySport,'Loading &middot; first load after idle can take ~30s');
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
@@ -1296,6 +1331,7 @@ function selectMenu(el){
   else if(el.dataset.view==="home"){openHome();}
   else if(el.dataset.view==="news"){openNews();}
   else if(el.dataset.view==="record"){openRecord();}
+  else if(el.dataset.view==="calibration"){openCalibration();}
   else if(el.dataset.view==="bets"){openBets();}
   else if(el.dataset.view==="auth"){openAuth(authToken?"account":"login");}
   else if(el.dataset.view==="parlays"){openParlays();}
@@ -3044,6 +3080,58 @@ async function maybeMigrateLocalBets(){
     try{await apiSend("POST","/api/bets",{date:local[i].date,sport:local[i].sport,desc:local[i].desc,odds:local[i].odds,stake:local[i].stake,book:local[i].book,closing:local[i].closing,result:local[i].result});}catch(e){}
   }
   betsSaveLocal([]);}
+function openCalibration(){view="calibration";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";
+  document.getElementById("detail").style.display="none";
+  document.getElementById("sport-tag").textContent="Model Accuracy";
+  document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="calibration");});
+  var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+  var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  document.getElementById("side").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+  var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+  renderCalibration();}
+async function renderCalibration(){
+  const list=document.getElementById("list");
+  list.innerHTML=sportLoader("tennis","Checking the model\u2019s honesty");
+  let d;try{d=await getJSON("/api/calibration?days=365");}catch(e){list.innerHTML='<div class="empty">Couldn\u2019t load calibration.</div>';return;}
+  if(!d||!d.n){
+    list.innerHTML='<div class="rec-hero"><div class="rec-hero-u">\u2014</div><div class="rec-hero-sub">Gathering data</div></div>'+
+      '<div class="rec-note">This page proves the model is honest \u2014 it needs settled picks that were logged with a probability. It starts filling in the day after this deploys and sharpens with every graded pick.'+(d&&d.logged_with_prob?(' So far '+d.logged_with_prob+' picks logged, awaiting results.'):'')+'</div>';
+    return;}
+  const P=44,W=320,H=300,plot=W-P*2,ploth=H-P*2;
+  const sx=function(v){return P+(v-50)/50*plot;};
+  const sy=function(v){return (H-P)-(v-50)/50*ploth;};
+  let pts="",path="";
+  d.buckets.forEach(function(b,i){
+    const x=sx(b.predicted),y=sy(b.actual),r=Math.max(4,Math.min(13,3+Math.sqrt(b.n)));
+    pts+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="'+r.toFixed(1)+'" fill="rgba(202,162,74,.4)" stroke="#caa24a" stroke-width="1.5"/>';
+    path+=(i?"L":"M")+x.toFixed(1)+" "+y.toFixed(1)+" ";});
+  const svg='<svg viewBox="0 0 '+W+' '+H+'" class="cal-svg">'+
+    '<rect x="'+P+'" y="'+P+'" width="'+plot+'" height="'+ploth+'" fill="none" stroke="var(--line)"/>'+
+    '<line x1="'+P+'" y1="'+(H-P)+'" x2="'+(W-P)+'" y2="'+P+'" stroke="var(--muted)" stroke-dasharray="5 4" stroke-width="1.5"/>'+
+    (d.buckets.length>1?'<path d="'+path+'" fill="none" stroke="#caa24a" stroke-width="2" opacity=".5"/>':"")+pts+
+    '<text x="'+(P-6)+'" y="'+(H-P+4)+'" text-anchor="end" class="cal-ax">50</text>'+
+    '<text x="'+(P-6)+'" y="'+(P+4)+'" text-anchor="end" class="cal-ax">100</text>'+
+    '<text x="'+P+'" y="'+(H-P+18)+'" text-anchor="middle" class="cal-ax">50</text>'+
+    '<text x="'+(W-P)+'" y="'+(H-P+18)+'" text-anchor="middle" class="cal-ax">100</text>'+
+    '<text x="'+(W/2)+'" y="'+(H-6)+'" text-anchor="middle" class="cal-ax2">Predicted win %</text>'+
+    '</svg>';
+  let h='<div class="cal-head"><div class="cal-h1">Is the model honest?</div>'+
+    '<div class="cal-sub">When we call a pick X%, it should win about X% of the time. Dots on the dashed line are perfectly calibrated; above it = we under-promised, below = over-confident.</div></div>'+
+    svg+
+    '<div class="cal-stats"><span><b>'+d.n+'</b> settled picks</span>'+(d.brier!=null?'<span>Brier <b>'+d.brier+'</b></span>':'')+'</div>';
+  h+='<div class="bet-sec">By confidence band</div>';
+  d.buckets.forEach(function(b){
+    const good=Math.abs(b.actual-b.predicted)<=4;
+    h+='<div class="cal-row"><div class="cal-r-top"><span>'+b.lo+'\u2013'+b.hi+'% predicted</span><span class="cal-n">n='+b.n+'</span></div>'+
+      '<div class="cal-bar"><span class="cal-lab">Said</span><div class="cal-track"><div class="cal-fill pred" style="width:'+b.predicted+'%"></div></div><span class="cal-val">'+b.predicted+'%</span></div>'+
+      '<div class="cal-bar"><span class="cal-lab">Won</span><div class="cal-track"><div class="cal-fill '+(good?"act-good":"act-off")+'" style="width:'+b.actual+'%"></div></div><span class="cal-val">'+b.actual+'%</span></div>'+
+      '</div>';});
+  h+='<div class="rec-note">Brier score grades probability accuracy (lower is better; 0.25 is a coin flip). Only picks logged with a probability count, so this sharpens over time.</div>';
+  list.innerHTML=h;}
 function openParlays(){view="parlays";if(detailId)closeDetail();
   selected=startOfDay(new Date());
   document.getElementById("home").classList.remove("show");
@@ -3250,8 +3338,20 @@ function renderHome(){
       '<div class="home-pick-btn" style="background:var(--panel-2)" onclick="openNews()"><div class="nm">\u{1F4F0} News &amp; Injuries</div><div class="sub">Headlines and the injury report for today\u2019s games.</div></div>'+
     '</div>'+
     '<div class="home-picks" style="margin-top:13px"><div class="home-pick-btn" style="grid-column:1/-1;background:var(--panel-2)" onclick="openHelp()"><div class="nm">\u2753 How to use Line Logic</div><div class="sub">New here? A quick tour of every feature and what the numbers mean.</div></div></div>'+
+    installHintHTML()+
     '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';
   loadHotPick();}
+function isStandalone(){return (window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches)||window.navigator.standalone===true;}
+function installHintHTML(){
+  if(isStandalone())return "";
+  const ios=/iphone|ipad|ipod/i.test(navigator.userAgent)&&!window.MSStream;
+  if(ios)return '<div class="install-hint">\u{1F4F2} <b>Install Line Logic</b> \u2014 tap the <b>Share</b> button below, then <b>Add to Home Screen</b> to run it full-screen like an app.</div>';
+  if(window._deferredInstall)return '<button class="install-btn" onclick="installApp()">\u2B07\uFE0F Install the Line Logic app</button>';
+  return "";}
+async function installApp(){
+  const e=window._deferredInstall;if(!e)return;
+  try{e.prompt();await e.userChoice;}catch(_){}
+  window._deferredInstall=null;if(document.getElementById("home").classList.contains("show"))renderHome();}
 let _confettiSeen={};
 function confettiBurst(){
   const colors=["#e0563f","#caa24a","#3a9e5a","#4a90d9","#ffffff"];
@@ -3289,6 +3389,7 @@ async function loadHotPick(){
       '<span class="hp-stat">'+Math.round(p.prob*100)+'% win</span>'+
       (odds?'<span class="hp-stat">'+odds+'</span>':"")+k+'</div>'+
     '<div class="hp-cta">Biggest gap between our model and the market today \u2192</div>'+
+    lineMoveHTML(p)+
     '</div>';}
 async function renderPicks(){
   const list=document.getElementById("list");list.innerHTML='<div class="empty">Loading picks&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
@@ -3329,6 +3430,12 @@ function recordBannerHTML(rec){
 function filterBtn(label,active,key,val){return '<button class="pill'+(active?" active":"")+'" onclick="setBestFilter(\''+key+'\',\''+val+'\')">'+label+'</button>';}
 function setBestFilter(key,val){bestFilter[key]=(key==="min")?parseFloat(val):val;renderPicks();}
 function fmtOdds(o){return o==null?"":(o>0?"+"+o:""+o);}
+function lineMoveHTML(p){
+  if(!p||!p.line_move)return "";
+  const m=p.line_move,t=m.toward;
+  return '<div class="line-move '+(t?"toward":"away")+'">'+
+    (t?"\u{1F4C8} Line moving toward our pick":"\u{1F4C9} Line drifting from our pick")+
+    ' <span class="lm-odds">'+fmtOdds(m.open)+" \u2192 "+fmtOdds(m.now)+'</span></div>';}
 function whyChipsHTML(g){
   if(!g||g.prob_home==null||isNaN(g.prob_home)||!g.home||!g.away)return"";
   const favHome=g.prob_home>=0.5,favAb=favHome?g.home.abbr:g.away.abbr,dogAb=favHome?g.away.abbr:g.home.abbr;
@@ -3436,7 +3543,7 @@ function pickCardHTML(p,isFree){const pct=Math.round(p.prob*100);const slabel=(S
     '<div class="pick-name">'+p.pick+'</div>'+
     '<div class="pick-match">'+p.match+(p.tournament?" \u00b7 "+p.tournament:"")+(p.event_time?" \u00b7 "+p.event_time:"")+'</div>'+
     oddsLine+
-    '<div class="pick-reason">'+(p.reason||"")+'</div>'+premiumBlock+
+    '<div class="pick-reason">'+(p.reason||"")+'</div>'+lineMoveHTML(p)+premiumBlock+
     '<button class="pick-track" data-sport="'+p.sport+'" data-odds="'+(p.market_odds!=null?p.market_odds:"")+'" data-desc="'+_attr(p.pick+(p.match?" \u2014 "+p.match:""))+'" onclick="trackPickFromEl(event,this)">+ Track this pick</button></div>';}
 function bindPickCards(){document.querySelectorAll(".pick-card").forEach(c=>{
   c.onclick=()=>{const s=c.dataset.sport,id=c.dataset.id;

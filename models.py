@@ -139,6 +139,7 @@ class PickLog(Base):
     sport: Mapped[str] = mapped_column(String(10))
     ref: Mapped[str] = mapped_column(String(40))
     shown_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    prob: Mapped[float | None] = mapped_column(Float, nullable=True)  # model P(pick wins), for calibration
 
     __table_args__ = (UniqueConstraint("view", "sport", "ref", "shown_date",
                                        name="uq_view_pick_day"),)

@@ -2626,6 +2626,24 @@ def _enrich_odds(p):
             _attach_tennis_market(p)
         except Exception:
             pass
+    # Line movement (opening -> current) relative to OUR pick, from the saved
+    # snapshot. Honest: this is real movement vs the side we're on, not a public
+    # bet-% reverse-line-movement signal (no free feed carries bet %).
+    try:
+        from models import OddsSnapshot
+        with SessionLocal() as db:
+            snap = db.query(OddsSnapshot).filter_by(sport=p["sport"], ref=str(p["id"])).first()
+        if (snap and snap.open_odds is not None and snap.last_odds is not None
+                and snap.open_odds != snap.last_odds):
+            op = american_to_prob(snap.open_odds)
+            lp = american_to_prob(snap.last_odds)
+            if op is not None and lp is not None:
+                d = round((lp - op) * 100, 1)   # +: implied prob rose on our side
+                if abs(d) >= 0.5:
+                    p["line_move"] = {"open": snap.open_odds, "now": snap.last_odds,
+                                      "delta_pct": d, "toward": d > 0}
+    except Exception:
+        pass
 
 
 def _amer_to_dec(a):
@@ -3166,7 +3184,8 @@ def _log_shown_picks(view, target, picks):
                                                      shown_date=dt.datetime.combine(target, dt.time.min)).first()
                 if not exists:
                     db.add(PickLog(view=view, sport=p["sport"], ref=str(p["id"]),
-                                   shown_date=dt.datetime.combine(target, dt.time.min)))
+                                   shown_date=dt.datetime.combine(target, dt.time.min),
+                                   prob=p.get("prob")))
             db.commit()
     except Exception as e:
         print(f"[picklog] {view} skipped: {e}")
@@ -3322,6 +3341,7 @@ def hot_pick(date: str | None = None):
             "prob": prob, "edge_pct": edge, "market_odds": mo,
             "fair_odds": p.get("fair_odds"), "event_time": p.get("event_time"),
             "kelly_units": _kelly_units(prob, mo) if mo is not None else None,
+            "line_move": p.get("line_move"),
             "id": p.get("id"), "confidence": p.get("confidence"),
         }
         if best is None or edge > best["edge_pct"]:
@@ -3373,6 +3393,42 @@ def umpires_diag(name: str | None = None):
         out["tendency"] = umpire_stats.get_tendency(name)
         out["runs_factor"] = umpire_stats.runs_factor(name)
     return out
+
+
+@app.get("/api/calibration")
+def calibration(days: int = 365, sport: str | None = None):
+    """Reliability of the model's probabilities: for picks we said had an X%
+    chance, how often did they actually win? Built from the probability stored
+    when each pick was shown (PickLog) joined to its settled outcome. Honest:
+    only picks logged since this feature shipped have a stored probability, so
+    the curve fills in over time."""
+    from models import PickLog, PickResult
+    cutoff = dt.datetime.now() - dt.timedelta(days=days)
+    with SessionLocal() as db:
+        logs = (db.query(PickLog)
+                  .filter(PickLog.shown_date >= cutoff, PickLog.prob.isnot(None)).all())
+        probs = {}
+        for l in logs:
+            if sport and l.sport != sport:
+                continue
+            probs[(l.sport, l.ref)] = l.prob       # dedup across views
+        outcomes = {(r.sport, r.ref): r.correct for r in db.query(PickResult).all()}
+    data = [(p, 1 if outcomes[k] else 0) for k, p in probs.items() if k in outcomes]
+    edges = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.90, 1.01]
+    buckets = []
+    for i in range(len(edges) - 1):
+        lo, hi = edges[i], edges[i + 1]
+        pts = [(p, o) for (p, o) in data if lo <= p < hi]
+        if pts:
+            n = len(pts)
+            buckets.append({
+                "lo": round(lo * 100), "hi": round(min(hi, 1.0) * 100), "n": n,
+                "predicted": round(100 * sum(p for p, _ in pts) / n, 1),
+                "actual": round(100 * sum(o for _, o in pts) / n, 1)})
+    total = len(data)
+    brier = round(sum((p - o) ** 2 for p, o in data) / total, 4) if total else None
+    return {"buckets": buckets, "n": total, "brier": brier,
+            "settled_with_prob": total, "logged_with_prob": len(probs)}
 
 
 @app.get("/api/picks/best")
@@ -6283,6 +6339,55 @@ def _icon180():
 def _apple_icon():
     return Response(content=_ICON_180, media_type="image/png",
                     headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.get("/manifest.json")
+def _manifest():
+    """PWA manifest so Line Logic installs to the home screen and launches
+    full-screen like a native app."""
+    return JSONResponse({
+        "name": "Line Logic", "short_name": "Line Logic",
+        "description": "Multi-sport prediction & betting analytics.",
+        "start_url": "/", "scope": "/", "display": "standalone",
+        "background_color": "#0e1014", "theme_color": "#0e1014",
+        "orientation": "portrait",
+        "icons": [
+            {"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"},
+            {"src": "/icon-180.png", "sizes": "192x192", "type": "image/png",
+             "purpose": "any maskable"},
+            {"src": "/icon-180.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "any maskable"},
+        ],
+    }, headers={"Cache-Control": "public, max-age=3600"})
+
+
+@app.get("/sw.js")
+def _service_worker():
+    """Minimal service worker: caches the app shell so it opens instantly and
+    works offline, but NEVER caches /api or websocket traffic (live data stays
+    fresh). Bump CACHE to invalidate after a shell change."""
+    js = """
+const CACHE = "ll-shell-v1";
+self.addEventListener("install", e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.add("/")).catch(()=>{}));
+  self.skipWaiting();
+});
+self.addEventListener("activate", e => {
+  e.waitUntil(caches.keys().then(ks =>
+    Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))));
+  self.clients.claim();
+});
+self.addEventListener("fetch", e => {
+  const u = new URL(e.request.url);
+  if (e.request.method !== "GET") return;
+  if (u.pathname.startsWith("/api/") || u.pathname.startsWith("/ws")) return;
+  e.respondWith(
+    fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match("/")))
+  );
+});
+"""
+    return Response(content=js, media_type="application/javascript",
+                    headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/")
