@@ -283,6 +283,8 @@
   .prop-body{display:flex;align-items:center;gap:14px}
   .prop-proj{font-family:"Fraunces",serif;font-weight:900;font-size:26px;color:var(--clay-bright);line-height:1}
   .prop-proj span{display:block;font-family:"Space Mono",monospace;font-size:8.5px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin-top:2px}
+  .pc-hit-row{margin-top:8px;min-height:1px}
+  .pc-hitr{display:inline-flex;align-items:center;font-family:"Space Mono",monospace;font-size:11px;font-weight:600;color:var(--muted);background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:2px 8px;letter-spacing:.02em}
   .prop-line{font-size:13.5px;color:var(--muted)}.prop-line b{color:var(--ink);font-size:16px}
   .prop-ou{margin-left:auto;display:flex;gap:7px}
   .prop-ou span{font-family:"Space Mono",monospace;font-size:12px;padding:5px 10px;border-radius:7px;background:var(--panel-2);color:var(--muted)}
@@ -578,6 +580,41 @@
   .yb-src{display:block;color:var(--muted-2);font-family:"Space Mono",monospace;font-size:10px;margin-top:6px;text-transform:uppercase;letter-spacing:.04em}
   .home{display:none;grid-column:1/-1}
   .home.show{display:block}
+  .off-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+  .off-chip{font-size:12px;color:var(--ink);background:var(--panel-3);border:1px solid var(--line);border-radius:6px;padding:3px 9px}
+  .off-chip b{color:var(--muted);font-weight:600;font-size:11px}
+  .off-chip.hp{border-color:var(--clay);color:#fff}
+  .off-chip.hp b{color:var(--clay-bright)}
+  .off-note{color:var(--muted-2);font-size:11px;font-style:italic;margin-top:7px;line-height:1.5}
+  .ump-tend{margin-top:9px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2)}
+  .ump-tend.hot{border-color:rgba(224,86,63,.45)}
+  .ump-tend.cold{border-color:rgba(74,144,217,.45)}
+  .ump-lean{font-weight:700;font-size:13px;color:var(--ink)}
+  .ump-tend.hot .ump-lean{color:#e0563f}
+  .ump-tend.cold .ump-lean{color:#4a90d9}
+  .ump-nums{font-family:"Space Mono",monospace;font-size:12px;color:var(--ink);margin-top:3px}
+  .ump-nums span{color:var(--muted);font-family:inherit}
+  .ump-adj{font-size:12.5px;color:var(--muted);margin-top:7px;padding-top:7px;border-top:1px solid var(--line)}
+  .ump-adj b{color:var(--ink)}
+  .ump-adj b.hot{color:#e0563f}
+  .ump-adj b.cold{color:#4a90d9}
+  .confetti-host{position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden}
+  .confetti-host i{position:absolute;top:42%;width:9px;height:14px;border-radius:2px;opacity:0;animation:confetti-pop 1.4s ease-out forwards}
+  @keyframes confetti-pop{0%{opacity:1;transform:translate(0,0) rotate(0)}100%{opacity:0;transform:translate(var(--dx),calc(var(--dy) + 70vh)) rotate(var(--rot))}}
+  .hot-pick{position:relative;margin:0 0 18px;padding:16px 18px;border-radius:16px;cursor:pointer;overflow:hidden;
+    background:linear-gradient(135deg,rgba(224,86,63,.16),rgba(202,162,74,.10));border:1px solid rgba(224,86,63,.4)}
+  .hot-pick:active{transform:scale(.99)}
+  .hp-flag{display:inline-flex;align-items:center;gap:6px;font-family:"Space Mono",monospace;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#e0563f;margin-bottom:9px}
+  .hp-flame{display:inline-block;animation:hp-flicker 1.6s ease-in-out infinite;transform-origin:center bottom}
+  @keyframes hp-flicker{0%,100%{transform:scale(1) rotate(-3deg);opacity:.9}50%{transform:scale(1.18) rotate(3deg);opacity:1}}
+  .hp-sport{font-size:12.5px;color:var(--muted);font-weight:600;margin-bottom:2px}
+  .hp-pick{font-family:"Fraunces",serif;font-weight:900;font-size:23px;line-height:1.15;color:#fff}
+  .hp-match{font-size:13px;color:var(--muted);margin-top:3px}
+  .hp-stats{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:11px}
+  .hp-edge{font-family:"Space Mono",monospace;font-weight:700;font-size:13px;color:#3a9e5a;background:rgba(58,158,90,.12);border:1px solid rgba(58,158,90,.4);border-radius:6px;padding:2px 9px}
+  .hp-stat{font-size:12.5px;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:2px 9px;font-weight:600}
+  .hp-kelly{font-family:"Space Mono",monospace;font-weight:700;font-size:12.5px;color:#caa24a;border:1px solid #caa24a;border-radius:6px;padding:2px 9px}
+  .hp-cta{font-size:11.5px;color:var(--muted-2);margin-top:11px;font-style:italic}
   .home-hero{text-align:center;padding:30px 16px 22px}
   .home-hero h2{font-family:"Fraunces",serif;font-weight:900;font-size:38px;margin:0 0 8px;letter-spacing:-.01em}
   .home-hero h2 .dot{color:var(--clay-bright)}
@@ -678,6 +715,51 @@
   .rec-clv.good{color:#3a9e5a;border-color:#3a9e5a}
   .u-pos{color:#3a9e5a}
   .u-neg{color:#e0563f}
+  .bet-add-btn{width:100%;margin-bottom:12px;padding:11px;border:1px dashed var(--clay);background:transparent;color:var(--clay-bright);border-radius:11px;font-weight:700;font-size:14px;cursor:pointer}
+  .bet-form{border:1px solid var(--line);border-radius:13px;padding:13px;margin-bottom:14px;background:var(--panel-2)}
+  .bf-row{display:flex;gap:8px;margin-bottom:8px}
+  .bf-in{flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:9px 10px;font-size:14px;font-family:inherit}
+  .bf-full{width:100%;display:block;margin-bottom:8px}
+  select.bf-in{appearance:none;-webkit-appearance:none}
+  .bet-save{width:100%;padding:11px;border:none;background:var(--clay);color:#0e1014;border-radius:9px;font-weight:700;font-size:14px;cursor:pointer;margin-top:2px}
+  .bf-hint{color:var(--muted-2);font-size:11px;line-height:1.5;margin-top:9px;font-style:italic}
+  .bet-sec{font-family:"Space Mono",monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:16px 2px 8px}
+  .bet-row{border:1px solid var(--line);border-radius:11px;padding:11px 13px;margin-bottom:8px}
+  .bet-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .bet-desc{font-weight:700;font-size:14.5px;color:var(--ink)}
+  .bet-res{font-family:"Space Mono",monospace;font-weight:700;font-size:13px;white-space:nowrap}
+  .bet-res.win{color:#3a9e5a}.bet-res.loss{color:#e0563f}.bet-res.push,.bet-res.void{color:var(--muted)}
+  .bet-meta{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:5px;font-size:12px;color:var(--muted);font-family:"Space Mono",monospace}
+  .bet-date{color:var(--muted-2)}
+  .bet-clv{border:1px solid var(--line);border-radius:4px;padding:0 6px;font-size:10.5px;color:var(--muted-2)}
+  .bet-clv.good{color:#3a9e5a;border-color:#3a9e5a}
+  .bet-ctrl{display:flex;gap:6px;margin-top:10px}
+  .bc{flex:1;padding:7px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--muted);font-weight:700;font-size:12.5px;cursor:pointer}
+  .bc.win{border-color:rgba(58,158,90,.5);color:#3a9e5a}
+  .bc.loss{border-color:rgba(224,86,63,.5);color:#e0563f}
+  .bc.del{flex:0 0 38px;color:var(--muted-2)}
+  .bc.undo{color:var(--muted)}
+  .bet-storeline{font-size:11.5px;color:var(--muted);margin:-4px 2px 12px;text-align:center}
+  .bet-storeline a{color:var(--clay-bright);cursor:pointer;text-decoration:underline}
+  .pick-track{margin-top:12px;width:100%;padding:9px;border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:9px;font-weight:700;font-size:12.5px;cursor:pointer}
+  .pick-track:active{background:var(--panel-2)}
+  .auth-wrap{display:flex;justify-content:center;padding:8px 0}
+  .auth-card{width:100%;max-width:380px;border:1px solid var(--line);border-radius:16px;padding:22px 20px;background:var(--panel-2)}
+  .auth-h{font-family:"Fraunces",serif;font-weight:900;font-size:24px;margin-bottom:4px}
+  .auth-sub{color:var(--muted);font-size:13px;margin-bottom:16px;line-height:1.5}
+  .auth-user{font-size:18px;font-weight:700;margin-bottom:6px}
+  .auth-err{color:#e0563f;font-size:12.5px;min-height:16px;margin:2px 0 8px}
+  .auth-btn{width:100%;padding:12px;border:none;background:var(--clay);color:#0e1014;border-radius:10px;font-weight:700;font-size:15px;cursor:pointer;margin-top:6px}
+  .auth-btn.ghost{background:transparent;border:1px solid var(--line);color:var(--muted)}
+  .auth-switch{text-align:center;font-size:13px;color:var(--muted);margin-top:14px}
+  .auth-switch a{color:var(--clay-bright);cursor:pointer;text-decoration:underline}
+  .auth-priv{color:var(--muted-2);font-size:11px;line-height:1.5;margin-top:14px;text-align:center;font-style:italic}
+  .rec-code{font-family:"Space Mono",monospace;font-weight:700;font-size:20px;letter-spacing:.06em;text-align:center;color:var(--clay-bright);background:var(--bg);border:1px dashed var(--clay);border-radius:10px;padding:14px 8px;margin:6px 0 12px;word-break:break-all}
+  .el-kelly{font-family:"Space Mono",monospace;font-weight:700;font-size:11.5px;color:#caa24a;border:1px solid #caa24a;border-radius:5px;padding:1px 6px;margin-left:2px}
+  .why-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+  .why-chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;color:var(--ink);background:var(--panel-3);border:1px solid var(--line);border-radius:6px;padding:3px 8px;line-height:1.3}
+  .why-chip.warn{color:#c98b3f;border-color:rgba(201,139,63,.4)}
+  .why-chip.good{color:#3a9e5a;border-color:rgba(58,158,90,.4)}
   .injp{margin:14px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
   .injp-h{display:flex;align-items:center;gap:6px;padding:9px 12px;background:rgba(224,86,63,.07);
     font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line)}
@@ -744,6 +826,8 @@
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           <div class="menu-sec">More</div>
           <div class="menu-item" data-view="record">&#128202; Track Record</div>
+          <div class="menu-item" data-view="bets">&#128176; My Bets</div>
+          <div class="menu-item" id="menu-account" data-view="auth">&#128100; Sign in</div>
           <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
           <div class="menu-sec">Text size</div>
           <div class="ts-row" id="ts-row">
@@ -1126,11 +1210,35 @@ function applySportsMeta(){
   }catch(e){}
 }
 function isTeam(s){return TEAM_SPORTS.indexOf(s)>=0;}
+function officialsHostHTML(sport,gameId){
+  return '<div class="officials-block" data-osport="'+sport+'" data-ogid="'+gameId+'"></div>';}
+async function loadOfficials(sport,gameId,baseTotal){
+  const host=document.querySelector('.officials-block[data-osport="'+sport+'"][data-ogid="'+gameId+'"]');
+  if(!host)return;
+  let d;try{d=await getJSON("/api/officials/"+sport+"/"+gameId);}catch(e){return;}
+  if(!host.isConnected||!d||!d.officials||!d.officials.length)return;
+  const isMLB=sport==="mlb",hp=d.home_plate;
+  const chips=d.officials.map(function(o){
+    const hpc=(isMLB&&o.position==="Home Plate")?" hp":"";
+    return '<span class="off-chip'+hpc+'">'+(o.position?'<b>'+o.position+'</b> ':"")+o.name+'</span>';}).join("");
+  let tend="";
+  if(isMLB&&d.hp_tendency){const t=d.hp_tendency;
+    const cls=t.lean==="hitter-friendly"?"hot":(t.lean==="pitcher-friendly"?"cold":"");
+    const rv=(t.runs_vs_avg>0?"+":"")+t.runs_vs_avg,kv=(t.k_vs_avg>0?"+":"")+t.k_vs_avg;
+    let adj="";
+    if(baseTotal&&d.hp_runs_factor&&Math.abs(d.hp_runs_factor-1)>=0.005){
+      const a=baseTotal*d.hp_runs_factor;
+      adj='<div class="ump-adj">Model total <b>'+baseTotal.toFixed(1)+'</b> \u2192 <b class="'+cls+'">'+a.toFixed(1)+'</b> with this ump</div>';}
+    tend='<div class="ump-tend '+cls+'"><div class="ump-lean">'+(t.lean==="neutral"?"Neutral zone":t.lean.replace(/^./,c=>c.toUpperCase()))+'</div>'+
+      '<div class="ump-nums">'+rv+' runs/gm \u00b7 '+kv+' K/gm <span>vs avg, '+t.games+' games</span></div>'+adj+'</div>';}
+  host.innerHTML='<div class="stat-sec" style="margin-top:16px">'+(isMLB?"\u26BE Umpires":"\u{1F3C1} Officials")+(hp?' &middot; HP: '+hp:"")+'</div>'+
+    '<div class="off-chips">'+chips+'</div>'+tend+
+    '<div class="off-note">'+(isMLB&&d.hp_tendency?"Umpire run/strikeout tendency is computed from the season\u2019s completed games. A modest, capped nudge \u2014 shown for context.":"Assignment only \u2014 shown for context. No public feed has official tendency data, so this isn\u2019t factored into the model.")+'</div>';}
 function sportLoader(sp,msg){
   const icons={tennis:"\u{1F3BE}",mlb:"\u26BE",ncaabb:"\u26BE",nba:"\u{1F3C0}",ncaab:"\u{1F3C0}",wncaab:"\u{1F3C0}",nfl:"\u{1F3C8}",ncaaf:"\u{1F3C8}",nhl:"\u{1F3D2}",soccer:"\u26BD",golf:"\u26F3",ufc:"\u{1F94A}"};
   const ic=icons[sp]||"\u{1F3BE}";
   return '<div class="sload"><div class="sload-track"><span class="sload-ball s-'+(sp||"tennis")+'">'+ic+'</span></div><div class="sload-msg">'+(msg||"Loading")+'</div></div>';}
-async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record")return;const tok=++loadToken;const mySport=sport;
+async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record"||view==="bets"||view==="auth")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML=sportLoader(mySport,'Loading &middot; first load after idle can take ~30s');
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
@@ -1188,6 +1296,8 @@ function selectMenu(el){
   else if(el.dataset.view==="home"){openHome();}
   else if(el.dataset.view==="news"){openNews();}
   else if(el.dataset.view==="record"){openRecord();}
+  else if(el.dataset.view==="bets"){openBets();}
+  else if(el.dataset.view==="auth"){openAuth(authToken?"account":"login");}
   else if(el.dataset.view==="parlays"){openParlays();}
   else if(el.dataset.view==="help"){openHelp();}
   else if(el.dataset.view){openPicks(el.dataset.view);}
@@ -1577,7 +1687,7 @@ function teamCardHTML(g){const fin=g.status==="finished",live=g.status==="live";
   // model price always; market + edge + book count when a line exists
   const edgeLine=edgeLineHTML(g,g.prob_home);
   return '<div class="card-top"><span class="tier" style="background:'+(TIER_COLOR[sport]||"#3f7fc4")+'">'+SPORT_LABEL[sport]+'</span><span class="tourn">'+(g.venue||"")+'</span>'+lc+'<span class="status">'+mark+'</span></div>'+
-    '<div class="mlb-card">'+teamColHTML(g.away,winAway)+mid+teamColHTML(g.home,winHome)+'</div>'+proj+edgeLine+injuryNoteHTML(g)+restNoteHTML(g)+
+    '<div class="mlb-card">'+teamColHTML(g.away,winAway)+mid+teamColHTML(g.home,winHome)+'</div>'+proj+edgeLine+whyChipsHTML(g)+
     '<div style="margin-top:11px">'+predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status)+'</div>';}
 function renderTabsTeam(){const liveCount=teamGames.filter(g=>g.status==="live").length;const el=document.getElementById("tabs");el.innerHTML="";
   [["all","All games"],["live","Live "+(liveCount?'<span class="lv">('+liveCount+')</span>':"")]].forEach(p=>{
@@ -1689,8 +1799,10 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
     facRow("Runs / game",(g.away.runs_per_game!=null?g.away.runs_per_game:"\u2014"),(g.home.runs_per_game!=null?g.home.runs_per_game:"\u2014"))+
     '<div class="fac" style="border:none"><span class="va"></span><span class="lab">Park '+(g.park_factor||1).toFixed(2)+(g.weather?" \u00b7 "+g.weather:"")+'</span><span class="vb"></span></div>'+
     mlbLinesHTML(g)+
+    officialsHostHTML("mlb",g.id)+
     '<div class="note">Starter is each team\u2019s announced probable; bullpen is the team staff ERA. Park &amp; weather scale the run environment for both sides. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;
+  if(mlbDetailTab==="prediction")setTimeout(function(){loadOfficials("mlb",g.id,(g.exp_runs_home||0)+(g.exp_runs_away||0));},30);}
 // ===== NBA / NFL DETAIL =====
 async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";teamProps=null;teamBox=null;showView(true);
   document.getElementById("detail").innerHTML='<div class="empty">Loading game&hellip;</div>';await refreshTeamDetail(id,sport);
@@ -1762,12 +1874,14 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
   if(teamDetailTab==="box"){body=boxscoreHTML(teamBox);}
   else if(teamDetailTab==="props"&&(sp==="nba"||sp==="nfl")){body=propsPanelHTML(teamProps);}
   else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
-    body='<div class="panel"><div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
+    body='<div class="panel">'+whyChipsHTML(g)+'<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin:14px 0 18px">'+mp+'</div>'+
     teamFactorsHTML(g,sp)+
     injuryPanelHTML(g)+
     teamLinesHTML(g)+
+    officialsHostHTML(sp,g.id)+
     '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;}
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;
+  if(teamDetailTab!=="box"&&teamDetailTab!=="props")setTimeout(function(){loadOfficials(sp,g.id);},30);}
 // ===================== SOCCER (multi-league) =====================
 async function loadUFC(){
   let d;try{d=await getJSON("/api/ufc/games?date="+ymd(selected));}catch(e){d={games:[],event:"UFC"};}
@@ -2448,7 +2562,7 @@ function mlbLinesHTML(g){const L=g.lines;if(!L)return "";
 
 // shared props panel (all sports)
 let propHistCache={},propsCurrent=null,propsSport=null,propsGameId=null;
-let propStatFilter="all",propProjCache={},projQueue=[],projMap={},projInflight={},projBusy=0;
+let propStatFilter="all",propProjCache={},propHitCache={},projQueue=[],projMap={},projInflight={},projBusy=0;
 function boxscoreHTML(box){
   if(box==="loading"||box==null) return '<div class="panel"><div class="empty">Loading box score&hellip;</div></div>';
   var teams=(box&&box.teams)||[];
@@ -2525,6 +2639,7 @@ function propRowHTML(p,i){
     if(proj!=null){const d=actual-proj;if(Math.abs(d)>=0.05)actCell+=' <span class="pc-vs '+(d>0?"up":"down")+'">'+(d>0?"\u25B2":"\u25BC")+'</span>';}
   }
   const leanTxt=(op==null)?"":'<span class="pc-lean">Model '+(lean==="over"?"OVER "+op:"UNDER "+up)+'%</span>';
+  const hitInit=hitChip(propHitCache[(p.player||"")+"|"+(p.stat||p.label||"")]);
   return '<div class="prop-row2" data-idx="'+i+'">'+
     '<div class="pc-head"><span class="pc-player">'+(p.player||"Player")+'</span>'+
       '<span class="prop-label">'+(p.label||p.stat||"")+'</span></div>'+
@@ -2533,6 +2648,7 @@ function propRowHTML(p,i){
       '<div class="pc-col"><div class="pc-v">'+(line==null?"\u2014":line)+'</div><div class="pc-k">Line</div>'+(oddsTxt?'<div class="pc-sub">'+oddsTxt+'</div>':"")+'</div>'+
       '<div class="pc-col"><div class="pc-v">'+actCell+'</div><div class="pc-k">Actual</div></div>'+
     '</div>'+
+    '<div class="pc-hit-row"><span class="pc-hit" data-hit-idx="'+i+'">'+hitInit+'</span></div>'+
     '<div class="pc-foot">'+leanTxt+(badge||"")+
       '<button class="pc-log" onclick="togglePropHist('+i+',this.closest(\'.prop-row2\'))">Recent log \u25BE</button></div>'+
     '<div class="ph-host"></div></div>';}
@@ -2551,25 +2667,35 @@ function projFromGames(games){
 function fillProjections(props){
   if(["mlb","nba","nfl","soccer"].indexOf(propsSport)<0)return;
   (props||[]).forEach(p=>{
-    if(p.projection!=null)return;
     const key=(p.player||"")+"|"+(p.stat||p.label||"");
-    if(propProjCache[key]!=null||projInflight[key])return;
+    if(propHitCache[key]!=null||projInflight[key])return;   // log already fetched (gives proj + hit-rate)
     if(projQueue.indexOf(key)<0){projQueue.push(key);projMap[key]=p;}});
-  updateProjCells();pumpProj();}
+  updateProjCells();updateHitCells();pumpProj();}
 function pumpProj(){
   while(projBusy<3&&projQueue.length){
     const key=projQueue.shift();const p=projMap[key];projBusy++;
-    if(!p||propProjCache[key]!=null){projBusy--;continue;}
+    if(!p){projBusy--;continue;}
     projInflight[key]=1;
     const url="/api/"+propsSport+"/prop-history/"+propsGameId+"?player="+encodeURIComponent(p.player)+"&stat="+encodeURIComponent(p.stat||p.label)+"&line="+(p.line!=null?p.line:0.5)+"&date="+ymd(selected)+propLeagueParam();
     getJSON(url).then(h=>{
-      let avg=null;
       if(h&&h.games&&h.games.length){
-        avg=projFromGames(h.games);
-        propHistCache[propsSport+"|"+propsGameId+"|"+p.player+"|"+(p.stat||p.label)+"|"+p.line]=h;}
-      propProjCache[key]=(avg==null?"miss":avg);
-    }).catch(()=>{propProjCache[key]="miss";}).finally(()=>{delete projInflight[key];projBusy--;updateProjCells();pumpProj();});
+        const avg=projFromGames(h.games);
+        if(propProjCache[key]==null)propProjCache[key]=(avg==null?"miss":avg);
+        propHistCache[propsSport+"|"+propsGameId+"|"+p.player+"|"+(p.stat||p.label)+"|"+p.line]=h;
+        propHitCache[key]=(h.total&&p.line!=null)?{pct:Math.round(100*h.hits/h.total),hits:h.hits,total:h.total}:"miss";
+      }else{if(propProjCache[key]==null)propProjCache[key]="miss";propHitCache[key]="miss";}
+    }).catch(()=>{if(propProjCache[key]==null)propProjCache[key]="miss";propHitCache[key]="miss";}).finally(()=>{delete projInflight[key];projBusy--;updateProjCells();updateHitCells();pumpProj();});
   }}
+function hitChip(v){
+  if(v==null)return '<span class="pf-load">\u2026</span>';
+  if(v==="miss"||!v.total)return "";
+  return '<span class="pc-hitr" title="Times the player went OVER this line in their last '+v.total+' games \u2014 historical context, not a graded bet">L'+v.total+' '+v.hits+'/'+v.total+' over \u00b7 '+v.pct+'%</span>';}
+function updateHitCells(){
+  (propsCurrent||[]).forEach((p,i)=>{
+    const key=(p.player||"")+"|"+(p.stat||p.label||"");
+    const v=propHitCache[key];if(v==null)return;
+    const cell=document.querySelector('.pc-hit[data-hit-idx="'+i+'"]');
+    if(cell)cell.innerHTML=hitChip(v);});}
 function updateProjCells(){
   (propsCurrent||[]).forEach((p,i)=>{
     if(p.projection!=null)return;
@@ -2654,6 +2780,270 @@ async function renderRecord(){
        '<span class="rec-rec">'+r.wins+'-'+r.losses+' &middot; '+r.hit_rate+'%</span>'+clv+'</div></div>';
   });
   list.innerHTML=h;}
+/* ===== My Bets — view (storage + auth helpers are defined just below) ===== */
+let _betPrefill=null;
+function _attr(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function trackPickFromEl(ev,el){if(ev)ev.stopPropagation();trackPick(el.getAttribute("data-sport"),el.getAttribute("data-desc"),el.getAttribute("data-odds")||"");}
+function trackPick(sport,desc,odds){_betPrefill={sport:sport,desc:desc,odds:(odds==null?"":odds)};_betFormOpen=true;openBets();}
+function openBets(){view="bets";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";
+  document.getElementById("detail").style.display="none";
+  document.getElementById("sport-tag").textContent="My Bets";
+  document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="bets");});
+  var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+  var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  document.getElementById("side").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+  var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+  renderBets();}
+let _betFormOpen=false;
+async function renderBets(){
+  const list=document.getElementById("list");
+  list.innerHTML=sportLoader("mlb","Loading your bets");
+  let bets=await betsGetAll();
+  bets=bets.slice().sort(function(a,b){return (b.date||"").localeCompare(a.date||"")||((b.id||0)-(a.id||0));});
+  const s=betStats(bets);
+  const uc=function(x){return x>0?"u-pos":(x<0?"u-neg":"");};
+  const sg=function(x){return (x>0?"+":"")+x.toFixed(2)+"u";};
+  let h='<div class="rec-hero"><div class="rec-hero-u '+uc(s.net)+'">'+sg(s.net)+'</div>'+
+    '<div class="rec-hero-sub">'+s.roi.toFixed(1)+'% ROI &middot; '+s.w+'-'+s.l+(s.p?'-'+s.p:'')+
+    (s.clv!=null?' &middot; CLV '+s.clv.toFixed(0)+'%':'')+(s.pend?' &middot; '+s.pend+' pending':'')+'</div></div>';
+  h+='<div class="bet-storeline">'+(loggedIn()?('\u2601\uFE0F Synced to '+authUser):('\u{1F4F1} Saved on this device \u00b7 <a onclick="openAuth(\'login\')">sign in</a> to sync across devices'))+'</div>';
+  h+='<button class="bet-add-btn" onclick="toggleBetForm()">'+(_betFormOpen?"\u00d7 Close":"+ Log a bet")+'</button>';
+  if(_betFormOpen)h+=betFormHTML();
+  if(!bets.length){h+='<div class="rec-note" style="margin-top:14px">Log your first bet to start tracking your real ROI, units, and CLV.</div>';}
+  const pend=bets.filter(function(b){return b.result==="pending";});
+  const done=bets.filter(function(b){return b.result!=="pending";});
+  if(pend.length){h+='<div class="bet-sec">Pending</div>'+pend.map(betRowHTML).join("");}
+  if(done.length){h+='<div class="bet-sec">Settled</div>'+done.map(betRowHTML).join("");}
+  list.innerHTML=h;
+  if(_betFormOpen&&_betPrefill){var pf=_betPrefill,el;
+    if((el=document.getElementById("bf-sport")))el.value=pf.sport||"other";
+    if((el=document.getElementById("bf-desc")))el.value=pf.desc||"";
+    if(pf.odds!==""&&pf.odds!=null&&(el=document.getElementById("bf-odds")))el.value=pf.odds;
+    _betPrefill=null;}
+}
+function betFormHTML(){
+  const today=ymd(new Date());
+  let opts='<option value="">Sport\u2026</option>';
+  ["mlb","tennis","nba","nfl","nhl","ncaabb","ncaab","ncaaf","wncaab","soccer","golf","ufc","other"].forEach(function(k){
+    var m=SPORTS_META.find(function(x){return x.key===k;});
+    opts+='<option value="'+k+'">'+(m?m.label:k.toUpperCase())+'</option>';});
+  return '<div class="bet-form">'+
+    '<div class="bf-row"><select id="bf-sport" class="bf-in">'+opts+'</select>'+
+      '<input id="bf-date" class="bf-in" type="date" value="'+today+'"></div>'+
+    '<input id="bf-desc" class="bf-in bf-full" placeholder="Pick (e.g. Yankees ML, Over 8.5, Alcaraz -1.5)">'+
+    '<div class="bf-row"><input id="bf-odds" class="bf-in" type="number" inputmode="numeric" placeholder="Odds (-110)">'+
+      '<input id="bf-stake" class="bf-in" type="number" inputmode="decimal" step="0.1" placeholder="Stake (units)"></div>'+
+    '<div class="bf-row"><input id="bf-book" class="bf-in" placeholder="Book (optional)">'+
+      '<input id="bf-closing" class="bf-in" type="number" inputmode="numeric" placeholder="Closing odds (opt)"></div>'+
+    '<button class="bet-save" onclick="saveBet()">Save bet</button>'+
+    '<div class="bf-hint">Stake is in units (1u = 1% of your bankroll). Add the closing line later to track CLV \u2014 the sharpest measure of a good bet.</div></div>';
+}
+function toggleBetForm(){_betFormOpen=!_betFormOpen;renderBets();}
+async function saveBet(){
+  const g=function(id){var e=document.getElementById(id);return e?e.value.trim():"";};
+  const sport=g("bf-sport"),desc=g("bf-desc"),odds=g("bf-odds"),stake=g("bf-stake");
+  if(!desc||odds===""||stake===""){alert("Add at least a pick, odds, and stake.");return;}
+  try{
+    await betAdd({date:g("bf-date")||ymd(new Date()),sport:sport||"other",desc:desc,
+      odds:Number(odds),stake:Number(stake),book:g("bf-book")||null,
+      closing:g("bf-closing")===""?null:Number(g("bf-closing")),result:"pending"});
+  }catch(e){alert(typeof e==="string"?e:"Could not save bet.");return;}
+  _betFormOpen=false;renderBets();}
+function betRowHTML(b){
+  const m=SPORTS_META.find(function(x){return x.key===b.sport;});
+  const emo=m?m.emoji:"\u{1F3AF}";
+  const od=(b.odds>0?"+":"")+b.odds;
+  const prof=betProfit(b),pc=prof>0?"u-pos":(prof<0?"u-neg":"");
+  const resBadge=b.result==="pending"?"":'<span class="bet-res '+b.result+'">'+(b.result==="win"?"+"+prof.toFixed(2)+"u":(b.result==="loss"?prof.toFixed(2)+"u":(b.result==="push"?"Push":"Void")))+'</span>';
+  let ctrl="";
+  if(b.result==="pending"){
+    ctrl='<div class="bet-ctrl"><button class="bc win" onclick="settleBet('+b.id+',\'win\')">Won</button>'+
+      '<button class="bc loss" onclick="settleBet('+b.id+',\'loss\')">Lost</button>'+
+      '<button class="bc push" onclick="settleBet('+b.id+',\'push\')">Push</button>'+
+      '<button class="bc del" onclick="delBet('+b.id+')">\u00d7</button></div>';
+  }else{
+    ctrl='<div class="bet-ctrl"><button class="bc undo" onclick="settleBet('+b.id+',\'pending\')">Undo</button>'+
+      '<button class="bc del" onclick="delBet('+b.id+')">\u00d7</button></div>';
+  }
+  const clv=(b.closing!=null&&b.closing!=="")?'<span class="bet-clv'+(amToImp(b.odds)<amToImp(b.closing)?" good":"")+'">CLV '+(amToImp(b.odds)<amToImp(b.closing)?"beat":"missed")+'</span>':"";
+  return '<div class="bet-row">'+
+    '<div class="bet-top"><span class="bet-desc">'+emo+' '+b.desc+'</span>'+resBadge+'</div>'+
+    '<div class="bet-meta"><span>'+od+'</span><span>'+b.stake+'u</span>'+(b.book?'<span>'+b.book+'</span>':"")+
+      '<span class="bet-date">'+(b.date||"")+'</span>'+clv+'</div>'+ctrl+'</div>';
+}
+async function settleBet(id,res){
+  try{await betPatch(id,{result:res});}catch(e){alert(typeof e==="string"?e:"Could not update.");return;}
+  if(res==="win"){try{confettiBurst();}catch(e){}}
+  renderBets();}
+async function delBet(id){
+  if(!confirm("Delete this bet?"))return;
+  try{await betDel(id);}catch(e){}
+  renderBets();}
+/* ===== Accounts (optional) + My Bets storage (server when signed in, else local) ===== */
+let authToken=localStorage.getItem("ll_token")||null;
+let authUser=localStorage.getItem("ll_user")||null;
+function loggedIn(){return !!authToken;}
+function authHeaders(){return authToken?{"Authorization":"Bearer "+authToken}:{};}
+async function apiSend(method,url,body){
+  const r=await fetch(url,{method:method,headers:Object.assign({"Content-Type":"application/json"},authHeaders()),body:body?JSON.stringify(body):undefined});
+  let d={};try{d=await r.json();}catch(e){}
+  if(r.status===401&&authToken){authLogoutLocal();}
+  if(!r.ok)throw (d&&d.error)||("Request failed ("+r.status+")");
+  return d;}
+function updateAccountMenu(){
+  const el=document.getElementById("menu-account");
+  if(el)el.innerHTML=authUser?("\u{1F464} "+authUser):"\u{1F464} Sign in";}
+function authLogoutLocal(){authToken=null;authUser=null;localStorage.removeItem("ll_token");localStorage.removeItem("ll_user");updateAccountMenu();}
+
+const BETS_KEY="ll_bets_v1";
+function betsLoadLocal(){try{return JSON.parse(localStorage.getItem(BETS_KEY)||"[]");}catch(e){return [];}}
+function betsSaveLocal(a){try{localStorage.setItem(BETS_KEY,JSON.stringify(a));}catch(e){}}
+async function betsGetAll(){
+  if(loggedIn()){try{const d=await getJSON("/api/bets");return (d.bets||[]);}catch(e){return [];}}
+  return betsLoadLocal();}
+async function betAdd(bet){
+  if(loggedIn()){return apiSend("POST","/api/bets",bet);}
+  const a=betsLoadLocal();bet.id=Date.now();a.push(bet);betsSaveLocal(a);return bet;}
+async function betPatch(id,patch){
+  if(loggedIn()){return apiSend("PATCH","/api/bets/"+id,patch);}
+  const a=betsLoadLocal();const b=a.find(function(x){return x.id===id;});if(b){Object.assign(b,patch);betsSaveLocal(a);}return b;}
+async function betDel(id){
+  if(loggedIn()){return apiSend("DELETE","/api/bets/"+id);}
+  betsSaveLocal(betsLoadLocal().filter(function(x){return x.id!==id;}));return {};}
+function amToDec(a){a=Number(a);return a>0?a/100:100/Math.abs(a);}
+function amToImp(a){a=Number(a);return a>0?100/(a+100):Math.abs(a)/(Math.abs(a)+100);}
+function betProfit(b){if(b.result==="win")return b.stake*amToDec(b.odds);if(b.result==="loss")return -b.stake;return 0;}
+function betStats(bets){
+  let staked=0,net=0,w=0,l=0,p=0,pend=0,clvW=0,clvN=0;
+  bets.forEach(function(b){
+    if(b.result==="pending"){pend++;return;}
+    if(b.result==="void")return;
+    staked+=b.stake;net+=betProfit(b);
+    if(b.result==="win")w++;else if(b.result==="loss")l++;else if(b.result==="push")p++;
+    if(b.closing!=null&&b.closing!==""&&!isNaN(b.closing)){clvN++;if(amToImp(b.odds)<amToImp(b.closing))clvW++;}
+  });
+  return {staked:staked,net:net,roi:staked?100*net/staked:0,w:w,l:l,p:p,pend:pend,
+          winrate:(w+l)?100*w/(w+l):0,clv:clvN?100*clvW/clvN:null,clvN:clvN};
+}
+function openAuth(mode){view="auth";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";
+  document.getElementById("detail").style.display="none";
+  document.getElementById("sport-tag").textContent=authUser?"Account":"Sign in";
+  document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="auth");});
+  var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+  var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  document.getElementById("side").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+  var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+  renderAuth(mode||"login");}
+function renderAuth(mode){
+  const list=document.getElementById("list");
+  if(authUser&&mode==="account"){
+    list.innerHTML='<div class="auth-wrap"><div class="auth-card">'+
+      '<div class="auth-h">Signed in</div>'+
+      '<div class="auth-user">\u{1F464} '+authUser+'</div>'+
+      '<div class="auth-sub">Your bets sync to this account across any device you sign in on.</div>'+
+      '<button class="auth-btn" onclick="openBets()">View My Bets</button>'+
+      '<button class="auth-btn ghost" onclick="renderAuth(\'pw\')">Change password</button>'+
+      '<button class="auth-btn ghost" onclick="doLogout()">Log out</button>'+
+      '</div></div>';
+    return;}
+  if(authUser&&mode==="pw"){
+    list.innerHTML='<div class="auth-wrap"><div class="auth-card">'+
+      '<div class="auth-h">Change password</div>'+
+      '<input id="pw-cur" class="bf-in bf-full" type="password" placeholder="Current password" autocomplete="current-password">'+
+      '<input id="pw-new" class="bf-in bf-full" type="password" placeholder="New password (min 8)" autocomplete="new-password">'+
+      '<div id="au-err" class="auth-err"></div>'+
+      '<button class="auth-btn" onclick="doChangePw()">Update password</button>'+
+      '<button class="auth-btn ghost" onclick="renderAuth(\'account\')">Back</button>'+
+      '<div class="auth-priv">Changing your password signs out your other devices.</div>'+
+      '</div></div>';
+    return;}
+  if(mode==="recovery"&&_recoveryShown){
+    list.innerHTML='<div class="auth-wrap"><div class="auth-card">'+
+      '<div class="auth-h">Save your recovery code</div>'+
+      '<div class="auth-sub">This is the <b>only</b> way to reset your password \u2014 there\u2019s no email recovery. Write it down or screenshot it now. We can\u2019t show it again.</div>'+
+      '<div class="rec-code">'+_recoveryShown+'</div>'+
+      '<button class="auth-btn" onclick="copyRecovery()">Copy code</button>'+
+      '<button class="auth-btn ghost" onclick="_recoveryShown=null;openBets()">I\u2019ve saved it \u2014 continue</button>'+
+      '</div></div>';
+    return;}
+  if(mode==="forgot"){
+    list.innerHTML='<div class="auth-wrap"><div class="auth-card">'+
+      '<div class="auth-h">Reset password</div>'+
+      '<div class="auth-sub">Enter your username and the recovery code you saved at signup.</div>'+
+      '<input id="fg-user" class="bf-in bf-full" placeholder="Username" autocomplete="username">'+
+      '<input id="fg-code" class="bf-in bf-full" placeholder="Recovery code (XXXX-XXXX-XXXX-XXXX)">'+
+      '<input id="fg-new" class="bf-in bf-full" type="password" placeholder="New password (min 8)" autocomplete="new-password">'+
+      '<div id="au-err" class="auth-err"></div>'+
+      '<button class="auth-btn" onclick="doForgot()">Reset password</button>'+
+      '<div class="auth-switch"><a onclick="renderAuth(\'login\')">Back to sign in</a></div>'+
+      '</div></div>';
+    return;}
+  const login=mode!=="signup";
+  list.innerHTML='<div class="auth-wrap"><div class="auth-card">'+
+    '<div class="auth-h">'+(login?"Welcome back":"Create your account")+'</div>'+
+    '<div class="auth-sub">'+(login?"Sign in to sync your bets across devices.":"Free, and your bets follow you on any device.")+'</div>'+
+    '<input id="au-user" class="bf-in bf-full" placeholder="Username" autocomplete="username">'+
+    (login?"":'<input id="au-email" class="bf-in bf-full" placeholder="Email (optional)" autocomplete="email">')+
+    '<input id="au-pass" class="bf-in bf-full" type="password" placeholder="Password" autocomplete="'+(login?"current-password":"new-password")+'">'+
+    '<div id="au-err" class="auth-err"></div>'+
+    '<button class="auth-btn" onclick="doAuth(\''+(login?"login":"signup")+'\')">'+(login?"Sign in":"Create account")+'</button>'+
+    '<div class="auth-switch">'+(login?'New here? <a onclick="renderAuth(\'signup\')">Create an account</a> &middot; <a onclick="renderAuth(\'forgot\')">Forgot password?</a>':'Already have one? <a onclick="renderAuth(\'login\')">Sign in</a>')+'</div>'+
+    '<div class="auth-priv">Passwords are stored only as a salted hash \u2014 never in plain text. Bets are private to your account.</div>'+
+    '</div></div>';}
+let _recoveryShown=null;
+async function doAuth(mode){
+  const g=function(id){var e=document.getElementById(id);return e?e.value.trim():"";};
+  const err=document.getElementById("au-err");
+  const body={username:g("au-user"),password:document.getElementById("au-pass").value};
+  if(mode==="signup")body.email=g("au-email");
+  if(!body.username||!body.password){if(err)err.textContent="Enter a username and password.";return;}
+  try{
+    const d=await apiSend("POST","/api/auth/"+mode,body);
+    authToken=d.token;authUser=d.username;
+    localStorage.setItem("ll_token",authToken);localStorage.setItem("ll_user",authUser);
+    updateAccountMenu();
+    await maybeMigrateLocalBets();
+    if(mode==="signup"&&d.recovery_code){_recoveryShown=d.recovery_code;renderAuth("recovery");return;}
+    openBets();
+  }catch(e){if(err)err.textContent=(typeof e==="string"?e:"Something went wrong.");}}
+async function doForgot(){
+  const g=function(id){var e=document.getElementById(id);return e?e.value.trim():"";};
+  const err=document.getElementById("au-err");
+  const body={username:g("fg-user"),code:g("fg-code"),new:document.getElementById("fg-new").value};
+  if(!body.username||!body.code||!body.new){if(err)err.textContent="Fill in all three fields.";return;}
+  try{
+    const d=await apiSend("POST","/api/auth/forgot",body);
+    alert("Password reset. You can now sign in with your new password.");
+    if(d.recovery_code){_recoveryShown=d.recovery_code;renderAuth("recovery");}
+    else renderAuth("login");
+  }catch(e){if(err)err.textContent=(typeof e==="string"?e:"Could not reset.");}}
+function copyRecovery(){if(!_recoveryShown)return;try{navigator.clipboard.writeText(_recoveryShown);alert("Recovery code copied.");}catch(e){alert("Copy failed \u2014 please write it down.");}}
+async function doLogout(){
+  try{await apiSend("POST","/api/auth/logout");}catch(e){}
+  authLogoutLocal();openAuth("login");}
+async function doChangePw(){
+  const err=document.getElementById("au-err");
+  const cur=document.getElementById("pw-cur").value,nw=document.getElementById("pw-new").value;
+  if(!cur||!nw){if(err)err.textContent="Fill in both fields.";return;}
+  try{await apiSend("POST","/api/auth/password",{current:cur,new:nw});}
+  catch(e){if(err)err.textContent=(typeof e==="string"?e:"Could not update.");return;}
+  alert("Password updated.");renderAuth("account");}
+async function maybeMigrateLocalBets(){
+  const local=betsLoadLocal();
+  if(!local.length)return;
+  if(!confirm("Upload your "+local.length+" saved bet(s) to your new account?")){return;}
+  for(var i=0;i<local.length;i++){
+    try{await apiSend("POST","/api/bets",{date:local[i].date,sport:local[i].sport,desc:local[i].desc,odds:local[i].odds,stake:local[i].stake,book:local[i].book,closing:local[i].closing,result:local[i].result});}catch(e){}
+  }
+  betsSaveLocal([]);}
 function openParlays(){view="parlays";if(detailId)closeDetail();
   selected=startOfDay(new Date());
   document.getElementById("home").classList.remove("show");
@@ -2849,6 +3239,7 @@ function renderHome(){
     '<div class="home-hero"><h2>Line Logic<span class="dot">.</span></h2>'+
     '<p>Data-driven predictions and model betting lines across tennis, baseball, basketball, and football. Pick a sport to see today\u2019s board.</p>'+
     accLine+'</div>'+
+    '<div id="hotpick"></div>'+
     '<div class="sport-grid">'+tileHTML+'</div>'+
     '<div class="home-picks">'+
       '<div class="home-pick-btn free" onclick="openPicks(\'free\')"><div class="nm">\u2b50 Free Picks</div><div class="sub">Today\u2019s highest-confidence plays, across every sport.</div></div>'+
@@ -2859,7 +3250,46 @@ function renderHome(){
       '<div class="home-pick-btn" style="background:var(--panel-2)" onclick="openNews()"><div class="nm">\u{1F4F0} News &amp; Injuries</div><div class="sub">Headlines and the injury report for today\u2019s games.</div></div>'+
     '</div>'+
     '<div class="home-picks" style="margin-top:13px"><div class="home-pick-btn" style="grid-column:1/-1;background:var(--panel-2)" onclick="openHelp()"><div class="nm">\u2753 How to use Line Logic</div><div class="sub">New here? A quick tour of every feature and what the numbers mean.</div></div></div>'+
-    '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';}
+    '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';
+  loadHotPick();}
+let _confettiSeen={};
+function confettiBurst(){
+  const colors=["#e0563f","#caa24a","#3a9e5a","#4a90d9","#ffffff"];
+  const host=document.createElement("div");host.className="confetti-host";
+  for(let i=0;i<34;i++){
+    const c=document.createElement("i");
+    c.style.left=(50+(Math.random()*44-22))+"%";
+    c.style.background=colors[i%colors.length];
+    c.style.setProperty("--dx",(Math.random()*220-110)+"px");
+    c.style.setProperty("--dy",(-90-Math.random()*150)+"px");
+    c.style.setProperty("--rot",(Math.random()*720-360)+"deg");
+    c.style.animationDelay=(Math.random()*0.1).toFixed(2)+"s";
+    host.appendChild(c);}
+  document.body.appendChild(host);
+  setTimeout(function(){host.remove();},1700);}
+function celebrateWins(picks){
+  const wins=(picks||[]).filter(function(p){return p.result==="win"&&!_confettiSeen["w"+p.sport+p.id];});
+  if(!wins.length)return;
+  wins.slice(0,3).forEach(function(p,idx){_confettiSeen["w"+p.sport+p.id]=1;setTimeout(confettiBurst,idx*200);});}
+async function loadHotPick(){
+  const host=document.getElementById("hotpick");if(!host)return;
+  let d;try{d=await getJSON("/api/picks/hot?date="+ymd(new Date()));}catch(e){return;}
+  if(!d||!d.pick||!host.isConnected)return;
+  const p=d.pick;
+  const meta=SPORTS_META.find(function(s){return s.key===p.sport;});
+  const emoji=meta?meta.emoji:"\u{1F525}",lbl=meta?meta.label:(p.sport||"").toUpperCase();
+  const odds=(p.market_odds!=null)?(p.market_odds>0?"+"+p.market_odds:""+p.market_odds):null;
+  const k=p.kelly_units?'<span class="hp-kelly" title="Suggested stake at quarter-Kelly">'+p.kelly_units+'u</span>':"";
+  host.innerHTML='<div class="hot-pick" onclick="setSport(\''+p.sport+'\')">'+
+    '<div class="hp-flag"><span class="hp-flame">\u{1F525}</span> Hot Pick of the Day</div>'+
+    '<div class="hp-sport">'+emoji+' '+lbl+'</div>'+
+    '<div class="hp-pick">'+(p.pick||"")+'</div>'+
+    (p.match?'<div class="hp-match">'+p.match+'</div>':"")+
+    '<div class="hp-stats"><span class="hp-edge">+'+p.edge_pct+'% edge</span>'+
+      '<span class="hp-stat">'+Math.round(p.prob*100)+'% win</span>'+
+      (odds?'<span class="hp-stat">'+odds+'</span>':"")+k+'</div>'+
+    '<div class="hp-cta">Biggest gap between our model and the market today \u2192</div>'+
+    '</div>';}
 async function renderPicks(){
   const list=document.getElementById("list");list.innerHTML='<div class="empty">Loading picks&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   let rec=null;try{rec=await getJSON("/api/picks/record?view="+(view==="free"?"free":"best")+"&date="+ymd(selected));}catch(e){}
@@ -2871,7 +3301,7 @@ async function renderPicks(){
     let html='<div class="picks-head">\u2b50 Free Picks'+head30+'</div><div class="picks-sub">The four best plays of the day \u2014 the model\u2019s highest-confidence picks across every sport. Results shown as games finish.</div>'+recBanner;
     if(!d.picks||!d.picks.length)html+='<div class="empty">No games to grade today \u2014 check back when more games are posted.</div>';
     else html+=d.picks.map(p=>pickCardHTML(p,true)).join("");
-    list.innerHTML=html;bindPickCards();
+    list.innerHTML=html;bindPickCards();celebrateWins(d.picks);
   }else{
     let d;try{d=await getJSON("/api/picks/best?date="+ymd(selected)+(bestFilter.sport?"&sport="+bestFilter.sport:"")+"&min_prob="+bestFilter.min);}catch(e){d={picks:[]};}
     if(view!=="best")return;
@@ -2899,6 +3329,44 @@ function recordBannerHTML(rec){
 function filterBtn(label,active,key,val){return '<button class="pill'+(active?" active":"")+'" onclick="setBestFilter(\''+key+'\',\''+val+'\')">'+label+'</button>';}
 function setBestFilter(key,val){bestFilter[key]=(key==="min")?parseFloat(val):val;renderPicks();}
 function fmtOdds(o){return o==null?"":(o>0?"+"+o:""+o);}
+function whyChipsHTML(g){
+  if(!g||g.prob_home==null||isNaN(g.prob_home)||!g.home||!g.away)return"";
+  const favHome=g.prob_home>=0.5,favAb=favHome?g.home.abbr:g.away.abbr,dogAb=favHome?g.away.abbr:g.home.abbr;
+  const chips=[];
+  // model conviction
+  const mp=favHome?g.prob_home:1-g.prob_home;
+  const conv=mp>=0.68?"strong":(mp>=0.58?"lean":"slight");
+  chips.push('<span class="why-chip good">\u{1F4C8} '+favAb+' '+conv+' ('+Math.round(mp*100)+'%)</span>');
+  // edge vs market
+  const o=g.odds||null,mkt=o?(favHome?o.ml_home:o.ml_away):null;
+  if(o&&mkt!=null){const mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+    const edge=Math.round((mp-mImp)*1000)/10;
+    if(edge>0)chips.push('<span class="why-chip good">+'+edge+'% edge</span>');
+    else if(edge<0)chips.push('<span class="why-chip warn">'+edge+'% vs mkt</span>');}
+  // rest / B2B, framed toward the lean
+  if(g.rest){const r=g.rest;
+    if(r.note){chips.push('<span class="why-chip">\u23F1 '+r.note+'</span>');}
+    else if(r.home_days!=null&&r.away_days!=null){
+      const diff=favHome?r.home_days-r.away_days:r.away_days-r.home_days;
+      if(diff>=1)chips.push('<span class="why-chip">\u23F1 '+favAb+' +'+diff+'d rest</span>');
+      else if(diff<=-1)chips.push('<span class="why-chip warn">\u23F1 '+dogAb+' +'+(-diff)+'d rest</span>');}}
+  // injuries: net OUT players, framed toward the lean
+  if(g.injuries){
+    const outN=arr=>(arr||[]).filter(p=>/\bout\b|^ir$|injured|suspen|\d+-day/i.test((p.status||"").toLowerCase())).length;
+    const favOut=favHome?outN(g.injuries.home):outN(g.injuries.away);
+    const dogOut=favHome?outN(g.injuries.away):outN(g.injuries.home);
+    if(dogOut>favOut)chips.push('<span class="why-chip good">\u2695 '+dogAb+' \u2212'+dogOut+' out</span>');
+    else if(favOut>dogOut)chips.push('<span class="why-chip warn">\u2695 '+favAb+' \u2212'+favOut+' out</span>');}
+  if(chips.length<=1)return"";
+  return '<div class="why-row">'+chips.join("")+'</div>';}
+function kellyUnits(prob,americanOdds){
+  if(prob==null||isNaN(prob)||americanOdds==null||isNaN(americanOdds))return null;
+  const b=americanOdds>0?americanOdds/100:100/Math.abs(americanOdds);
+  if(b<=0)return null;
+  const f=prob-(1-prob)/b;                 // full Kelly fraction of bankroll
+  if(f<=0)return null;                      // no edge -> no bet
+  let u=Math.min(f*0.25*100,4);            // quarter-Kelly, 1u = 1% bankroll, cap 4u
+  return u<0.1?null:u.toFixed(1);}
 function edgeLineHTML(g,homeWP){
   if(homeWP==null||isNaN(homeWP))return "";
   const favHome=homeWP>=0.5,modelProb=favHome?homeWP:(1-homeWP);
@@ -2912,6 +3380,8 @@ function edgeLineHTML(g,homeWP){
     parts+='<span class="el-lab">Market</span><span class="el-v">'+fmtOdds(mkt)+'</span>'+
       (nb?'<span class="el-books">'+nb+(nb===1?" book":" books")+'</span>':"")+
       '<span class="el-edge '+ec+'">'+(edge>=0?"+":"")+edge+'% edge</span>';
+    const k=kellyUnits(modelProb,mkt);
+    if(k)parts+='<span class="el-kelly" title="Suggested stake at quarter-Kelly (1u = 1% bankroll)">'+k+'u</span>';
   }else{
     parts+='<span class="el-none">Awaiting market</span>';
   }
@@ -2966,7 +3436,8 @@ function pickCardHTML(p,isFree){const pct=Math.round(p.prob*100);const slabel=(S
     '<div class="pick-name">'+p.pick+'</div>'+
     '<div class="pick-match">'+p.match+(p.tournament?" \u00b7 "+p.tournament:"")+(p.event_time?" \u00b7 "+p.event_time:"")+'</div>'+
     oddsLine+
-    '<div class="pick-reason">'+(p.reason||"")+'</div>'+premiumBlock+'</div>';}
+    '<div class="pick-reason">'+(p.reason||"")+'</div>'+premiumBlock+
+    '<button class="pick-track" data-sport="'+p.sport+'" data-odds="'+(p.market_odds!=null?p.market_odds:"")+'" data-desc="'+_attr(p.pick+(p.match?" \u2014 "+p.match:""))+'" onclick="trackPickFromEl(event,this)">+ Track this pick</button></div>';}
 function bindPickCards(){document.querySelectorAll(".pick-card").forEach(c=>{
   c.onclick=()=>{const s=c.dataset.sport,id=c.dataset.id;
     if(s==="mlb"){sport="mlb";openMLBDetail(id);}
@@ -3077,6 +3548,7 @@ setInterval(loadAccuracy,300000);
     sync();
   }
   if(document.readyState!=="loading")start(); else document.addEventListener("DOMContentLoaded",start);
+  try{updateAccountMenu();}catch(e){}
 })();
 </script>
 </body>

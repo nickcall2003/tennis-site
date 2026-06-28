@@ -26,7 +26,7 @@ import re
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Header, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from sqlalchemy import func
 
@@ -418,6 +418,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[startup] init_db failed: {e}")
 
+    # Loud check: are accounts/bets on durable storage? Surfaces the #1 footgun
+    # (SQLite on Railway's ephemeral disk) in the deploy logs immediately.
+    try:
+        import os as _os
+        from db import DATABASE_URL as _DBU
+        if _DBU.startswith("postgresql"):
+            print("[storage] OK: external Postgres \u2014 data persists across redeploys.")
+        else:
+            _p = _DBU.replace("sqlite:///", "")
+            _mounted = _os.path.ismount(_os.path.dirname(_p) or ".") or _os.path.ismount("/data")
+            if _mounted:
+                print(f"[storage] OK: SQLite on a mounted volume ({_p}) \u2014 survives redeploys.")
+            else:
+                print("=" * 70)
+                print("[storage] !!! WARNING: SQLite is on EPHEMERAL disk at "
+                      f"{_p}. Accounts and bets will be ERASED on every redeploy.")
+                print("[storage] Fix: attach a Railway Volume mounted at /data, OR set "
+                      "DATABASE_URL to a managed Postgres (Neon/Supabase/Railway).")
+                print("=" * 70)
+    except Exception as e:
+        print(f"[storage] durability check failed: {e}")
+
     run_bg = os.environ.get("RUN_BACKGROUND", "1") == "1"
     startup_build = os.environ.get("STARTUP_BUILD", "0") == "1"
 
@@ -499,6 +521,28 @@ async def lifespan(app: FastAPI):
                 _t.sleep(int(os.environ.get("TENNIS_ODDS_SECS", "1800") or 1800))
         import threading as _thr_to
         _thr_to.Thread(target=_tennis_odds_bg, daemon=True).start()
+
+    # Umpire-tendency builder — folds new MLB finals into the per-home-plate-ump
+    # run/strikeout profile, computed from the free statsapi. Incremental, so
+    # after the first backfill each daily cycle is cheap. Disable: UMP_STATS=0.
+    if USE_REAL and run_bg and os.environ.get("UMP_STATS", "1") == "1":
+        def _umpire_bg():
+            import time as _t
+            _t.sleep(200)   # let startup settle + pass healthcheck
+            while True:
+                try:
+                    import umpire_stats
+                    for _ in range(6):          # chip through any backlog
+                        r = umpire_stats.refresh(days=75, max_games=120)
+                        if not r.get("more_pending"):
+                            break
+                        _t.sleep(20)
+                    print(f"[umpire] {umpire_stats.summary()}")
+                except Exception as e:
+                    print(f"[umpire] bg error: {e}")
+                _t.sleep(int(os.environ.get("UMP_STATS_SECS", "86400") or 86400))
+        import threading as _thr_um
+        _thr_um.Thread(target=_umpire_bg, daemon=True).start()
 
     # Odds-snapshot warmer — OFF by default. On a free Odds API tier this loop
     # can consume the whole monthly quota and starve the live board's edge/odds.
@@ -684,6 +728,13 @@ def _prewarm_ncaabb():
 
 
 app = FastAPI(title="Tennis Predictions", lifespan=lifespan)
+
+# User accounts, sessions, synced bet log, storage health — see accounts.py.
+try:
+    from accounts import router as accounts_router
+    app.include_router(accounts_router)
+except Exception as _acct_err:
+    print(f"[startup] accounts router not loaded: {_acct_err}")
 
 
 @app.middleware("http")
@@ -3228,6 +3279,100 @@ def _pick_result_status(sport, ref):
             return "win" if r.correct else "loss"
     except Exception:
         return None
+
+
+def _kelly_units(prob, american):
+    """Quarter-Kelly stake in units (1u = 1% bankroll), capped at 4u. None when
+    there's no edge. Display-only — never used to grade results."""
+    try:
+        prob = float(prob); american = float(american)
+    except (TypeError, ValueError):
+        return None
+    b = american / 100.0 if american > 0 else 100.0 / abs(american)
+    if b <= 0:
+        return None
+    f = prob - (1 - prob) / b
+    if f <= 0:
+        return None
+    u = min(f * 0.25 * 100, 4)
+    return round(u, 1) if u >= 0.1 else None
+
+
+@app.get("/api/picks/hot")
+def hot_pick(date: str | None = None):
+    """Single best edge across all sports for the day — the 'Hot Pick of the Day'.
+    Cheap (no AI narration): ranks the day's plays by model edge vs the market.
+    Display-only; this endpoint never logs or grades anything."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    _ensure_day(target)
+    plays = _gather_plays(target)
+    best = None
+    for p in plays:
+        try:
+            _enrich_odds(p)
+        except Exception:
+            continue
+        edge = p.get("edge_pct")
+        prob = p.get("prob") or 0
+        if edge is None or edge <= 0 or prob < 0.5:
+            continue
+        mo = p.get("market_odds")
+        cand = {
+            "sport": p["sport"], "pick": p.get("pick"), "match": p.get("match"),
+            "prob": prob, "edge_pct": edge, "market_odds": mo,
+            "fair_odds": p.get("fair_odds"), "event_time": p.get("event_time"),
+            "kelly_units": _kelly_units(prob, mo) if mo is not None else None,
+            "id": p.get("id"), "confidence": p.get("confidence"),
+        }
+        if best is None or edge > best["edge_pct"]:
+            best = cand
+    return {"date": target.isoformat(), "pick": best}
+
+
+@app.get("/api/officials/{sport}/{game_id}")
+def officials(sport: str, game_id: str):
+    """Officiating crew for a game — ASSIGNMENT plus, for MLB, the home-plate
+    umpire's run/strikeout tendency computed from the free statsapi. NFL/NBA/NCAA
+    referees are best-effort from ESPN (names only — no tendency feed exists)."""
+    sp = (sport or "").lower()
+    try:
+        if sp == "mlb":
+            from mlb_provider import get_officials
+            data = get_officials(int(game_id))
+            try:
+                import umpire_stats
+                hp = data.get("home_plate")
+                if hp:
+                    data["hp_tendency"] = umpire_stats.get_tendency(hp)
+                    data["hp_runs_factor"] = umpire_stats.runs_factor(hp)
+            except Exception:
+                pass
+            return data
+        if sp in ("nba", "nfl", "ncaaf", "ncaab", "wncaab"):
+            from espn_provider import get_officials
+            return get_officials(sp, game_id)
+    except Exception as e:
+        return {"sport": sp, "officials": [], "error": str(e)}
+    return {"sport": sp, "officials": [], "unsupported": True}
+
+
+@app.get("/api/umpires/refresh")
+def umpires_refresh(days: int = 70, max_games: int = 120):
+    """Fold recent FINAL games into the per-umpire tendency table (incremental).
+    First backfill is API-heavy, so it's capped per call — hit it again while
+    'more_pending' is true to continue."""
+    import umpire_stats
+    return umpire_stats.refresh(days=days, max_games=max_games)
+
+
+@app.get("/api/umpires/diag")
+def umpires_diag(name: str | None = None):
+    import umpire_stats
+    out = umpire_stats.summary()
+    if name:
+        out["tendency"] = umpire_stats.get_tendency(name)
+        out["runs_factor"] = umpire_stats.runs_factor(name)
+    return out
 
 
 @app.get("/api/picks/best")

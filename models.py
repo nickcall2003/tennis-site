@@ -256,3 +256,58 @@ class GolfMatchupPick(Base):
     settled: Mapped[bool] = mapped_column(default=False, index=True)
     result: Mapped[str | None] = mapped_column(String(8), nullable=True)  # win|loss|push
     settled_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class User(Base):
+    """A registered account. Passwords are stored ONLY as a PBKDF2-HMAC-SHA256
+    hash with a per-user salt — never in plaintext. Email is optional."""
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    username: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    pw_hash: Mapped[str] = mapped_column(String(200))
+    pw_salt: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class AuthSession(Base):
+    """A login session: a random opaque token mapped to a user. Revocable by
+    deleting the row; expires on its own after a set window."""
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class UserBet(Base):
+    """A bet logged by a signed-in user, so their bankroll syncs across devices.
+    Anonymous users keep their bets in the browser (localStorage) instead."""
+    __tablename__ = "user_bets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    date: Mapped[str] = mapped_column(String(12))
+    sport: Mapped[str] = mapped_column(String(12))
+    descr: Mapped[str] = mapped_column(String(200))
+    odds: Mapped[int] = mapped_column(Integer)
+    stake: Mapped[float] = mapped_column(Float)
+    book: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    closing: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result: Mapped[str] = mapped_column(String(10), default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class RecoveryCode(Base):
+    """One-time recovery code per user, stored only as a hash. Lets a user reset
+    a forgotten password without any email service — they prove ownership with
+    the code shown to them at signup. Rotated on every successful reset."""
+    __tablename__ = "recovery_codes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    code_hash: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
