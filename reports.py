@@ -82,7 +82,7 @@ def accuracy(days: int = 30):
                 if is_today:
                     s["today_correct"] += 1
                     tot_tc += 1
-            if r.taken_odds is not None:                       # flat 1u staking -> ROI
+            if r.taken_odds is not None and abs(r.taken_odds) >= 100:  # valid line -> ROI
                 prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
                 pl = prof if r.correct else -1.0
                 s["priced"] += 1
@@ -193,55 +193,84 @@ def calibration(days: int = 365, sport: str | None = None):
 
 
 # ---- edges ----
+def _implied(o):
+    """American odds -> implied probability."""
+    return (-o) / ((-o) + 100.0) if o < 0 else 100.0 / (o + 100.0)
+
+
 @router.get("/api/edges/diag")
 def edges_diag(sport: str = "tennis", days: int = 3650):
-    """Inspect the raw stored odds for a sport so we can see exactly what's in
-    the data (American vs decimal vs junk) before touching any units math."""
-    from models import PickResult
+    """Inspect a sport's stored odds AND split performance by whether the model
+    actually had an edge. 'Bet every predicted winner' vs 'bet only +EV picks'
+    are very different strategies; this shows both."""
+    import json
+    from models import PickResult, LockedPickSet
     since = dt.datetime.now() - dt.timedelta(days=days)
-    buckets = {"junk_0to1": 0, "junk_neg_under100": 0, "decimal_1to2": 0,
-               "decimal_2to100": 0, "american_neg": 0, "american_pos": 0, "zero": 0}
-    n = wins = 0
-    units = 0.0
-    vals = []
-    samples = []
+    # model probability per (sport, ref) from the locked daily sets
+    probs = {}
     with SessionLocal() as db:
+        try:
+            for row in db.query(LockedPickSet).all():
+                for p in json.loads(row.payload):
+                    if p.get("prob") is not None and p.get("id") is not None and p.get("sport"):
+                        probs[(p["sport"], str(p["id"]))] = float(p["prob"])
+        except Exception:
+            pass
+
+        def newbucket():
+            return {"n": 0, "wins": 0, "units": 0.0}
+
+        allp, edge_pos, edge_3, edge_5 = newbucket(), newbucket(), newbucket(), newbucket()
+        clv_beat = clv_total = 0
+        n = wins = 0
+        vals = []
+        samples = []
         q = db.query(PickResult).filter(PickResult.settled_date >= since,
                                         PickResult.sport == sport)
         for r in q.all():
-            if _is_push(r) or r.taken_odds is None:
+            if _is_push(r) or r.taken_odds is None or abs(r.taken_odds) < 100:
                 continue
             o = float(r.taken_odds)
             n += 1
             vals.append(o)
-            if r.correct:
+            won = bool(r.correct)
+            if won:
                 wins += 1
-            dec = 1.0 + (o / 100.0 if o > 0 else 100.0 / (-o)) if o != 0 else 1.0
-            units += (dec - 1.0) if r.correct else -1.0
-            a = abs(o)
-            if o == 0:
-                buckets["zero"] += 1
-            elif 0 < o < 1:
-                buckets["junk_0to1"] += 1
-            elif o < 0 and a < 100:
-                buckets["junk_neg_under100"] += 1
-            elif 1 <= o < 2:
-                buckets["decimal_1to2"] += 1
-            elif 2 <= o < 100:
-                buckets["decimal_2to100"] += 1
-            elif o <= -100:
-                buckets["american_neg"] += 1
+                pl = 1.0 / _implied(o) - 1.0      # decimal payout - 1
             else:
-                buckets["american_pos"] += 1
-            if len(samples) < 30:
-                samples.append({"odds": o, "won": bool(r.correct), "close": r.close_odds})
+                pl = -1.0
+            # accumulate "all"
+            for b in (allp,):
+                b["n"] += 1; b["wins"] += won; b["units"] += pl
+            # edge buckets (need model prob)
+            pr = probs.get((sport, str(r.ref)))
+            if pr is not None:
+                edge = pr - _implied(o)
+                if edge > 0:
+                    edge_pos["n"] += 1; edge_pos["wins"] += won; edge_pos["units"] += pl
+                if edge >= 0.03:
+                    edge_3["n"] += 1; edge_3["wins"] += won; edge_3["units"] += pl
+                if edge >= 0.05:
+                    edge_5["n"] += 1; edge_5["wins"] += won; edge_5["units"] += pl
+            # CLV: did we get a better number than the close?
+            if r.close_odds is not None and abs(r.close_odds) >= 100:
+                clv_total += 1
+                if _implied(o) < _implied(float(r.close_odds)):
+                    clv_beat += 1
+            if len(samples) < 12:
+                samples.append({"odds": o, "won": won, "close": r.close_odds,
+                                "model_prob": round(pr, 3) if pr is not None else None})
+    for b in (allp, edge_pos, edge_3, edge_5):
+        b["units"] = round(b["units"], 2)
+        b["win_pct"] = round(100.0 * b["wins"] / b["n"], 1) if b["n"] else None
+        b["roi_pct"] = round(100.0 * b["units"] / b["n"], 1) if b["n"] else None
     vals.sort()
-    return {"sport": sport, "priced": n, "wins": wins, "losses": n - wins,
-            "units_current_method": round(units, 2),
-            "odds_distribution": buckets,
-            "min": vals[0] if vals else None, "max": vals[-1] if vals else None,
-            "median": vals[len(vals) // 2] if vals else None,
-            "samples": samples}
+    return {"sport": sport, "priced": n, "record": f"{wins}-{n - wins}",
+            "all_picks": allp, "edge_positive": edge_pos,
+            "edge_3pct_plus": edge_3, "edge_5pct_plus": edge_5,
+            "clv_beat_pct": round(100.0 * clv_beat / clv_total, 1) if clv_total else None,
+            "median_odds": vals[len(vals) // 2] if vals else None,
+            "have_model_prob_for": len(probs), "samples": samples}
 
 
 @router.get("/api/edges")
@@ -290,8 +319,8 @@ def edges_report(days: int = 90, sport: str | None = None):
         if sport:
             q = q.filter(PickResult.sport == sport)
         for r in q.all():
-            if _is_push(r) or r.taken_odds is None:
-                continue
+            if _is_push(r) or r.taken_odds is None or abs(r.taken_odds) < 100:
+                continue                       # abs<100 = invalid American = junk row
             bet = {"odds": r.taken_odds, "won": bool(r.correct), "close": r.close_odds}
             by_bucket.setdefault(_bucket(r.taken_odds), []).append(bet)
             by_sport.setdefault(r.sport, []).append(bet)
@@ -330,7 +359,7 @@ def performance(days: int = 30, sport: str | None = None):
                 wins += 1
             else:
                 losses += 1
-            if r.taken_odds is not None:
+            if r.taken_odds is not None and abs(r.taken_odds) >= 100:
                 bets.append({"odds": r.taken_odds, "won": bool(r.correct),
                              "close_odds": r.close_odds})
     s = summarize(bets)
