@@ -25,6 +25,24 @@ def _is_push(r):
     return _impl(r)
 
 
+def _to_american(o):
+    """Normalize a stored odd to American. American odds always have magnitude
+    >= 100; a stored value between 1 and 100 is decimal (e.g. 1.83) and gets
+    converted. This repairs older rows that captured decimal lines, which would
+    otherwise read as ~+0u wins and wreck units/ROI."""
+    try:
+        a = float(o)
+    except (TypeError, ValueError):
+        return None
+    if a == 0:
+        return None
+    if abs(a) >= 100:
+        return a                                   # already American
+    if a > 1.0:                                    # decimal -> American
+        return (a - 1.0) * 100.0 if a >= 2.0 else -100.0 / (a - 1.0)
+    return None
+
+
 # ---- accuracy ----
 _acc_cache = {"ts": 0.0, "data": None}
 
@@ -64,8 +82,9 @@ def accuracy(days: int = 30):
                 if is_today:
                     s["today_correct"] += 1
                     tot_tc += 1
-            if r.taken_odds is not None:                       # flat 1u staking -> ROI
-                prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
+            o = _to_american(r.taken_odds)
+            if o is not None:                                  # flat 1u staking -> ROI
+                prof = (o / 100.0) if o > 0 else (100.0 / (-o))
                 pl = prof if r.correct else -1.0
                 s["priced"] += 1
                 s["units"] += pl
@@ -122,17 +141,39 @@ def calibration(days: int = 365, sport: str | None = None):
     when each pick was shown (PickLog) joined to its settled outcome. Honest:
     only picks logged since this feature shipped have a stored probability, so
     the curve fills in over time."""
-    from models import PickLog, PickResult
+    from models import LockedPickSet, PickLog, PickResult
+    import json
     cutoff = dt.datetime.now() - dt.timedelta(days=days)
+    probs = {}
     with SessionLocal() as db:
-        logs = (db.query(PickLog)
-                  .filter(PickLog.shown_date >= cutoff, PickLog.prob.isnot(None)).all())
-        probs = {}
-        for l in logs:
-            if sport and l.sport != sport:
+        # Primary source: the locked daily pick sets. They've stored each pick's
+        # model probability as JSON since long before the PickLog.prob column,
+        # so this is where the history actually lives.
+        try:
+            lrows = db.query(LockedPickSet).filter(LockedPickSet.pick_date >= cutoff).all()
+        except Exception:
+            lrows = []
+        for row in lrows:
+            try:
+                picks = json.loads(row.payload)
+            except Exception:
                 continue
-            probs[(l.sport, l.ref)] = l.prob       # dedup across views
-        outcomes = {(r.sport, r.ref): r.correct for r in db.query(PickResult).all()}
+            for p in picks:
+                pr, pid, sp = p.get("prob"), p.get("id"), p.get("sport")
+                if pr is None or pid is None or sp is None:
+                    continue
+                if sport and sp != sport:
+                    continue
+                probs[(sp, str(pid))] = pr
+        # Supplement with any PickLog rows that carry a probability.
+        try:
+            for l in db.query(PickLog).filter(PickLog.prob.isnot(None)).all():
+                if sport and l.sport != sport:
+                    continue
+                probs.setdefault((l.sport, str(l.ref)), l.prob)
+        except Exception:
+            pass
+        outcomes = {(r.sport, str(r.ref)): r.correct for r in db.query(PickResult).all()}
     data = [(p, 1 if outcomes[k] else 0) for k, p in probs.items() if k in outcomes]
     edges = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.90, 1.01]
     buckets = []
@@ -201,8 +242,12 @@ def edges_report(days: int = 90, sport: str | None = None):
         for r in q.all():
             if _is_push(r) or r.taken_odds is None:
                 continue
-            bet = {"odds": r.taken_odds, "won": bool(r.correct), "close": r.close_odds}
-            by_bucket.setdefault(_bucket(r.taken_odds), []).append(bet)
+            o = _to_american(r.taken_odds)
+            if o is None:
+                continue
+            cl = _to_american(r.close_odds)
+            bet = {"odds": o, "won": bool(r.correct), "close": cl}
+            by_bucket.setdefault(_bucket(o), []).append(bet)
             by_sport.setdefault(r.sport, []).append(bet)
 
     out = {"days": days, "sport": sport or "all",
@@ -240,8 +285,10 @@ def performance(days: int = 30, sport: str | None = None):
             else:
                 losses += 1
             if r.taken_odds is not None:
-                bets.append({"odds": r.taken_odds, "won": bool(r.correct),
-                             "close_odds": r.close_odds})
+                o = _to_american(r.taken_odds)
+                if o is not None:
+                    bets.append({"odds": o, "won": bool(r.correct),
+                                 "close_odds": _to_american(r.close_odds)})
     s = summarize(bets)
     # overall record includes picks without odds; betting metrics only the priced ones
     s["record_wins"] = wins

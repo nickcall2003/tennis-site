@@ -627,6 +627,11 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
   .hp-stat{font-size:12.5px;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:2px 9px;font-weight:600}
   .hp-kelly{font-family:"Space Mono",monospace;font-weight:700;font-size:12.5px;color:#caa24a;border:1px solid #caa24a;border-radius:6px;padding:2px 9px}
   .hp-cta{font-size:11.5px;color:var(--muted-2);margin-top:11px;font-style:italic}
+  .hp-result{display:inline-block;margin-top:10px;padding:5px 12px;border-radius:999px;font-size:13px;font-weight:800;letter-spacing:.02em}
+  .hp-result.win{background:rgba(58,158,90,.18);color:#46b56a;border:1px solid rgba(58,158,90,.5)}
+  .hp-result.loss{background:rgba(190,80,80,.14);color:#cf6b6b;border:1px solid rgba(190,80,80,.4)}
+  .hot-pick.won{border-color:rgba(58,158,90,.55)}
+  .hot-pick.lost{opacity:.82}
   .home-hero{text-align:center;padding:30px 16px 22px}
   .home-hero h2{font-family:"Fraunces",serif;font-weight:900;font-size:38px;margin:0 0 8px;letter-spacing:-.01em}
   .home-hero h2 .dot{color:var(--clay-bright)}
@@ -3507,17 +3512,21 @@ async function loadHotPick(){
   const emoji=meta?meta.emoji:"\u{1F525}",lbl=meta?meta.label:(p.sport||"").toUpperCase();
   const odds=(p.market_odds!=null)?(p.market_odds>0?"+"+p.market_odds:""+p.market_odds):null;
   const k=p.kelly_units?'<span class="hp-kelly" title="Suggested stake at quarter-Kelly">'+p.kelly_units+'u</span>':"";
-  host.innerHTML='<div class="hot-pick" onclick="setSport(\''+p.sport+'\')">'+
-    '<div class="hp-flag"><span class="hp-flame">\u{1F525}</span> Hot Pick of the Day</div>'+
+  const resCls=p.result==="win"?" won":(p.result==="loss"?" lost":"");
+  const resBadge=p.result==="win"?'<div class="hp-result win">\u2713 Winner</div>':(p.result==="loss"?'<div class="hp-result loss">\u2717 Lost</div>':"");
+  host.innerHTML='<div class="hot-pick'+resCls+'" onclick="setSport(\''+p.sport+'\')">'+
+    '<div class="hp-flag"><span class="hp-flame">\u{1F525}</span> Hot Pick of the Day'+(p.locked?' \u00b7 locked':'')+'</div>'+
     '<div class="hp-sport">'+emoji+' '+lbl+'</div>'+
     '<div class="hp-pick">'+(p.pick||"")+'</div>'+
     (p.match?'<div class="hp-match">'+p.match+'</div>':"")+
+    resBadge+
     '<div class="hp-stats"><span class="hp-edge">+'+p.edge_pct+'% edge</span>'+
       '<span class="hp-stat">'+Math.round(p.prob*100)+'% win</span>'+
       (odds?'<span class="hp-stat">'+odds+'</span>':"")+k+'</div>'+
-    '<div class="hp-cta">Biggest gap between our model and the market today \u2192</div>'+
+    (p.result?"":('<div class="hp-cta">Biggest gap between our model and the market today \u2192</div>'))+
     lineMoveHTML(p)+
-    '</div>';}
+    '</div>';
+  if(p.result==="win"){var hk="hot"+(d.date||"");if(!_confettiSeen[hk]){_confettiSeen[hk]=1;try{confettiBurst();}catch(e){}}}}
 async function renderPicks(){
   const list=document.getElementById("list");list.innerHTML='<div class="empty">Loading picks&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   let rec=null;try{rec=await getJSON("/api/picks/record?view="+(view==="free"?"free":"best")+"&date="+ymd(selected));}catch(e){}

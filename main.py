@@ -3300,7 +3300,9 @@ def hot_pick(date: str | None = None):
     iso = target.isoformat()
     store = _hot_load_all()
     if iso in store:
-        return {"date": iso, "pick": store[iso], "locked": True}
+        pick = dict(store[iso])
+        _hot_attach_result(pick)
+        return {"date": iso, "pick": pick, "locked": True}
     _ensure_day(target)
     plays = _gather_plays(target)
     best = None
@@ -3330,7 +3332,26 @@ def hot_pick(date: str | None = None):
         for old in sorted(store)[:-10]:        # keep ~10 days of history
             store.pop(old, None)
         _hot_save_all(store)
-    return {"date": iso, "pick": best, "locked": bool(best)}
+    pick = best
+    _hot_attach_result(pick)
+    return {"date": iso, "pick": pick, "locked": bool(best)}
+
+
+def _hot_attach_result(pick):
+    """Look up the locked pick's settled outcome (if its game has finished) and
+    tag it win/loss so the card can show the result and fire confetti."""
+    if not pick or pick.get("id") is None:
+        return
+    try:
+        from models import PickResult
+        with SessionLocal() as db:
+            rr = (db.query(PickResult)
+                    .filter_by(sport=pick["sport"], ref=str(pick["id"])).first())
+        if rr is not None:
+            pick["result"] = "win" if rr.correct else "loss"
+            pick["settled"] = True
+    except Exception:
+        pass
 
 
 @app.get("/api/officials/{sport}/{game_id}")
