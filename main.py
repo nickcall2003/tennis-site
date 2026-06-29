@@ -3269,12 +3269,38 @@ def _kelly_units(prob, american):
     return round(u, 1) if u >= 0.1 else None
 
 
+_HOT_PATH = "/data/hot_pick.json" if os.path.isdir("/data") else "hot_pick.json"
+
+
+def _hot_load_all():
+    try:
+        import json
+        with open(_HOT_PATH) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _hot_save_all(store):
+    try:
+        import json
+        with open(_HOT_PATH, "w") as f:
+            json.dump(store, f)
+    except Exception:
+        pass
+
+
 @app.get("/api/picks/hot")
 def hot_pick(date: str | None = None):
-    """Single best edge across all sports for the day — the 'Hot Pick of the Day'.
-    Cheap (no AI narration): ranks the day's plays by model edge vs the market.
-    Display-only; this endpoint never logs or grades anything."""
+    """Single best edge across all sports — the 'Hot Pick of the Day'. LOCKED:
+    the first qualifying pick found for a given day is saved and served for the
+    rest of that day, so it never swaps to a new game when an earlier one ends.
+    Persisted on the data volume, so a redeploy can't change it either."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
+    iso = target.isoformat()
+    store = _hot_load_all()
+    if iso in store:
+        return {"date": iso, "pick": store[iso], "locked": True}
     _ensure_day(target)
     plays = _gather_plays(target)
     best = None
@@ -3298,7 +3324,13 @@ def hot_pick(date: str | None = None):
         }
         if best is None or edge > best["edge_pct"]:
             best = cand
-    return {"date": target.isoformat(), "pick": best}
+    # Lock the first real pick of the day so it stops moving.
+    if best is not None:
+        store[iso] = best
+        for old in sorted(store)[:-10]:        # keep ~10 days of history
+            store.pop(old, None)
+        _hot_save_all(store)
+    return {"date": iso, "pick": best, "locked": bool(best)}
 
 
 @app.get("/api/officials/{sport}/{game_id}")

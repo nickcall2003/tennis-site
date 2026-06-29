@@ -2885,11 +2885,23 @@ function _attr(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g
 function trackPickFromEl(ev,el){if(ev)ev.stopPropagation();trackPick(el.getAttribute("data-sport"),el.getAttribute("data-desc"),el.getAttribute("data-odds")||"");}
 function trackPick(sport,desc,odds){_betPrefill={sport:sport,desc:desc,odds:(odds==null?"":odds)};_betFormOpen=true;_mktOpen=false;openBets();}
 let _mktOpen=false,_mktSport="mlb",_mktGames=null,_mktExpanded=null;
-const MKT_SPORTS=[["mlb","\u26BE MLB"],["ncaabb","\u26BE NCAA"],["nba","\u{1F3C0} NBA"],["wncaab","\u{1F3C0} W.CBB"],["ncaab","\u{1F3C0} CBB"],["nfl","\u{1F3C8} NFL"],["ncaaf","\u{1F3C8} CFB"],["nhl","\u{1F3D2} NHL"]];
+const MKT_SPORTS=[["tennis","\u{1F3BE} Tennis"],["mlb","\u26BE MLB"],["ncaabb","\u26BE NCAA"],["nba","\u{1F3C0} NBA"],["wncaab","\u{1F3C0} W.CBB"],["ncaab","\u{1F3C0} CBB"],["nfl","\u{1F3C8} NFL"],["ncaaf","\u{1F3C8} CFB"],["nhl","\u{1F3D2} NHL"]];
 function toggleMarketBrowser(){_mktOpen=!_mktOpen;if(_mktOpen){_betFormOpen=false;_mktGames=null;renderBets();loadMarkets();}else renderBets();}
 function setMktSport(s){if(s===_mktSport)return;_mktSport=s;_mktGames=null;_mktExpanded=null;renderBets();loadMarkets();}
 async function loadMarkets(){
-  try{const d=await getJSON("/api/markets?sport="+_mktSport);_mktGames=d.games||[];}catch(e){_mktGames=[];}
+  try{
+    if(_mktSport==="tennis"){
+      const d=await getJSON("/api/matches");
+      _mktGames=(d||[]).filter(function(m){return m.status!=="finished"&&m.odds&&(m.odds.ml_home!=null||m.odds.ml_away!=null);}).map(function(m){
+        return {id:String(m.id),detail:(m.status==="live"?"Live":"Upcoming"),state:(m.status==="live"?"in":"pre"),vs:true,
+          away:{name:m.player_b,short:lastName(m.player_b),abbr:lastName(m.player_b)},
+          home:{name:m.player_a,short:lastName(m.player_a),abbr:lastName(m.player_a)},
+          ml_away:m.odds.ml_away,ml_home:m.odds.ml_home,total:null,away_spread:null,home_spread:null,
+          spread_juice:-110,total_juice:-110,has_odds:true};});
+    }else{
+      const d=await getJSON("/api/markets?sport="+_mktSport);_mktGames=d.games||[];
+    }
+  }catch(e){_mktGames=[];}
   if(_mktOpen)renderBets();}
 function toggleMktGame(id){_mktExpanded=_mktExpanded===id?null:id;renderBets();}
 function escA(s){return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/"/g,"&quot;");}
@@ -2906,7 +2918,7 @@ function marketBrowserHTML(){
     const an=g.away.short||g.away.abbr||g.away.name||"Away",hn=g.home.short||g.home.abbr||g.home.name||"Home";
     const aFull=g.away.name||an,hFull=g.home.name||hn;
     h+='<div class="mkt-game"><div class="mkt-g-top" onclick="toggleMktGame(\''+g.id+'\')">'+
-      '<span class="mkt-match">'+an+' @ '+hn+'</span><span class="mkt-time">'+(g.detail||"")+(exp?" \u25B2":" \u25BC")+'</span></div>';
+      '<span class="mkt-match">'+an+(g.vs?" vs ":" @ ")+hn+'</span><span class="mkt-time">'+(g.detail||"")+(exp?" \u25B2":" \u25BC")+'</span></div>';
     if(exp){
       h+='<div class="mkt-opts">';
       if(g.ml_away!=null||g.ml_home!=null){
@@ -2932,7 +2944,7 @@ function marketBrowserHTML(){
     }
     h+='</div>';
   });
-  return h+'<div class="mkt-foot">Lines from ESPN. Moneyline prices are live; spread &amp; total default to \u2212110 \u2014 tweak the odds on the next screen before saving.</div></div>';
+  return h+'<div class="mkt-foot">'+(_mktSport==="tennis"?'Moneylines from api-tennis. Tennis has no spread or total \u2014 moneyline only.':'Lines from ESPN. Moneyline prices are live; spread &amp; total default to \u2212110 \u2014 tweak the odds on the next screen before saving.')+'</div></div>';
 }
 function openBets(){view="bets";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
