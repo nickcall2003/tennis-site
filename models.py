@@ -116,6 +116,7 @@ class PickResult(Base):
     sport: Mapped[str] = mapped_column(String(10), index=True)   # tennis|mlb|nba|nfl
     ref: Mapped[str] = mapped_column(String(40), index=True)     # match/game id
     settled_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    prob: Mapped[float | None] = mapped_column(Float, nullable=True)  # model P(pick wins), for edge/wager tracking
     predicted: Mapped[str] = mapped_column(String(8))            # who we picked
     actual: Mapped[str] = mapped_column(String(8))               # who won
     correct: Mapped[bool] = mapped_column()

@@ -125,6 +125,7 @@ def init_db() -> None:
     _added_columns = (
         ("golf_matchup_picks", "edge", "REAL"),
         ("pick_log", "prob", "REAL"),
+        ("pick_results", "prob", "REAL"),
     )
     try:
         from sqlalchemy import text

@@ -2121,11 +2121,30 @@ def _record_result(db, sport, ref, predicted, actual):
             close = snap.last_odds
     except Exception:
         pass
+    prob = _lookup_locked_prob(db, sport, ref)
     db.add(PickResult(sport=sport, ref=ref, settled_date=dt.datetime.now(),
                       predicted=str(predicted), actual=str(actual),
                       correct=(str(predicted) == str(actual)),
-                      taken_odds=taken, close_odds=close))
+                      taken_odds=taken, close_odds=close, prob=prob))
     _recorded_refs.add(memo)
+
+
+def _lookup_locked_prob(db, sport, ref):
+    """Find the model probability this pick was shown with, from the locked daily
+    sets. Lets the settled record carry the prob so we can tell which picks were
+    real +edge wagers vs no-edge chalk. Bounded to recent sets for speed."""
+    import json
+    from models import LockedPickSet
+    try:
+        cutoff = dt.datetime.now() - dt.timedelta(days=21)
+        for row in db.query(LockedPickSet).filter(LockedPickSet.pick_date >= cutoff).all():
+            for p in json.loads(row.payload):
+                if (p.get("sport") == sport and str(p.get("id")) == str(ref)
+                        and p.get("prob") is not None):
+                    return float(p["prob"])
+    except Exception:
+        pass
+    return None
 
 
 def _tennis_odds_for(pmid, player_a, player_b):

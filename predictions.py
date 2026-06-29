@@ -22,6 +22,20 @@ import unicodedata
 
 from elo import TennisElo, expected_score
 
+# Tennis calibration: the raw Elo/surface model is overconfident on favorites
+# (picks priced like 63% favorites were winning ~56%). Shrinking the probability
+# toward 0.5 corrects that. It NEVER changes which player is favored, so the
+# prediction win/loss record is unchanged — it only right-sizes confidence, which
+# tightens edge/wager selection. Raise toward 1.0 as live calibration improves.
+_TENNIS_CAL = 0.85
+
+
+def _calibrate(p):
+    try:
+        return 0.5 + (float(p) - 0.5) * _TENNIS_CAL
+    except (TypeError, ValueError):
+        return p
+
 _ATP_TOUR = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_{y}.csv"
 _ATP_CHAL = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_qual_chall_{y}.csv"
 _WTA_TOUR = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_matches_{y}.csv"
@@ -181,12 +195,12 @@ class PredictionEngine:
             try:
                 p = self.model.win_probability(name_a, name_b, surface, surface_weight=0.5)
                 if p is not None:
-                    return p, "high"
+                    return _calibrate(p), "high"
             except Exception:
                 pass
         prob = expected_score(ra, rb)
         conf = "high" if both_history else "medium"
-        return prob, conf
+        return _calibrate(prob), conf
 
     def predict_feed_ctx(self, name_a, name_b, ctx=None, surface=None):
         """

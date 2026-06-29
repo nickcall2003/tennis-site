@@ -273,6 +273,64 @@ def edges_diag(sport: str = "tennis", days: int = 3650):
             "have_model_prob_for": len(probs), "samples": samples}
 
 
+@router.get("/api/edges/wagers")
+def edges_wagers(days: int = 3650, min_edge: float = 0.03, min_sample: int = 25):
+    """Per-sport performance on RECOMMENDED WAGERS only: picks where the model's
+    probability beat the market's implied probability by >= min_edge. This is the
+    honest 'if you followed the flagged plays' record — not 'bet every favorite'.
+    A sport is only 'mature' (safe to showcase units) once it has min_sample
+    graded wagers; until then the UI shows a building-sample state."""
+    import json
+    from models import PickResult, LockedPickSet
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    locked = {}
+    with SessionLocal() as db:
+        try:    # prob fallback for rows settled before PickResult.prob existed
+            for row in db.query(LockedPickSet).all():
+                for p in json.loads(row.payload):
+                    if p.get("prob") is not None and p.get("id") is not None and p.get("sport"):
+                        locked[(p["sport"], str(p["id"]))] = float(p["prob"])
+        except Exception:
+            pass
+        rows = db.query(PickResult).filter(PickResult.settled_date >= since).all()
+
+    def blank():
+        return {"n": 0, "wins": 0, "units": 0.0, "clv_beat": 0, "clv_total": 0}
+
+    by, ov = {}, blank()
+    for r in rows:
+        if _is_push(r) or r.taken_odds is None or abs(r.taken_odds) < 100:
+            continue
+        prob = r.prob if getattr(r, "prob", None) is not None else locked.get((r.sport, str(r.ref)))
+        if prob is None:
+            continue
+        imp = _implied(float(r.taken_odds))
+        if prob - imp < min_edge:
+            continue
+        won = bool(r.correct)
+        pl = (1.0 / imp - 1.0) if won else -1.0
+        s = by.setdefault(r.sport, blank())
+        for b in (s, ov):
+            b["n"] += 1; b["wins"] += won; b["units"] += pl
+        if r.close_odds is not None and abs(r.close_odds) >= 100:
+            beat = imp < _implied(float(r.close_odds))
+            for b in (s, ov):
+                b["clv_total"] += 1; b["clv_beat"] += 1 if beat else 0
+
+    def finish(s):
+        n = s["n"]
+        return {"wagers": n, "wins": s["wins"], "losses": n - s["wins"],
+                "units": round(s["units"], 2),
+                "roi_pct": round(100.0 * s["units"] / n, 1) if n else None,
+                "win_pct": round(100.0 * s["wins"] / n, 1) if n else None,
+                "clv_beat_pct": round(100.0 * s["clv_beat"] / s["clv_total"], 1) if s["clv_total"] else None,
+                "mature": n >= min_sample}
+
+    return {"min_edge": min_edge, "min_sample": min_sample,
+            "overall": finish(ov),
+            "by_sport": {k: finish(v) for k, v in by.items()}}
+
+
 @router.get("/api/edges")
 def edges_report(days: int = 90, sport: str | None = None):
     """Profitability x-ray: settled priced picks sliced by odds range and by
