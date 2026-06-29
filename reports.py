@@ -82,9 +82,8 @@ def accuracy(days: int = 30):
                 if is_today:
                     s["today_correct"] += 1
                     tot_tc += 1
-            o = _to_american(r.taken_odds)
-            if o is not None:                                  # flat 1u staking -> ROI
-                prof = (o / 100.0) if o > 0 else (100.0 / (-o))
+            if r.taken_odds is not None:                       # flat 1u staking -> ROI
+                prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
                 pl = prof if r.correct else -1.0
                 s["priced"] += 1
                 s["units"] += pl
@@ -194,6 +193,57 @@ def calibration(days: int = 365, sport: str | None = None):
 
 
 # ---- edges ----
+@router.get("/api/edges/diag")
+def edges_diag(sport: str = "tennis", days: int = 3650):
+    """Inspect the raw stored odds for a sport so we can see exactly what's in
+    the data (American vs decimal vs junk) before touching any units math."""
+    from models import PickResult
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    buckets = {"junk_0to1": 0, "junk_neg_under100": 0, "decimal_1to2": 0,
+               "decimal_2to100": 0, "american_neg": 0, "american_pos": 0, "zero": 0}
+    n = wins = 0
+    units = 0.0
+    vals = []
+    samples = []
+    with SessionLocal() as db:
+        q = db.query(PickResult).filter(PickResult.settled_date >= since,
+                                        PickResult.sport == sport)
+        for r in q.all():
+            if _is_push(r) or r.taken_odds is None:
+                continue
+            o = float(r.taken_odds)
+            n += 1
+            vals.append(o)
+            if r.correct:
+                wins += 1
+            dec = 1.0 + (o / 100.0 if o > 0 else 100.0 / (-o)) if o != 0 else 1.0
+            units += (dec - 1.0) if r.correct else -1.0
+            a = abs(o)
+            if o == 0:
+                buckets["zero"] += 1
+            elif 0 < o < 1:
+                buckets["junk_0to1"] += 1
+            elif o < 0 and a < 100:
+                buckets["junk_neg_under100"] += 1
+            elif 1 <= o < 2:
+                buckets["decimal_1to2"] += 1
+            elif 2 <= o < 100:
+                buckets["decimal_2to100"] += 1
+            elif o <= -100:
+                buckets["american_neg"] += 1
+            else:
+                buckets["american_pos"] += 1
+            if len(samples) < 30:
+                samples.append({"odds": o, "won": bool(r.correct), "close": r.close_odds})
+    vals.sort()
+    return {"sport": sport, "priced": n, "wins": wins, "losses": n - wins,
+            "units_current_method": round(units, 2),
+            "odds_distribution": buckets,
+            "min": vals[0] if vals else None, "max": vals[-1] if vals else None,
+            "median": vals[len(vals) // 2] if vals else None,
+            "samples": samples}
+
+
 @router.get("/api/edges")
 def edges_report(days: int = 90, sport: str | None = None):
     """Profitability x-ray: settled priced picks sliced by odds range and by
@@ -242,12 +292,8 @@ def edges_report(days: int = 90, sport: str | None = None):
         for r in q.all():
             if _is_push(r) or r.taken_odds is None:
                 continue
-            o = _to_american(r.taken_odds)
-            if o is None:
-                continue
-            cl = _to_american(r.close_odds)
-            bet = {"odds": o, "won": bool(r.correct), "close": cl}
-            by_bucket.setdefault(_bucket(o), []).append(bet)
+            bet = {"odds": r.taken_odds, "won": bool(r.correct), "close": r.close_odds}
+            by_bucket.setdefault(_bucket(r.taken_odds), []).append(bet)
             by_sport.setdefault(r.sport, []).append(bet)
 
     out = {"days": days, "sport": sport or "all",
@@ -285,10 +331,8 @@ def performance(days: int = 30, sport: str | None = None):
             else:
                 losses += 1
             if r.taken_odds is not None:
-                o = _to_american(r.taken_odds)
-                if o is not None:
-                    bets.append({"odds": o, "won": bool(r.correct),
-                                 "close_odds": _to_american(r.close_odds)})
+                bets.append({"odds": r.taken_odds, "won": bool(r.correct),
+                             "close_odds": r.close_odds})
     s = summarize(bets)
     # overall record includes picks without odds; betting metrics only the priced ones
     s["record_wins"] = wins
