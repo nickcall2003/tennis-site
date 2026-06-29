@@ -736,6 +736,27 @@ try:
 except Exception as _acct_err:
     print(f"[startup] accounts router not loaded: {_acct_err}")
 
+# Performance & accuracy reporting endpoints — see reports.py.
+try:
+    from reports import router as reports_router
+    app.include_router(reports_router)
+except Exception as _rep_err:
+    print(f"[startup] reports router not loaded: {_rep_err}")
+
+# Favicon, icons, PWA manifest + service worker — see static_routes.py.
+try:
+    from static_routes import router as static_router
+    app.include_router(static_router)
+except Exception as _static_err:
+    print(f"[startup] static router not loaded: {_static_err}")
+
+# Per-game market lines for the bet-from-a-game picker — see markets_routes.py.
+try:
+    from markets_routes import router as markets_router
+    app.include_router(markets_router)
+except Exception as _mkt_err:
+    print(f"[startup] markets router not loaded: {_mkt_err}")
+
 
 @app.middleware("http")
 async def _no_cache_api(request, call_next):
@@ -1307,6 +1328,78 @@ def models_diag():
     out["_legend"] = ("full = real ratings loaded; FALLBACK = running on records/win% "
                       "only (weaker, like tennis ranking-only was); STALE = file too old, re-run refresh")
     return JSONResponse(out, headers={"Cache-Control": "no-store"})
+
+
+def _tennis_set_complete(g1, g2):
+    hi, lo = max(g1, g2), min(g1, g2)
+    return (hi >= 6 and hi - lo >= 2) or hi == 7
+
+
+@app.get("/api/tennis/winprob")
+def tennis_winprob_ep(match_id: str):
+    """Live in-match win probability from the current score. Uses a neutral
+    serve model so the number reflects the MATCH STATE (who's ahead and how
+    safe the lead is), updating as games and sets are won. Honest: it's a
+    score-based read, not a player-strength forecast."""
+    if not USE_REAL:
+        return JSONResponse({"error": "tennis provider inactive"}, status_code=503)
+    import tennis_winprob as twp
+    from apitennis import _sets, _server
+    fix = {}
+    try:
+        fix = provider.raw_fixture(match_id) or {}
+    except Exception:
+        fix = {}
+    if not fix:
+        try:
+            provider._refresh_live()
+            fix = getattr(provider, "_fixtures", {}).get(str(match_id)) or {}
+        except Exception:
+            pass
+    if not fix:
+        return JSONResponse({"error": "no live fixture for that match"}, status_code=404)
+    a_list, b_list = _sets(fix.get("scores"))
+    status = (fix.get("event_status") or "").strip()
+    pa = fix.get("event_first_player") or "Player A"
+    pb = fix.get("event_second_player") or "Player B"
+    a_serving = (_server(fix.get("event_serve")) != "b")
+    sa = sb = cur_ga = cur_gb = 0
+    for i in range(len(a_list)):
+        g1, g2 = a_list[i], b_list[i]
+        if _tennis_set_complete(g1, g2):
+            if g1 > g2:
+                sa += 1
+            else:
+                sb += 1
+        else:
+            cur_ga, cur_gb = g1, g2
+    best_of = 5 if max(sa, sb) >= 2 else 3
+    P = 0.62  # neutral serve -> score-driven
+
+    def wp(_sa, _sb, _ga, _gb, _srv):
+        return twp.match_prob(_sa, _sb, _ga, _gb, _srv, best_of, P, P)
+
+    cur = wp(sa, sb, cur_ga, cur_gb, a_serving)
+    momentum = [{"label": "Start", "prob_a": round(wp(0, 0, 0, 0, True) * 100, 1)}]
+    ra = rb = 0
+    for i in range(len(a_list)):
+        g1, g2 = a_list[i], b_list[i]
+        if _tennis_set_complete(g1, g2):
+            if g1 > g2:
+                ra += 1
+            else:
+                rb += 1
+            momentum.append({"label": "Set %d" % (i + 1),
+                             "prob_a": round(wp(ra, rb, 0, 0, True) * 100, 1)})
+    finished = status.lower() in ("finished", "ended")
+    if not finished:
+        momentum.append({"label": "Now", "prob_a": round(cur * 100, 1)})
+    return {"match_id": str(match_id), "player_a": pa, "player_b": pb,
+            "sets": [sa, sb], "current_games": [cur_ga, cur_gb],
+            "server": "a" if a_serving else "b", "best_of": best_of,
+            "status": status, "finished": finished,
+            "prob_a": round(cur * 100, 1), "prob_b": round((1 - cur) * 100, 1),
+            "momentum": momentum}
 
 
 @app.get("/api/tennis/season-diag")
@@ -2118,147 +2211,6 @@ def _attach_tennis_market(p):
             p["edge_pct"] = round((fp - mp) * 100, 1)
     bside = "a" if _same(pick, names[0]) else "b"   # settlement stays in board order
     _snapshot_odds("tennis", str(p["id"]), bside, am)
-
-
-_acc_cache = {"ts": 0.0, "data": None}
-
-
-@app.get("/api/accuracy")
-def accuracy(days: int = 30):
-    """Per-sport rolling accuracy from the settled-results log (cached 2 min)."""
-    import time as _t
-    from models import PickResult
-    if _acc_cache["data"] and _t.time() - _acc_cache["ts"] < 30 and _acc_cache["data"]["days"] == days:
-        return _acc_cache["data"]
-    since = dt.datetime.now() - dt.timedelta(days=days)
-    _today = dt.date.today()
-    by_sport = {}
-    tot_p = tot_c = 0
-    tot_tp = tot_tc = 0
-    tot_units = 0.0
-    tot_priced = 0
-    alltime = {}
-    at_p = at_c = 0
-    with SessionLocal() as db:
-        rows = db.query(PickResult).filter(PickResult.settled_date >= since).all()
-        for r in rows:
-            if _is_push(r):
-                continue                       # draw/canceled = push, off the record
-            s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0, "today_picks": 0,
-                                              "today_correct": 0, "units": 0.0, "priced": 0})
-            s["picks"] += 1
-            tot_p += 1
-            is_today = bool(r.settled_date) and r.settled_date.date() == _today
-            if is_today:
-                s["today_picks"] += 1
-                tot_tp += 1
-            if r.correct:
-                s["correct"] += 1
-                tot_c += 1
-                if is_today:
-                    s["today_correct"] += 1
-                    tot_tc += 1
-            if r.taken_odds is not None:                       # flat 1u staking -> ROI
-                prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
-                pl = prof if r.correct else -1.0
-                s["priced"] += 1
-                s["units"] += pl
-                tot_priced += 1
-                tot_units += pl
-        # all-time record (no date filter), per sport and overall
-        allrows = db.query(PickResult).all()
-        for r in allrows:
-            if _is_push(r):
-                continue                       # draw/canceled = push, off the record
-            a = alltime.setdefault(r.sport, {"wins": 0, "losses": 0})
-            at_p += 1
-            if r.correct:
-                a["wins"] += 1
-                at_c += 1
-            else:
-                a["losses"] += 1
-    for s, v in by_sport.items():
-        v["accuracy"] = round(100 * v["correct"] / v["picks"]) if v["picks"] else None
-        v["wins_30d"] = v["correct"]
-        v["losses_30d"] = v["picks"] - v["correct"]
-        v["today_wins"] = v.get("today_correct", 0)
-        v["today_losses"] = v.get("today_picks", 0) - v.get("today_correct", 0)
-        at = alltime.get(s, {"wins": 0, "losses": 0})
-        v["alltime_wins"] = at["wins"]
-        v["alltime_losses"] = at["losses"]
-        tot = at["wins"] + at["losses"]
-        v["alltime_pct"] = round(100 * at["wins"] / tot) if tot else None
-        v["units_30d"] = round(v.get("units", 0.0), 2)
-        v["priced_30d"] = v.get("priced", 0)
-        v["roi_30d"] = round(100 * v["units"] / v["priced"], 1) if v.get("priced") else None
-    data = {
-        "days": days,
-        "overall": {"picks": tot_p, "correct": tot_c,
-                    "accuracy": round(100 * tot_c / tot_p) if tot_p else None,
-                    "wins_30d": tot_c, "losses_30d": tot_p - tot_c,
-                    "today_wins": tot_tc, "today_losses": tot_tp - tot_tc,
-                    "units_30d": round(tot_units, 2), "priced_30d": tot_priced,
-                    "roi_30d": round(100 * tot_units / tot_priced, 1) if tot_priced else None,
-                    "alltime_wins": at_c, "alltime_losses": at_p - at_c,
-                    "alltime_pct": round(100 * at_c / at_p) if at_p else None},
-        "by_sport": by_sport,
-    }
-    _acc_cache["ts"] = _t.time()
-    _acc_cache["data"] = data
-    return data
-
-
-@app.get("/api/picks/record")
-def picks_record(view: str = "free", date: str | None = None):
-    """
-    W/L for a specific view (free|best): today's settled picks AND a rolling
-    30-day figure, counting only games that view actually surfaced.
-    """
-    from models import PickResult, PickLog
-    target = dt.date.fromisoformat(date) if date else dt.date.today()
-
-    def tally(since_dt, until_dt):
-        wins = losses = 0
-        items = []
-        with SessionLocal() as db:
-            logged = db.query(PickLog).filter(PickLog.view == view,
-                                              PickLog.shown_date >= since_dt,
-                                              PickLog.shown_date <= until_dt).all()
-            keys = {(l.sport, l.ref) for l in logged}
-            if not keys:
-                return 0, 0, []
-            results = {(r.sport, r.ref): r for r in
-                       db.query(PickResult).filter(PickResult.settled_date >= since_dt,
-                                                   PickResult.settled_date <= until_dt + dt.timedelta(days=2)).all()}
-            for k in keys:
-                r = results.get(k)
-                if not r:
-                    continue
-                if r.correct:
-                    wins += 1
-                else:
-                    losses += 1
-                items.append({"sport": k[0], "ref": k[1], "won": bool(r.correct)})
-        return wins, losses, items
-
-    # today (the picks shown for `target`)
-    d0 = dt.datetime.combine(target, dt.time.min)
-    d1 = dt.datetime.combine(target, dt.time.max)
-    tw, tl, items = tally(d0, d1)
-    tt = tw + tl
-
-    # rolling 30 days
-    m0 = dt.datetime.combine(target - dt.timedelta(days=30), dt.time.min)
-    mw, ml, _ = tally(m0, d1)
-    mt = mw + ml
-
-    return {
-        "view": view, "date": target.isoformat(),
-        "today": {"wins": tw, "losses": tl, "total": tt,
-                  "hit_rate": round(100 * tw / tt) if tt else None, "items": items},
-        "month": {"wins": mw, "losses": ml, "total": mt,
-                  "hit_rate": round(100 * mw / mt) if mt else None},
-    }
 
 
 @app.get("/api/mlb/games")
@@ -3393,42 +3345,6 @@ def umpires_diag(name: str | None = None):
         out["tendency"] = umpire_stats.get_tendency(name)
         out["runs_factor"] = umpire_stats.runs_factor(name)
     return out
-
-
-@app.get("/api/calibration")
-def calibration(days: int = 365, sport: str | None = None):
-    """Reliability of the model's probabilities: for picks we said had an X%
-    chance, how often did they actually win? Built from the probability stored
-    when each pick was shown (PickLog) joined to its settled outcome. Honest:
-    only picks logged since this feature shipped have a stored probability, so
-    the curve fills in over time."""
-    from models import PickLog, PickResult
-    cutoff = dt.datetime.now() - dt.timedelta(days=days)
-    with SessionLocal() as db:
-        logs = (db.query(PickLog)
-                  .filter(PickLog.shown_date >= cutoff, PickLog.prob.isnot(None)).all())
-        probs = {}
-        for l in logs:
-            if sport and l.sport != sport:
-                continue
-            probs[(l.sport, l.ref)] = l.prob       # dedup across views
-        outcomes = {(r.sport, r.ref): r.correct for r in db.query(PickResult).all()}
-    data = [(p, 1 if outcomes[k] else 0) for k, p in probs.items() if k in outcomes]
-    edges = [0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.90, 1.01]
-    buckets = []
-    for i in range(len(edges) - 1):
-        lo, hi = edges[i], edges[i + 1]
-        pts = [(p, o) for (p, o) in data if lo <= p < hi]
-        if pts:
-            n = len(pts)
-            buckets.append({
-                "lo": round(lo * 100), "hi": round(min(hi, 1.0) * 100), "n": n,
-                "predicted": round(100 * sum(p for p, _ in pts) / n, 1),
-                "actual": round(100 * sum(o for _, o in pts) / n, 1)})
-    total = len(data)
-    brier = round(sum((p - o) ** 2 for p, o in data) / total, 4) if total else None
-    return {"buckets": buckets, "n": total, "brier": brier,
-            "settled_with_prob": total, "logged_with_prob": len(probs)}
 
 
 @app.get("/api/picks/best")
@@ -5432,104 +5348,8 @@ def clv_report(days: int = 30):
             "odds_enabled": odds_api.enabled()}
 
 
-@app.get("/api/edges")
-def edges_report(days: int = 90, sport: str | None = None):
-    """Profitability x-ray: settled priced picks sliced by odds range and by
-    sport, each with hit rate, units (flat 1u), ROI, and CLV (did we beat the
-    close). This is the bet-selection tool — it shows WHERE the edge actually
-    is, so you can lean into the profitable buckets and skip the rest."""
-    from models import PickResult
-
-    def _dec(a):
-        return 1.0 + (a / 100.0 if a > 0 else 100.0 / (-a))
-
-    def _imp(a):
-        return (100.0 / (a + 100.0)) if a > 0 else ((-a) / ((-a) + 100.0))
-
-    def _bucket(o):
-        if o <= -250: return "1 heavy_fav (<=-250)"
-        if o <= -120: return "2 fav (-250..-120)"
-        if o < 120:   return "3 pickem (-120..+120)"
-        if o < 250:   return "4 dog (+120..+250)"
-        return "5 big_dog (>=+250)"
-
-    def _summarize(bets):
-        n = len(bets)
-        if not n:
-            return None
-        wins = sum(1 for b in bets if b["won"])
-        units = sum((_dec(b["odds"]) - 1.0) if b["won"] else -1.0 for b in bets)
-        clv = [b for b in bets if b["close"] is not None]
-        beat = sum(1 for b in clv if _imp(b["odds"]) < _imp(b["close"]))
-        avg_clv = (sum(_imp(b["close"]) - _imp(b["odds"]) for b in clv) / len(clv) * 100.0) if clv else None
-        return {
-            "n": n, "wins": wins, "losses": n - wins,
-            "hit_rate": round(100.0 * wins / n, 1),
-            "units": round(units, 2), "roi_pct": round(100.0 * units / n, 1),
-            "clv_beat_pct": round(100.0 * beat / len(clv), 1) if clv else None,
-            "avg_clv_pts": round(avg_clv, 2) if avg_clv is not None else None,
-            "priced_for_clv": len(clv),
-        }
-
-    since = dt.datetime.now() - dt.timedelta(days=days)
-    by_bucket, by_sport = {}, {}
-    with SessionLocal() as db:
-        q = db.query(PickResult).filter(PickResult.settled_date >= since)
-        if sport:
-            q = q.filter(PickResult.sport == sport)
-        for r in q.all():
-            if _is_push(r) or r.taken_odds is None:
-                continue
-            bet = {"odds": r.taken_odds, "won": bool(r.correct), "close": r.close_odds}
-            by_bucket.setdefault(_bucket(r.taken_odds), []).append(bet)
-            by_sport.setdefault(r.sport, []).append(bet)
-
-    out = {"days": days, "sport": sport or "all",
-           "by_odds_bucket": {k: _summarize(v) for k, v in sorted(by_bucket.items())},
-           "by_sport": {k: _summarize(v) for k, v in sorted(by_sport.items())},
-           "note": ("CLV beat% > 50 and positive avg_clv_pts means you're systematically "
-                    "getting better prices than the close \u2014 the strongest signal you're +EV. "
-                    "Chase ROI/units, not hit rate.")}
-    return JSONResponse(out, headers={"Cache-Control": "no-store"})
 
 
-@app.get("/api/performance")
-def performance(days: int = 30, sport: str | None = None):
-    """
-    Units won/lost, ROI, and CLV over the last N days, from settled picks that
-    have captured odds. Honest about coverage: only picks with a recorded line
-    count toward units/ROI/CLV; everything else still counts toward W/L.
-    """
-    from models import PickResult
-    from clv import summarize
-    import odds_api
-    since = dt.datetime.now() - dt.timedelta(days=days)
-    bets = []
-    wins = losses = 0
-    with SessionLocal() as db:
-        q = db.query(PickResult).filter(PickResult.settled_date >= since)
-        if sport:
-            q = q.filter(PickResult.sport == sport)
-        for r in q.all():
-            if _is_push(r):
-                continue                       # draw/canceled = push, off the record
-            if r.correct:
-                wins += 1
-            else:
-                losses += 1
-            if r.taken_odds is not None:
-                bets.append({"odds": r.taken_odds, "won": bool(r.correct),
-                             "close_odds": r.close_odds})
-    s = summarize(bets)
-    # overall record includes picks without odds; betting metrics only the priced ones
-    s["record_wins"] = wins
-    s["record_losses"] = losses
-    s["record_total"] = wins + losses
-    s["odds_enabled"] = odds_api.enabled()
-    s["odds_quota"] = odds_api.quota() if odds_api.enabled() else None
-    s["odds_spend_today"] = odds_api.spend_today() if odds_api.enabled() else None
-    s["days"] = days
-    return s
 
 
 @app.websocket("/ws/live")
@@ -6322,74 +6142,6 @@ def _surface_reset_volume(confirm: str = ""):
 
 # ---- favicon / app icons (embedded so they survive a forgotten git add) ----
 import base64 as _b64
-from app_icons import FAVICON_ICO as _FAVICON_ICO, ICON_180 as _ICON_180
-
-@app.get("/favicon.ico")
-def _favicon():
-    return Response(content=_FAVICON_ICO, media_type="image/x-icon",
-                    headers={"Cache-Control": "public, max-age=86400"})
-
-@app.get("/icon-180.png")
-def _icon180():
-    return Response(content=_ICON_180, media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=86400"})
-
-@app.get("/apple-touch-icon.png")
-@app.get("/apple-touch-icon-precomposed.png")
-def _apple_icon():
-    return Response(content=_ICON_180, media_type="image/png",
-                    headers={"Cache-Control": "public, max-age=86400"})
-
-
-@app.get("/manifest.json")
-def _manifest():
-    """PWA manifest so Line Logic installs to the home screen and launches
-    full-screen like a native app."""
-    return JSONResponse({
-        "name": "Line Logic", "short_name": "Line Logic",
-        "description": "Multi-sport prediction & betting analytics.",
-        "start_url": "/", "scope": "/", "display": "standalone",
-        "background_color": "#0e1014", "theme_color": "#0e1014",
-        "orientation": "portrait",
-        "icons": [
-            {"src": "/icon-180.png", "sizes": "180x180", "type": "image/png"},
-            {"src": "/icon-180.png", "sizes": "192x192", "type": "image/png",
-             "purpose": "any maskable"},
-            {"src": "/icon-180.png", "sizes": "512x512", "type": "image/png",
-             "purpose": "any maskable"},
-        ],
-    }, headers={"Cache-Control": "public, max-age=3600"})
-
-
-@app.get("/sw.js")
-def _service_worker():
-    """Minimal service worker: caches the app shell so it opens instantly and
-    works offline, but NEVER caches /api or websocket traffic (live data stays
-    fresh). Bump CACHE to invalidate after a shell change."""
-    js = """
-const CACHE = "ll-shell-v1";
-self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.add("/")).catch(()=>{}));
-  self.skipWaiting();
-});
-self.addEventListener("activate", e => {
-  e.waitUntil(caches.keys().then(ks =>
-    Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))));
-  self.clients.claim();
-});
-self.addEventListener("fetch", e => {
-  const u = new URL(e.request.url);
-  if (e.request.method !== "GET") return;
-  if (u.pathname.startsWith("/api/") || u.pathname.startsWith("/ws")) return;
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request).then(r => r || caches.match("/")))
-  );
-});
-"""
-    return Response(content=js, media_type="application/javascript",
-                    headers={"Cache-Control": "no-cache"})
-
-
 @app.get("/")
 @app.head("/")
 def index():
