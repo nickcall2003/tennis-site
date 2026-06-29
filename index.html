@@ -776,6 +776,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
   .rec-row-top{display:flex;justify-content:space-between;align-items:baseline}
   .rec-sport{font-weight:700;font-size:15px;color:var(--ink)}
   .rec-u{font-family:"Space Mono",monospace;font-size:20px;font-weight:700}
+  .rec-pct{font-family:"Space Mono",monospace;font-size:20px;font-weight:700;color:var(--clay-bright)}
   .rec-row-sub{display:flex;gap:12px;align-items:center;margin-top:5px;font-size:12px;color:var(--muted);flex-wrap:wrap}
   .rec-roi{font-weight:600}
   .rec-rec{color:var(--muted-2)}
@@ -2868,27 +2869,30 @@ async function renderRecord(){
   const tW=(ov.alltime_wins!=null?ov.alltime_wins:rows.reduce((s,r)=>s+r.wins,0));
   const tL=(ov.alltime_losses!=null?ov.alltime_losses:rows.reduce((s,r)=>s+r.losses,0));
   const tPct=(tW+tL)?Math.round(100*tW/(tW+tL)):0;
-  const oClv=(wov.clv_beat_pct!=null)?wov.clv_beat_pct:null;
-  rows.sort(function(a,b){const au=(a.units==null?-1e9:a.units),bu=(b.units==null?-1e9:b.units);
-    if(bu!==au)return bu-au;return (b.wins-b.losses)-(a.wins-a.losses);});
+  // lead with verified prediction accuracy; rank strongest records first
+  rows.sort(function(a,b){
+    if(a.mature!==b.mature)return a.mature?-1:1;
+    if(a.mature&&b.mature&&a.units!==b.units)return b.units-a.units;
+    return (b.pct||0)-(a.pct||0);});
   const uc=u=>u>0?"u-pos":(u<0?"u-neg":"");
   const sg=u=>(u>0?"+":"")+u.toFixed(2)+"u";
-  let h='<div class="rec-hero"><div class="rec-hero-u '+(hasU?uc(tU):"")+'">'+(hasU?sg(tU):(tW+"-"+tL))+'</div>'+
-    '<div class="rec-hero-sub">all-time '+tW+'-'+tL+' ('+tPct+'%)'+(oClv!=null?' &middot; CLV '+oClv+'%':'')+(hasU?' &middot; on recommended wagers':'')+'</div></div>'+
-    '<div class="rec-note">Record is all-time prediction accuracy. <b>Units come only from recommended +EV wagers</b> \u2014 the flagged value plays, not every predicted winner. A sport shows units once it has '+minN+'+ graded wagers; beating the closing line (CLV) above 50% is the sign a model truly beats the market.</div>';
+  let h='<div class="rec-hero"><div class="rec-hero-u">'+tPct+'%</div>'+
+    '<div class="rec-hero-sub">'+tW+'-'+tL+' all-time across '+rows.length+' sports'+(hasU?' &middot; '+sg(tU)+' on graded wagers':'')+'</div></div>'+
+    '<div class="rec-note">Verified prediction accuracy across every graded pick. <b>Betting units are tracked separately, only on recommended +EV wagers</b>, and each sport posts its ROI once it clears '+minN+' graded wagers \u2014 so the units you see are real plays, never \u201Cbet every favorite.\u201D</div>';
   rows.forEach(function(r){
     const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[r.sport])||r.sport.toUpperCase();
-    const clv=(r.clv!=null)?('<span class="rec-clv'+(r.clv>=50?' good':'')+'">CLV '+r.clv+'%</span>'):'';
+    const showClv=(r.clv!=null&&r.wager_n>=20);
+    const clv=showClv?('<span class="rec-clv'+(r.clv>=50?' good':'')+'">CLV '+r.clv+'%</span>'):'';
     let right,sub;
     if(r.mature&&r.units!=null){
       right='<span class="rec-u '+uc(r.units)+'">'+sg(r.units)+'</span>';
-      sub='<span class="rec-roi '+uc(r.roi)+'">'+r.roi+'% ROI</span>';
+      sub='<span class="rec-roi '+uc(r.roi)+'">'+r.roi+'% ROI on '+r.wager_n+' wagers</span>';
     }else{
-      right='<span class="rec-u" style="color:var(--muted-2)">'+(r.pct!=null?r.pct+'%':'\u2014')+'</span>';
-      sub='<span class="rec-building">Building sample \u00b7 '+r.wager_n+'/'+minN+' wagers</span>';
+      right='<span class="rec-pct">'+(r.pct!=null?r.pct+'%':'\u2014')+'</span>';
+      sub='<span class="rec-building">+EV wagers building \u00b7 '+r.wager_n+'/'+minN+'</span>';
     }
     h+='<div class="rec-row"><div class="rec-row-top"><span class="rec-sport">'+lbl+'</span>'+right+'</div>'+
-       '<div class="rec-row-sub">'+sub+'<span class="rec-rec">'+r.wins+'-'+r.losses+(r.pct!=null?' &middot; '+r.pct+'%':'')+'</span>'+clv+'</div></div>';
+       '<div class="rec-row-sub"><span class="rec-rec">'+r.wins+'-'+r.losses+' record</span>'+sub+clv+'</div></div>';
   });
   list.innerHTML=h;}
 function tROIstr(tU,rows){let n=0;rows.forEach(r=>{if(r.units!=null&&r.roi!=null&&r.roi!==0){n+=Math.round(100*r.units/r.roi);}});return n?(Math.round(100*tU/n*10)/10)+'% ROI':'';}
