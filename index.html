@@ -2911,7 +2911,7 @@ async function loadMarkets(){
 function toggleMktGame(id){_mktExpanded=_mktExpanded===id?null:id;renderBets();}
 function escA(s){return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/"/g,"&quot;");}
 function fmtSp(v){return (v>0?"+":"")+v;}
-function mktBtn(desc,odds,label){return '<button class="mkt-opt" data-desc="'+escA(desc)+'" data-odds="'+(odds==null?"":odds)+'" onclick="pickMarketEl(this)"><span class="mkt-opt-l">'+label+'</span>'+(odds!=null?'<span class="mkt-opt-o">'+fmtOdds(odds)+'</span>':'')+'</button>';}
+function mktBtn(desc,odds,label,est){return '<button class="mkt-opt" data-desc="'+escA(desc)+'" data-odds="'+(odds==null?"":odds)+'" onclick="pickMarketEl(this)"><span class="mkt-opt-l">'+label+'</span>'+(odds!=null?'<span class="mkt-opt-o">'+(est?"~":"")+fmtOdds(odds)+'</span>':'')+'</button>';}
 function pickMarketEl(el){trackPick(_mktSport,el.getAttribute("data-desc"),el.getAttribute("data-odds")||"");}
 function marketBrowserHTML(){
   let h='<div class="mkt-wrap"><div class="mkt-chips">'+
@@ -2928,12 +2928,13 @@ function marketBrowserHTML(){
       h+='<div class="mkt-opts">';
       if(g.ml_away!=null||g.ml_home!=null){
         h+='<div class="mkt-row"><span class="mkt-lab">Moneyline</span><div class="mkt-cells">';
-        if(g.ml_away!=null)h+=mktBtn(aFull+" ML",g.ml_away,an);
-        if(g.ml_home!=null)h+=mktBtn(hFull+" ML",g.ml_home,hn);
+        if(g.ml_away!=null)h+=mktBtn(aFull+" ML",g.ml_away,an,g.ml_away_src==="est");
+        if(g.ml_home!=null)h+=mktBtn(hFull+" ML",g.ml_home,hn,g.ml_home_src==="est");
         h+='</div></div>';
       }
       if(g.away_spread!=null||g.home_spread!=null){
-        h+='<div class="mkt-row"><span class="mkt-lab">Spread</span><div class="mkt-cells">';
+        var spLab=(_mktSport==="mlb"||_mktSport==="ncaabb")?"Run line":"Spread";
+        h+='<div class="mkt-row"><span class="mkt-lab">'+spLab+'</span><div class="mkt-cells">';
         if(g.away_spread!=null)h+=mktBtn(aFull+" "+fmtSp(g.away_spread),g.spread_juice,an+" "+fmtSp(g.away_spread));
         if(g.home_spread!=null)h+=mktBtn(hFull+" "+fmtSp(g.home_spread),g.spread_juice,hn+" "+fmtSp(g.home_spread));
         h+='</div></div>';
@@ -2949,7 +2950,7 @@ function marketBrowserHTML(){
     }
     h+='</div>';
   });
-  return h+'<div class="mkt-foot">'+(_mktSport==="tennis"?'Moneylines from api-tennis. Tennis has no spread or total \u2014 moneyline only.':'Lines from ESPN. Moneyline prices are live; spread &amp; total default to \u2212110 \u2014 tweak the odds on the next screen before saving.')+'</div></div>';
+  return h+'<div class="mkt-foot">'+(_mktSport==="tennis"?'Moneylines from api-tennis. Tennis has no spread or total \u2014 moneyline only.':'Lines from ESPN. Favorite moneylines are live; a \u201C~\u201D marks an estimated underdog price, and spread/total default to \u2212110 \u2014 tweak the odds on the next screen before saving.')+'</div></div>';
 }
 function openBets(){view="bets";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
