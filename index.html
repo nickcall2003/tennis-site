@@ -2894,6 +2894,9 @@ function predictionReportHTML(g,sp){
   const cn={low:1,medium:2,high:3}[conf]||2;
   let segs="";for(let i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
   let cells="";
+  if(g.home_rating_base!=null&&g.away_rating!=null){const ha=(g.home&&(g.home.abbr||g.home.short))||"H",aa=(g.away&&(g.away.abbr||g.away.short))||"A";
+    cells+='<div class="pr-cell"><div class="pr-k">Power Ratings</div><div class="pr-v">'+ha+" "+g.home_rating_base+' <span class="pr-sub">vs</span> '+aa+" "+g.away_rating+'</div></div>';}
+  if(g.home_edge_pts!=null){cells+='<div class="pr-cell"><div class="pr-k">Home Edge</div><div class="pr-v">+'+g.home_edge_pts+' <span class="pr-sub">pts to the home side</span></div></div>';}
   if(g.proj_score){const ps=g.proj_score,ha=(g.home&&(g.home.abbr||g.home.short))||"H",aa=(g.away&&(g.away.abbr||g.away.short))||"A";
     cells+='<div class="pr-cell"><div class="pr-k">Expected Score</div><div class="pr-v">'+aa+" "+ps.away+"\u2013"+ps.home+" "+ha+'</div></div>';}
   else if(g.exp_runs_home!=null&&g.exp_runs_away!=null){const ha=(g.home&&(g.home.abbr||g.home.short))||"H",aa=(g.away&&(g.away.abbr||g.away.short))||"A";
