@@ -174,6 +174,7 @@ class OddsSnapshot(Base):
     side: Mapped[str] = mapped_column(String(8))          # 'home'/'away' the pick is on
     open_odds: Mapped[int | None] = mapped_column(nullable=True)   # first seen
     last_odds: Mapped[int | None] = mapped_column(nullable=True)   # most recent
+    prob: Mapped[float | None] = mapped_column(Float, nullable=True)  # model P(pick) at snapshot — durable edge/wager source
     first_seen: Mapped[datetime] = mapped_column(DateTime)
     last_seen: Mapped[datetime] = mapped_column(DateTime)
 

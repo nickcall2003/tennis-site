@@ -126,6 +126,7 @@ def init_db() -> None:
         ("golf_matchup_picks", "edge", "REAL"),
         ("pick_log", "prob", "REAL"),
         ("pick_results", "prob", "REAL"),
+        ("odds_snapshot", "prob", "REAL"),
     )
     try:
         from sqlalchemy import text

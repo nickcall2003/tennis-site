@@ -1979,7 +1979,8 @@ def _attach_odds(sport, games):
             taken = g["odds"]["ml_home"] if side == "home" else g["odds"]["ml_away"]
             if taken is not None:
                 try:
-                    _snapshot_odds(sport, str(g["id"]), side, int(round(taken)))
+                    _snapshot_odds(sport, str(g["id"]), side, int(round(taken)),
+                                   prob=(g["prob_home"] if side == "home" else g.get("prob_away", 1 - g["prob_home"])))
                 except Exception:
                     pass
     return games
@@ -2018,8 +2019,10 @@ def _attach_odds_one(sport, g):
     return g
 
 
-def _snapshot_odds(sport, ref, side, odds):
-    """Record/refresh the market line for a pick (open = first seen, last = now)."""
+def _snapshot_odds(sport, ref, side, odds, prob=None):
+    """Record/refresh the market line for a pick (open = first seen, last = now).
+    Also captures the model's probability for the picked side so every settled
+    game carries a prob for edge/wager tracking — not just locked free picks."""
     from models import OddsSnapshot
     now = dt.datetime.utcnow()
     try:
@@ -2027,12 +2030,14 @@ def _snapshot_odds(sport, ref, side, odds):
             row = db.query(OddsSnapshot).filter_by(sport=sport, ref=ref).first()
             if row is None:
                 db.add(OddsSnapshot(sport=sport, ref=ref, side=side,
-                                    open_odds=odds, last_odds=odds,
+                                    open_odds=odds, last_odds=odds, prob=prob,
                                     first_seen=now, last_seen=now))
             else:
                 row.last_odds = odds
                 row.last_seen = now
                 row.side = side
+                if prob is not None:
+                    row.prob = prob
             db.commit()
     except Exception:
         pass
@@ -2114,6 +2119,7 @@ def _record_result(db, sport, ref, predicted, actual):
         _recorded_refs.add(memo)
         return
     taken = close = None
+    snap = None
     try:
         snap = db.query(OddsSnapshot).filter_by(sport=sport, ref=ref).first()
         if snap:
@@ -2121,7 +2127,9 @@ def _record_result(db, sport, ref, predicted, actual):
             close = snap.last_odds
     except Exception:
         pass
-    prob = _lookup_locked_prob(db, sport, ref)
+    prob = (snap.prob if snap is not None and getattr(snap, "prob", None) is not None else None)
+    if prob is None:
+        prob = _lookup_locked_prob(db, sport, ref)
     db.add(PickResult(sport=sport, ref=ref, settled_date=dt.datetime.now(),
                       predicted=str(predicted), actual=str(actual),
                       correct=(str(predicted) == str(actual)),
@@ -2229,7 +2237,7 @@ def _attach_tennis_market(p):
         if fp is not None and mp is not None:
             p["edge_pct"] = round((fp - mp) * 100, 1)
     bside = "a" if _same(pick, names[0]) else "b"   # settlement stays in board order
-    _snapshot_odds("tennis", str(p["id"]), bside, am)
+    _snapshot_odds("tennis", str(p["id"]), bside, am, prob=p.get("prob"))
 
 
 @app.get("/api/mlb/games")

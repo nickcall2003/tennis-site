@@ -2586,7 +2586,7 @@ async function renderSimulator(){
     chips+
     '<div class="sim-pool">Pool: <b>'+d.pool+'</b> graded picks with a recorded model probability'+(simSport?' \u00b7 '+(SPORT_LABEL[simSport]||simSport.toUpperCase()):"")+'</div>';
   if(!d.pool){h+='<div class="empty" style="margin-top:14px">No graded picks with a stored model probability yet for this filter. The pool fills in as picks settle.</div></div>';list.innerHTML=h;return;}
-  h+='<table class="sim-tbl"><thead><tr><th>Min edge</th><th>Bets</th><th>W\u2013L</th><th>Units</th><th>ROI</th><th>Win%</th><th>CLV</th></tr></thead><tbody>';
+  h+='<div class="sim-scroll"><table class="sim-tbl"><thead><tr><th>Min edge</th><th>Bets</th><th>W\u2013L</th><th>Units</th><th>ROI</th><th>Win%</th><th>CLV</th></tr></thead><tbody>';
   rows.forEach(function(r){
     const isBest=best&&r.threshold_pct===best.threshold_pct;
     const uc=r.units>0?"pos":(r.units<0?"neg":"");
@@ -2599,7 +2599,7 @@ async function renderSimulator(){
       '<td>'+(r.win_pct!=null?r.win_pct+"%":"\u2014")+'</td>'+
       '<td>'+(r.clv_beat_pct!=null?r.clv_beat_pct+"%":"\u2014")+'</td></tr>';
   });
-  h+='</tbody></table>';
+  h+='</tbody></table></div>';
   if(best)h+='<div class="sim-best">Best backtested filter: <b>\u2265'+best.threshold_pct+'% edge</b> \u2014 '+(best.roi_pct>0?"+":"")+best.roi_pct+'% ROI on '+best.wagers+' bets.</div>';
   h+='<div class="sim-note">A backtest is not a promise. A filter that looks great on a thin sample (under ~25 bets) can regress hard \u2014 treat those rows as suggestive, not proven. CLV above 50% is the signal that an edge is real rather than lucky.</div></div>';
   list.innerHTML=h;}
@@ -2876,13 +2876,20 @@ function predictionReportHTML(g,sp){
   // (winner, win prob, confidence, expected score, edge, recommended bet). No
   // fabricated metrics: confidence is the model's own high/medium/low, and a bet
   // is only recommended when the model genuinely beats the market price.
-  if(!g||g.status==="finished")return "";
+  if(!g)return "";
   const ph=(g.prob_home!=null)?g.prob_home:null;
   if(ph==null||isNaN(ph))return "";
   const favHome=ph>=0.5,modelProb=favHome?ph:(1-ph);
   const win=favHome?g.home:g.away;
   const wname=(win&&(win.name||win.short||win.abbr))||"\u2014";
   const wpct=Math.round(modelProb*100);
+  if(g.status==="finished"){               // graded proof point — never hidden
+    if(!g.winner)return "";
+    const correct=(favHome?"home":"away")===g.winner;
+    const badge=correct?'<span class="pr-grade ok">\u2713 Correct</span>':'<span class="pr-grade no">\u2717 Missed</span>';
+    return '<div class="pr-card graded"><div class="pr-top"><div><div class="pr-k">Predicted Winner</div>'+
+      '<div class="pr-win">'+wname+' <span class="pr-gsub">'+wpct+'%</span></div></div>'+badge+'</div></div>';
+  }
   const conf=((g.confidence||"medium")+"").toLowerCase();
   const cn={low:1,medium:2,high:3}[conf]||2;
   let segs="";for(let i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
@@ -2912,13 +2919,22 @@ function predictionReportHTML(g,sp){
 }
 function tennisReportHTML(m){
   // Tennis variant of the Prediction Report (player-vs-player, ml_a/ml_b). Shown
-  // for scheduled matches; live matches use the live win-probability bar instead.
-  if(!m||m.status==="finished"||m.status==="live")return "";
+  // for scheduled matches; live matches use the live win-probability bar instead;
+  // finished matches show a graded proof point.
+  if(!m||m.status==="live")return "";
   const p=m.prediction||{},pa=p.prob_a;
   if(pa==null||isNaN(pa))return "";
   const favA=pa>=0.5,modelProb=favA?pa:(1-pa);
   const wname=favA?(m.player_a||"Player A"):(m.player_b||"Player B");
   const wpct=Math.round(modelProb*100);
+  if(m.status==="finished"){
+    const w=(m.score&&m.score.winner)||null;
+    if(!w)return "";
+    const correct=(favA?"a":"b")===w;
+    const badge=correct?'<span class="pr-grade ok">\u2713 Correct</span>':'<span class="pr-grade no">\u2717 Missed</span>';
+    return '<div class="pr-card graded"><div class="pr-top"><div><div class="pr-k">Predicted Winner</div>'+
+      '<div class="pr-win">'+wname+' <span class="pr-gsub">'+wpct+'%</span></div></div>'+badge+'</div></div>';
+  }
   const conf=((p.confidence||"medium")+"").toLowerCase();
   const cn={low:1,medium:2,high:3}[conf]||2;
   let segs="";for(let i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
