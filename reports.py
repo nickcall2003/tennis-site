@@ -223,6 +223,7 @@ def edges_diag(sport: str = "tennis", days: int = 3650):
         allp, edge_pos, edge_3, edge_5 = newbucket(), newbucket(), newbucket(), newbucket()
         clv_beat = clv_total = 0
         n = wins = 0
+        with_prob = pr_prob_n = 0
         vals = []
         samples = []
         q = db.query(PickResult).filter(PickResult.settled_date >= since,
@@ -242,9 +243,15 @@ def edges_diag(sport: str = "tennis", days: int = 3650):
             # accumulate "all"
             for b in (allp,):
                 b["n"] += 1; b["wins"] += won; b["units"] += pl
-            # edge buckets (need model prob)
-            pr = probs.get((sport, str(r.ref)))
+            # edge buckets (need model prob) — prefer the pick's own durable prob,
+            # which the snapshot now stamps on every settled game, over the older
+            # locked-set lookup.
+            has_pr_prob = getattr(r, "prob", None) is not None
+            if has_pr_prob:
+                pr_prob_n += 1
+            pr = r.prob if has_pr_prob else probs.get((sport, str(r.ref)))
             if pr is not None:
+                with_prob += 1
                 edge = pr - _implied(o)
                 if edge > 0:
                     edge_pos["n"] += 1; edge_pos["wins"] += won; edge_pos["units"] += pl
@@ -270,7 +277,9 @@ def edges_diag(sport: str = "tennis", days: int = 3650):
             "edge_3pct_plus": edge_3, "edge_5pct_plus": edge_5,
             "clv_beat_pct": round(100.0 * clv_beat / clv_total, 1) if clv_total else None,
             "median_odds": vals[len(vals) // 2] if vals else None,
-            "have_model_prob_for": len(probs), "samples": samples}
+            "have_model_prob_for": with_prob,
+            "pick_results_with_prob": pr_prob_n,
+            "samples": samples}
 
 
 @router.get("/api/edges/simulate")

@@ -3427,6 +3427,44 @@ def umpires_diag(name: str | None = None):
     return out
 
 
+@app.get("/api/value")
+def value_board(date: str | None = None, min_edge: float = 2.0):
+    """Cross-sport VALUE board: today's recommended +EV plays only, ranked by the
+    model's edge over the live market. The 'what should I actually bet today' view.
+    Honest by construction — a play appears solely when the model beats a real
+    market price, so no-edge chalk never shows up here."""
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    _ensure_day(target)
+    out = []
+    for p in _gather_plays(target):
+        p = dict(p)
+        try:
+            _enrich_odds(p)
+        except Exception:
+            continue
+        e, mo, prob = p.get("edge_pct"), p.get("market_odds"), p.get("prob")
+        if e is None or mo is None or prob is None or e < min_edge:
+            continue
+        stake = None
+        try:
+            b = (mo / 100.0) if mo > 0 else (100.0 / abs(mo))
+            f = (b * prob - (1 - prob)) / b
+            u = max(0.0, f * 0.25 * 100)
+            stake = round(u, 1) if u >= 0.5 else 0
+        except Exception:
+            pass
+        out.append({
+            "sport": p["sport"], "id": p.get("id"),
+            "match": p.get("match"), "pick": p.get("pick"),
+            "prob": prob, "market_odds": mo, "fair_odds": p.get("fair_odds"),
+            "edge_pct": e, "stake": stake,
+            "confidence": p.get("confidence"), "event_time": p.get("event_time"),
+        })
+    out.sort(key=lambda x: x["edge_pct"], reverse=True)
+    return {"date": target.isoformat(), "count": len(out),
+            "min_edge": min_edge, "plays": out}
+
+
 @app.get("/api/picks/best")
 def best_bets(date: str | None = None, sport: str | None = None, min_prob: float = 0.0):
     """Larger, filterable board with in-depth rationale (premium-style)."""

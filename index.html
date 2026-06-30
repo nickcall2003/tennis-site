@@ -61,6 +61,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-sec">Picks</div>
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
+          <div class="menu-item" data-view="value">&#128142; Value Board</div>
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           <div class="menu-sec">More</div>
           <div class="menu-item" data-view="record">&#128202; Track Record</div>
@@ -480,7 +481,7 @@ function sportLoader(sp,msg){
   const icons={tennis:"\u{1F3BE}",mlb:"\u26BE",ncaabb:"\u26BE",nba:"\u{1F3C0}",ncaab:"\u{1F3C0}",wncaab:"\u{1F3C0}",nfl:"\u{1F3C8}",ncaaf:"\u{1F3C8}",nhl:"\u{1F3D2}",soccer:"\u26BD",golf:"\u26F3",ufc:"\u{1F94A}"};
   const ic=icons[sp]||"\u{1F3BE}";
   return '<div class="sload"><div class="sload-track"><span class="sload-ball s-'+(sp||"tennis")+'">'+ic+'</span></div><div class="sload-msg">'+(msg||"Loading")+'</div></div>';}
-async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record"||view==="bets"||view==="auth"||view==="calibration"||view==="transparency"||view==="simulator")return;const tok=++loadToken;const mySport=sport;
+async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record"||view==="bets"||view==="auth"||view==="calibration"||view==="transparency"||view==="simulator"||view==="value")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML=sportLoader(mySport,'Loading &middot; first load after idle can take ~30s');
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
@@ -541,6 +542,7 @@ function selectMenu(el){
   else if(el.dataset.view==="calibration"){openCalibration();}
   else if(el.dataset.view==="transparency"){openTransparency();}
   else if(el.dataset.view==="simulator"){openSimulator();}
+  else if(el.dataset.view==="value"){openValueBoard();}
   else if(el.dataset.view==="bets"){openBets();}
   else if(el.dataset.view==="auth"){openAuth(authToken?"account":"login");}
   else if(el.dataset.view==="parlays"){openParlays();}
@@ -2602,6 +2604,42 @@ async function renderSimulator(){
   h+='</tbody></table></div>';
   if(best)h+='<div class="sim-best">Best backtested filter: <b>\u2265'+best.threshold_pct+'% edge</b> \u2014 '+(best.roi_pct>0?"+":"")+best.roi_pct+'% ROI on '+best.wagers+' bets.</div>';
   h+='<div class="sim-note">A backtest is not a promise. A filter that looks great on a thin sample (under ~25 bets) can regress hard \u2014 treat those rows as suggestive, not proven. CLV above 50% is the signal that an edge is real rather than lucky.</div></div>';
+  list.innerHTML=h;}
+function openValueBoard(){view="value";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";
+  document.getElementById("detail").style.display="none";
+  document.getElementById("sport-tag").textContent="Value Board";
+  document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="value");});
+  var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+  var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  document.getElementById("side").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+  var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+  toggleMenu(false);renderValueBoard();}
+async function renderValueBoard(){
+  const list=document.getElementById("list");
+  list.innerHTML=sportLoader("mlb","Scanning today\u2019s slate for value");
+  let d;try{d=await getJSON("/api/value?min_edge=2");}catch(e){list.innerHTML='<div class="empty">Couldn\u2019t load the value board.</div>';return;}
+  const plays=d.plays||[];
+  let h='<div class="vb-wrap"><div class="vb-intro">Every game the model rates today, filtered to just the spots where it beats a live market price \u2014 ranked by edge. This is the \u201Cwhat\u2019s actually worth betting\u201D view. No edge, no entry.</div>';
+  if(!plays.length){h+='<div class="empty" style="margin-top:8px">No +EV plays on the board right now. That\u2019s normal \u2014 most days the market is efficient, and forcing bets with no edge is how bankrolls die. Check back as today\u2019s lines post.</div></div>';list.innerHTML=h;return;}
+  plays.forEach(function(p){
+    const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[p.sport])||p.sport.toUpperCase();
+    const wp=Math.round((p.prob||0)*100);
+    const conf=((p.confidence||"")+"").toLowerCase();
+    const cn={low:1,medium:2,high:3}[conf]||0;
+    const cdot=cn?'<span class="vb-conf c'+cn+'">'+conf.toUpperCase()+'</span>':'';
+    const tm=p.event_time?'<span class="vb-time">'+p.event_time+'</span>':'';
+    h+='<div class="vb-card"><div class="vb-l">'+
+      '<div class="vb-pick">'+(p.pick||"\u2014")+'</div>'+
+      '<div class="vb-match">'+(p.match||"")+'</div>'+
+      '<div class="vb-meta"><span class="vb-sport">'+lbl+'</span>'+tm+cdot+'</div></div>'+
+      '<div class="vb-r"><div class="vb-edge">+'+p.edge_pct+'%</div>'+
+      '<div class="vb-nums">'+wp+'% model \u00b7 '+fmtOdds(p.market_odds)+' mkt'+(p.stake?' \u00b7 '+p.stake+'u':'')+'</div></div></div>';
+  });
+  h+='<div class="vb-note">Edge = model probability minus the market\u2019s implied probability. Stakes are quarter-Kelly suggestions, not instructions \u2014 size to your own bankroll and risk.</div></div>';
   list.innerHTML=h;}
 function openHelp(){view="help";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
