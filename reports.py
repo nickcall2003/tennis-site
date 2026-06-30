@@ -273,6 +273,61 @@ def edges_diag(sport: str = "tennis", days: int = 3650):
             "have_model_prob_for": len(probs), "samples": samples}
 
 
+@router.get("/api/edges/simulate")
+def edges_simulate(days: int = 3650, sport: str | None = None):
+    """Backtest: 'what would my record/ROI have been if I only bet picks at or
+    above each edge threshold?' Sweeps several thresholds over graded picks that
+    carry a recorded model probability. Honest — same real results, just filtered.
+    The pool is limited to picks with a stored prob, so it grows over time."""
+    import json
+    from models import PickResult, LockedPickSet
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    locked = {}
+    with SessionLocal() as db:
+        try:
+            for row in db.query(LockedPickSet).all():
+                for p in json.loads(row.payload):
+                    if p.get("prob") is not None and p.get("id") is not None and p.get("sport"):
+                        locked[(p["sport"], str(p["id"]))] = float(p["prob"])
+        except Exception:
+            pass
+        q = db.query(PickResult).filter(PickResult.settled_date >= since)
+        if sport:
+            q = q.filter(PickResult.sport == sport)
+        rows = q.all()
+
+    pool = []   # (edge, won, pl, beat_close|None)
+    for r in rows:
+        if _is_push(r) or r.taken_odds is None or abs(r.taken_odds) < 100:
+            continue
+        prob = r.prob if getattr(r, "prob", None) is not None else locked.get((r.sport, str(r.ref)))
+        if prob is None:
+            continue
+        imp = _implied(float(r.taken_odds))
+        won = bool(r.correct)
+        pl = (1.0 / imp - 1.0) if won else -1.0
+        beat = None
+        if r.close_odds is not None and abs(r.close_odds) >= 100:
+            beat = imp < _implied(float(r.close_odds))
+        pool.append((prob - imp, won, pl, beat))
+
+    out = []
+    for thr in (0.0, 0.02, 0.03, 0.05, 0.07, 0.10):
+        sel = [x for x in pool if x[0] >= thr]
+        n = len(sel)
+        wins = sum(1 for x in sel if x[1])
+        units = sum(x[2] for x in sel)
+        ct = sum(1 for x in sel if x[3] is not None)
+        cb = sum(1 for x in sel if x[3])
+        out.append({"threshold_pct": round(thr * 100, 1), "wagers": n,
+                    "wins": wins, "losses": n - wins,
+                    "units": round(units, 2),
+                    "roi_pct": round(100.0 * units / n, 1) if n else None,
+                    "win_pct": round(100.0 * wins / n, 1) if n else None,
+                    "clv_beat_pct": round(100.0 * cb / ct, 1) if ct else None})
+    return {"sport": sport, "pool": len(pool), "rows": out}
+
+
 @router.get("/api/edges/wagers")
 def edges_wagers(days: int = 3650, min_edge: float = 0.03, min_sample: int = 25):
     """Per-sport performance on RECOMMENDED WAGERS only: picks where the model's
