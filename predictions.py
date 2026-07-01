@@ -92,8 +92,14 @@ class PredictionEngine:
     def _ingest_url(self, url):
         import pandas as pd   # local import: only loaded during training/build, never at runtime
         try:
-            df = pd.read_csv(url, usecols=lambda c: c in _USECOLS)
-        except Exception:
+            # Sackmann CSVs are Latin-1 (accented player names). Reading them as the
+            # default UTF-8 throws a decode error on the first accented name in EVERY
+            # file, which used to be swallowed silently and produced an empty file.
+            df = pd.read_csv(url, usecols=lambda c: c in _USECOLS,
+                             encoding="latin-1", on_bad_lines="skip")
+        except Exception as e:
+            fn = url.rsplit("/", 1)[-1]
+            print(f"[build] skip {fn}: {type(e).__name__}: {e}")
             return 0
         df = df.dropna(subset=["surface", "winner_name", "loser_name"])
         n = 0
