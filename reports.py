@@ -597,3 +597,50 @@ def picks_record(view: str = "free", date: str | None = None):
                   "hit_rate": round(100 * mw / mt) if mt else None},
     }
 
+
+@router.get("/api/ratings/reset-volume")
+def _ratings_reset_volume(confirm: str = ""):
+    """Delete the stale /data/ratings.json (an old, small feed-built file) so the app
+    loads your committed ratings file instead, then hot-reload the live engine from
+    it — no redeploy needed. Mirrors /api/surface/reset-volume but for ratings.
+
+    Why this exists: the startup loader reads /data/ratings.json FIRST, so an old
+    2,360-player volume file was shadowing a freshly committed 23k-player file. This
+    removes the shadow and loads the committed file in one shot."""
+    import os, glob
+    if confirm != "yes":
+        return JSONResponse({"note": "append ?confirm=yes to delete /data/ratings.json "
+                             "and load your committed ratings file instead"})
+    path = "/data/ratings.json"
+    existed = os.path.exists(path)
+    try:
+        if existed:
+            os.remove(path)
+    except Exception as e:
+        return JSONResponse({"error": f"could not delete {path}: {e}"})
+
+    result = {"deleted_volume_file": existed}
+    try:
+        import main
+        rfile = os.environ.get("RATINGS_FILE", "ratings.json")
+        # try the configured file first, then the newest committed ratings*.json,
+        # skipping anything on /data (that's the volume we just cleared)
+        cands = [rfile] + sorted(glob.glob("ratings*.json"),
+                                 key=os.path.getmtime, reverse=True)
+        loaded, src = 0, None
+        for c in cands:
+            if c and not str(c).startswith("/data") and os.path.exists(c):
+                n = main.engine.load_ratings(c)
+                if n:
+                    loaded, src = n, c
+                    break
+        if loaded:
+            main._MODEL_STATUS["ratings_loaded"] = loaded
+            main._MODEL_STATUS["mode"] = "surface-elo"
+        result["loaded_from"] = src
+        result["ratings_loaded"] = loaded
+        result["note"] = ("now on committed ratings" if loaded
+                          else "no committed ratings*.json found in repo root")
+    except Exception as e:
+        result["reload_error"] = str(e)
+    return JSONResponse(result, headers={"Cache-Control": "no-store"})
