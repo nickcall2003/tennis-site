@@ -2180,7 +2180,13 @@ def _tennis_odds_for(pmid, player_a, player_b):
     try:
         from odds_api import _norm
         book = prov.get_odds(match_key=pmid)   # {pmid: {...}}, cached per match
-        od = book.get(str(pmid))
+        od = (book or {}).get(str(pmid))
+        if not od:
+            # Fallback to the whole-day feed, which reliably carries ITF / lower-tier
+            # events that the per-match endpoint often omits. Cached -> one call.
+            import datetime as _dt
+            day = prov.get_odds(day=_dt.date.today()) or {}
+            od = day.get(str(pmid))
         if not od:
             return None, None
         f, s = od.get("first"), od.get("second")
@@ -2215,6 +2221,11 @@ def _attach_tennis_market(p, book=None):
             od = book.get(str(pmid))
         else:
             od = (prov.get_odds(match_key=pmid) or {}).get(str(pmid))
+            if not od:
+                # ITF / lower-tier events are often absent from the per-match
+                # endpoint but present in the day feed (cached, one call).
+                import datetime as _dt
+                od = (prov.get_odds(day=_dt.date.today()) or {}).get(str(pmid))
     except Exception:
         return
     if not od:

@@ -2939,6 +2939,24 @@ function kellyUnits(prob,americanOdds){
   if(f<=0)return null;                      // no edge -> no bet
   let u=Math.min(f*0.25*100,4);            // quarter-Kelly, 1u = 1% bankroll, cap 4u
   return u<0.1?null:u.toFixed(1);}
+function _confMeter(modelProb,edge){
+  // Confidence the user SEES = strength of the pick, so it can never contradict the
+  // number beside it. Driven by the favorite's win probability; a large market edge
+  // can only raise it. Returns 1(low)/2(medium)/3(high).
+  var p=Math.max(modelProb,1-modelProb);
+  var lvl=p>=0.68?3:(p>=0.58?2:1);
+  if(edge!=null&&!isNaN(edge)){
+    if(edge>=12)lvl=3;                 // huge edge -> high regardless
+    else if(edge>=6&&lvl<2)lvl=2;      // solid edge -> at least medium
+  }
+  return lvl;
+}
+function _confBits(modelProb,edge){
+  var cn=_confMeter(modelProb,edge);
+  var conf=({1:"low",2:"medium",3:"high"})[cn];
+  var segs="";for(var i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
+  return {cn:cn,conf:conf,segs:segs};
+}
 function predictionReportHTML(g,sp){
   // Consolidated "terminal" header — assembles fields the model ALREADY produces
   // (winner, win prob, confidence, expected score, edge, recommended bet). No
@@ -2958,9 +2976,7 @@ function predictionReportHTML(g,sp){
     return '<div class="pr-card graded"><div class="pr-top"><div><div class="pr-k">Predicted Winner</div>'+
       '<div class="pr-win">'+wname+' <span class="pr-gsub">'+wpct+'%</span></div></div>'+badge+'</div></div>';
   }
-  const conf=((g.confidence||"medium")+"").toLowerCase();
-  const cn={low:1,medium:2,high:3}[conf]||2;
-  let segs="";for(let i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
+  let edgeVal=null;
   let cells="";
   if(g.home&&g.away&&(g.home.record||g.away.record)){const ha=(g.home.abbr||g.home.short)||"H",aa=(g.away.abbr||g.away.short)||"A";
     cells+='<div class="pr-cell"><div class="pr-k">Season Records</div><div class="pr-v">'+aa+" "+(g.away.record||"\u2014")+' <span class="pr-sub">vs</span> '+ha+" "+(g.home.record||"\u2014")+'</div></div>';}
@@ -2977,7 +2993,7 @@ function predictionReportHTML(g,sp){
   let rec="";
   if(o&&mkt!=null){
     const mImp=devigPair(mkt,omkt);
-    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";
+    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";edgeVal=edge;
     cells+='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
     if(edge>=3){const k=kellyUnits(modelProb,mkt);
       rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
@@ -2985,6 +3001,7 @@ function predictionReportHTML(g,sp){
   }else{
     cells+='<div class="pr-cell"><div class="pr-k">Fair Odds</div><div class="pr-v">'+fmtOdds(fair)+' <span class="pr-sub">(awaiting market)</span></div></div>';
   }
+  const _cb=_confBits(modelProb,edgeVal),cn=_cb.cn,conf=_cb.conf,segs=_cb.segs;
   return '<div class="pr-card">'+
     '<div class="pr-top"><div><div class="pr-k">Predicted Winner</div><div class="pr-win">'+wname+'</div></div>'+
       '<div class="pr-wp"><div class="pr-wpn">'+wpct+'%</div><div class="pr-k">win prob</div></div></div>'+
@@ -3009,16 +3026,14 @@ function tennisReportHTML(m){
     return '<div class="pr-card graded"><div class="pr-top"><div><div class="pr-k">Predicted Winner</div>'+
       '<div class="pr-win">'+wname+' <span class="pr-gsub">'+wpct+'%</span></div></div>'+badge+'</div></div>';
   }
-  const conf=((p.confidence||"medium")+"").toLowerCase();
-  const cn={low:1,medium:2,high:3}[conf]||2;
-  let segs="";for(let i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
+  let edgeVal=null;
   const fair=modelProb>=0.5?-Math.round(100*modelProb/(1-modelProb)):Math.round(100*(1-modelProb)/modelProb);
   const o=m.odds||null,mkt=o?(favA?o.ml_a:o.ml_b):null;
   const omkt=o?(favA?o.ml_b:o.ml_a):null;
   let cells="",rec="";
   if(o&&mkt!=null){
     const mImp=devigPair(mkt,omkt);
-    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";
+    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";edgeVal=edge;
     cells='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
     if(edge>=3){const k=kellyUnits(modelProb,mkt);
       rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
@@ -3026,6 +3041,7 @@ function tennisReportHTML(m){
   }else{
     cells='<div class="pr-cell"><div class="pr-k">Fair Odds</div><div class="pr-v">'+fmtOdds(fair)+' <span class="pr-sub">(awaiting market)</span></div></div>';
   }
+  const _cb=_confBits(modelProb,edgeVal),cn=_cb.cn,conf=_cb.conf,segs=_cb.segs;
   return '<div class="pr-card">'+
     '<div class="pr-top"><div><div class="pr-k">Predicted Winner</div><div class="pr-win">'+wname+'</div></div>'+
       '<div class="pr-wp"><div class="pr-wpn">'+wpct+'%</div><div class="pr-k">win prob</div></div></div>'+

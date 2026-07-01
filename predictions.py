@@ -81,6 +81,21 @@ def _rank_to_rating(rank: int) -> float:
     return 2150.0 - 350.0 * math.log10(r)   # #1≈2150, #100≈1450, #300≈1283, #1000≈1100
 
 
+def _conf_from_prob(prob, rated=True):
+    """Confidence = how strong the pick actually is (its win probability), NOT just
+    where the rating came from. A lopsided pick is high-confidence even off the
+    ranking feed; a near-coin-flip is low even with full match history. This is what
+    a bettor means by 'confidence' — an 80% pick should never read as 'low'."""
+    if not rated:
+        return "low"
+    p = max(float(prob), 1.0 - float(prob))    # the favorite's probability
+    if p >= 0.68:
+        return "high"
+    if p >= 0.58:
+        return "medium"
+    return "low"
+
+
 class PredictionEngine:
     def __init__(self):
         self.model = TennisElo()
@@ -214,12 +229,13 @@ class PredictionEngine:
             try:
                 p = self.model.win_probability(name_a, name_b, surface, surface_weight=0.5)
                 if p is not None:
-                    return _calibrate(p), "high"
+                    cp = _calibrate(p)
+                    return cp, _conf_from_prob(cp)
             except Exception:
                 pass
         prob = expected_score(ra, rb)
-        conf = "high" if both_history else "medium"
-        return _calibrate(prob), conf
+        cp = _calibrate(prob)
+        return cp, _conf_from_prob(cp)
 
     def predict_feed_ctx(self, name_a, name_b, ctx=None, surface=None):
         """
@@ -262,7 +278,7 @@ class PredictionEngine:
         adj_prob = 1.0 / (1.0 + 10 ** (-(implied_gap + delta) / 400))
         # never let adjustments flip more than ~12 percentage points
         adj_prob = max(base - 0.12, min(base + 0.12, adj_prob))
-        return adj_prob, conf
+        return adj_prob, _conf_from_prob(adj_prob)
 
     def predict(self, player_a, player_b, surface):
         return self.model.win_probability(player_a, player_b, surface, surface_weight=0.5)
