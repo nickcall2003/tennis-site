@@ -117,6 +117,7 @@ class PickResult(Base):
     ref: Mapped[str] = mapped_column(String(40), index=True)     # match/game id
     settled_date: Mapped[datetime] = mapped_column(DateTime, index=True)
     prob: Mapped[float | None] = mapped_column(Float, nullable=True)  # model P(pick wins), for edge/wager tracking
+    subcat: Mapped[str | None] = mapped_column(String(16), nullable=True)  # sub-league (tennis tour: ATP/WTA/CHALLENGER/ITF)
     predicted: Mapped[str] = mapped_column(String(8))            # who we picked
     actual: Mapped[str] = mapped_column(String(8))               # who won
     correct: Mapped[bool] = mapped_column()
@@ -175,6 +176,7 @@ class OddsSnapshot(Base):
     open_odds: Mapped[int | None] = mapped_column(nullable=True)   # first seen
     last_odds: Mapped[int | None] = mapped_column(nullable=True)   # most recent
     prob: Mapped[float | None] = mapped_column(Float, nullable=True)  # model P(pick) at snapshot — durable edge/wager source
+    subcat: Mapped[str | None] = mapped_column(String(16), nullable=True)  # sub-league tag (tennis tour) carried to settle
     first_seen: Mapped[datetime] = mapped_column(DateTime)
     last_seen: Mapped[datetime] = mapped_column(DateTime)
 

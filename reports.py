@@ -14,6 +14,7 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from db import SessionLocal
+from calibrate import calibrate as _calibrate
 
 router = APIRouter()
 
@@ -252,7 +253,7 @@ def edges_diag(sport: str = "tennis", days: int = 3650):
             pr = r.prob if has_pr_prob else probs.get((sport, str(r.ref)))
             if pr is not None:
                 with_prob += 1
-                edge = pr - _implied(o)
+                edge = _calibrate(sport, pr) - _implied(o)   # calibrated edge — honest
                 if edge > 0:
                     edge_pos["n"] += 1; edge_pos["wins"] += won; edge_pos["units"] += pl
                 if edge >= 0.03:
@@ -318,7 +319,7 @@ def edges_simulate(days: int = 3650, sport: str | None = None):
         beat = None
         if r.close_odds is not None and abs(r.close_odds) >= 100:
             beat = imp < _implied(float(r.close_odds))
-        pool.append((prob - imp, won, pl, beat))
+        pool.append((_calibrate(r.sport, prob) - imp, won, pl, beat))
 
     out = []
     for thr in (0.0, 0.02, 0.03, 0.05, 0.07, 0.10):
@@ -335,6 +336,53 @@ def edges_simulate(days: int = 3650, sport: str | None = None):
                     "win_pct": round(100.0 * wins / n, 1) if n else None,
                     "clv_beat_pct": round(100.0 * cb / ct, 1) if ct else None})
     return {"sport": sport, "pool": len(pool), "rows": out}
+
+
+@router.get("/api/tennis/tours")
+def tennis_tours():
+    """Tennis Track Record split by tour. The headline Tennis total EXCLUDES
+    ITF/futures (tracked as its own sub-category), so the lowest tier never drags
+    the main tennis number. Untagged historical picks (before tour tagging existed)
+    stay in the total under 'EARLIER' since they predate ITF ingestion."""
+    from models import PickResult
+    with SessionLocal() as db:
+        rows = db.query(PickResult).filter(PickResult.sport == "tennis").all()
+
+    def blank():
+        return {"n": 0, "wins": 0, "priced": 0, "units": 0.0, "clv_beat": 0, "clv_total": 0}
+
+    def add(bucket, r, won):
+        bucket["n"] += 1
+        bucket["wins"] += 1 if won else 0
+        if r.taken_odds is not None and abs(r.taken_odds) >= 100 and not _is_push(r):
+            imp = _implied(float(r.taken_odds))
+            bucket["priced"] += 1
+            bucket["units"] += (1.0 / imp - 1.0) if won else -1.0
+            if r.close_odds is not None and abs(r.close_odds) >= 100:
+                bucket["clv_total"] += 1
+                bucket["clv_beat"] += 1 if imp < _implied(float(r.close_odds)) else 0
+
+    tours, total = {}, blank()
+    for r in rows:
+        sub = (r.subcat or "EARLIER").upper()
+        won = bool(r.correct)
+        add(tours.setdefault(sub, blank()), r, won)
+        if sub != "ITF":
+            add(total, r, won)
+
+    def finish(b):
+        n, pr = b["n"], b["priced"]
+        return {"wins": b["wins"], "losses": n - b["wins"],
+                "win_pct": round(100.0 * b["wins"] / n, 1) if n else None,
+                "units": round(b["units"], 2) if pr else None,
+                "roi_pct": round(100.0 * b["units"] / pr, 1) if pr else None,
+                "priced": pr,
+                "clv_beat_pct": round(100.0 * b["clv_beat"] / b["clv_total"], 1) if b["clv_total"] else None}
+
+    order = ["ATP", "WTA", "CHALLENGER", "ITF", "EARLIER"]
+    out = {k: finish(tours[k]) for k in order if k in tours}
+    return {"total_excl_itf": finish(total), "tours": out,
+            "itf_included": "ITF" in tours}
 
 
 @router.get("/api/edges/wagers")
@@ -369,7 +417,7 @@ def edges_wagers(days: int = 3650, min_edge: float = 0.03, min_sample: int = 25)
         if prob is None:
             continue
         imp = _implied(float(r.taken_odds))
-        if prob - imp < min_edge:
+        if _calibrate(r.sport, prob) - imp < min_edge:
             continue
         won = bool(r.correct)
         pl = (1.0 / imp - 1.0) if won else -1.0

@@ -906,3 +906,13 @@
   .vb-edge{font-family:"Space Mono",monospace;font-size:22px;font-weight:700;color:#54c98a;line-height:1}
   .vb-nums{font-size:11px;color:var(--muted-2);margin-top:3px;font-family:"Space Mono",monospace}
   .vb-note{margin-top:14px;font-size:12px;line-height:1.55;color:var(--muted-2)}
+  .vb-gate{border:1px solid rgba(224,162,60,.35);background:rgba(224,162,60,.06);border-radius:12px;padding:16px 18px;margin-top:8px}
+  .vb-gate-h{font-family:Fraunces,serif;font-size:18px;font-weight:600;color:#eef1f5;margin-bottom:10px}
+  .vb-gate p{margin:0 0 10px;font-size:14px;line-height:1.6;color:#dfe4ea}
+  .rec-caret{display:inline-block;margin-right:6px;color:var(--muted-2);transition:transform .15s}
+  .rec-exp{cursor:pointer}
+  .rec-tours{padding:2px 0 10px 14px;border-bottom:1px solid rgba(255,255,255,.05);margin-bottom:8px}
+  .rec-tour{display:flex;justify-content:space-between;gap:10px;padding:5px 8px;font-size:12.5px}
+  .rec-tour-n{color:#cfd6de;font-weight:600}
+  .rec-tour-v{font-family:"Space Mono",monospace;color:var(--muted-2);text-align:right}
+  .rec-itf{font-size:10px;color:var(--clay-bright);font-style:italic;font-weight:400}

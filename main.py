@@ -505,11 +505,21 @@ async def lifespan(app: FastAPI):
                                                 OddsSnapshot.last_seen >= cutoff).all()):
                                 recent.add(s.ref)
                     n = 0
+                    # ONE odds request for the entire day's slate (ITF included) —
+                    # not one-per-match. Keeps tennis odds at ~1 call per cycle no
+                    # matter how many matches, so ITF adds no odds cost.
+                    day_book = {}
+                    try:
+                        prov = globals().get("provider")
+                        if prov is not None and hasattr(prov, "get_odds"):
+                            day_book = prov.get_odds(day=dt.date.today()) or {}
+                    except Exception:
+                        day_book = {}
                     for p in tennis:
                         if str(p["id"]) in recent:
                             continue
                         try:
-                            _attach_tennis_market(p)
+                            _attach_tennis_market(p, book=day_book)
                             if p.get("market_odds") is not None:
                                 n += 1
                         except Exception:
@@ -2019,10 +2029,10 @@ def _attach_odds_one(sport, g):
     return g
 
 
-def _snapshot_odds(sport, ref, side, odds, prob=None):
+def _snapshot_odds(sport, ref, side, odds, prob=None, subcat=None):
     """Record/refresh the market line for a pick (open = first seen, last = now).
-    Also captures the model's probability for the picked side so every settled
-    game carries a prob for edge/wager tracking — not just locked free picks."""
+    Also captures the model's probability and sub-league tag (tennis tour) for the
+    picked side so every settled game carries them for edge/wager/tour tracking."""
     from models import OddsSnapshot
     now = dt.datetime.utcnow()
     try:
@@ -2031,13 +2041,15 @@ def _snapshot_odds(sport, ref, side, odds, prob=None):
             if row is None:
                 db.add(OddsSnapshot(sport=sport, ref=ref, side=side,
                                     open_odds=odds, last_odds=odds, prob=prob,
-                                    first_seen=now, last_seen=now))
+                                    subcat=subcat, first_seen=now, last_seen=now))
             else:
                 row.last_odds = odds
                 row.last_seen = now
                 row.side = side
                 if prob is not None:
                     row.prob = prob
+                if subcat is not None:
+                    row.subcat = subcat
             db.commit()
     except Exception:
         pass
@@ -2130,10 +2142,11 @@ def _record_result(db, sport, ref, predicted, actual):
     prob = (snap.prob if snap is not None and getattr(snap, "prob", None) is not None else None)
     if prob is None:
         prob = _lookup_locked_prob(db, sport, ref)
+    subcat = snap.subcat if snap is not None and getattr(snap, "subcat", None) is not None else None
     db.add(PickResult(sport=sport, ref=ref, settled_date=dt.datetime.now(),
                       predicted=str(predicted), actual=str(actual),
                       correct=(str(predicted) == str(actual)),
-                      taken_odds=taken, close_odds=close, prob=prob))
+                      taken_odds=taken, close_odds=close, prob=prob, subcat=subcat))
     _recorded_refs.add(memo)
 
 
@@ -2178,12 +2191,16 @@ def _tennis_odds_for(pmid, player_a, player_b):
         return None, None
 
 
-def _attach_tennis_market(p):
+def _attach_tennis_market(p, book=None):
     """Attach api-tennis market odds + de-vigged edge to a tennis pick. The price
     is aligned by matching the pick's NAME against the odds feed's own player
     names (not by list position, which can differ from the board order and was
     handing the pick the OPPONENT's price — a favorite showing +1176). Settlement
-    side stays in board order so grading is unaffected."""
+    side stays in board order so grading is unaffected.
+
+    Pass `book` (the whole day's get_odds(day=...) result) to look the match up
+    locally instead of making a per-match API call — this is how the background
+    warmer prices the entire slate (ITF included) in ONE request."""
     from clv import american_to_prob
     from odds_api import _norm
     names = [n.strip() for n in p.get("match", "").split(" vs ")]
@@ -2194,7 +2211,10 @@ def _attach_tennis_market(p):
     if not pmid or prov is None or not hasattr(prov, "get_odds"):
         return
     try:
-        od = (prov.get_odds(match_key=pmid) or {}).get(str(pmid))
+        if book is not None:
+            od = book.get(str(pmid))
+        else:
+            od = (prov.get_odds(match_key=pmid) or {}).get(str(pmid))
     except Exception:
         return
     if not od:
@@ -2231,13 +2251,21 @@ def _attach_tennis_market(p):
     if am is None:
         return
     p["market_odds"] = am
-    if p.get("fair_odds") is not None:
-        fp = american_to_prob(p["fair_odds"])
-        mp = american_to_prob(am)
-        if fp is not None and mp is not None:
-            p["edge_pct"] = round((fp - mp) * 100, 1)
+    # Honest edge: calibrated model prob vs the DE-VIGGED market (both sides known
+    # here, so we can strip the overround instead of comparing to a vig-inflated
+    # single-side price).
+    try:
+        from calibrate import calibrate as _calib
+        cprob = _calib("tennis", p.get("prob"))
+        ia, ib = 1.0 / dec, 1.0 / other
+        devig = ia / (ia + ib) if (ia + ib) else None
+        if cprob is not None and devig is not None:
+            p["cal_prob"] = round(cprob, 3)
+            p["edge_pct"] = round((cprob - devig) * 100, 1)
+    except Exception:
+        pass
     bside = "a" if _same(pick, names[0]) else "b"   # settlement stays in board order
-    _snapshot_odds("tennis", str(p["id"]), bside, am, prob=p.get("prob"))
+    _snapshot_odds("tennis", str(p["id"]), bside, am, prob=p.get("prob"), subcat=p.get("tier"))
 
 
 @app.get("/api/mlb/games")
@@ -2450,7 +2478,7 @@ def _gather_plays_uncached(target: dt.date):
             tctx["surface_record"] = _surface_record_str(pick, m.surface)
             plays.append({
                 "sport": "tennis", "id": m.id, "kind": "moneyline",
-                "pmid": m.provider_match_id,
+                "pmid": m.provider_match_id, "tier": m.tier,
                 "match": f"{m.player_a} vs {m.player_b}", "tournament": m.tournament,
                 "pick": f"{pick} to win", "prob": round(prob, 3),
                 "confidence": getattr(pred, "confidence", "high"),
@@ -2559,7 +2587,11 @@ def _enrich_odds(p):
     and CLV for this pick. Honest: fair odds are derived from the model's own
     probability; market odds come from the configured odds source if any."""
     from clv import american_to_prob
+    from calibrate import calibrate as _calib
     prob = p.get("prob")
+    cprob = _calib(p["sport"], prob) if prob else None   # honest, overconfidence-corrected
+    if cprob is not None:
+        p["cal_prob"] = round(cprob, 3)
     if prob:
         # fair American odds from model probability (no vig)
         if prob >= 0.5:
@@ -2580,8 +2612,8 @@ def _enrich_odds(p):
             ia = american_to_prob(ma) if ma is not None else None
             tot = sum(x for x in (ih, idr, ia) if x is not None)
             side_imp = idr if side == "draw" else ih if side == "home" else ia
-            if tot and side_imp is not None:
-                p["edge_pct"] = round((p["prob"] - side_imp / tot) * 100, 1)
+            if tot and side_imp is not None and cprob is not None:
+                p["edge_pct"] = round((cprob - side_imp / tot) * 100, 1)
         # market odds: team sports via snapshot, tennis via per-tournament feed
     try:
         import odds_api
@@ -2591,11 +2623,9 @@ def _enrich_odds(p):
                 snap = db.query(OddsSnapshot).filter_by(sport=p["sport"], ref=str(p["id"])).first()
             if snap and snap.last_odds is not None:
                 p["market_odds"] = snap.last_odds
-                if p.get("fair_odds") is not None:
-                    fp = american_to_prob(p["fair_odds"])
-                    mp = american_to_prob(snap.last_odds)
-                    if fp is not None and mp is not None:
-                        p["edge_pct"] = round((fp - mp) * 100, 1)
+                mp = american_to_prob(snap.last_odds)
+                if cprob is not None and mp is not None:
+                    p["edge_pct"] = round((cprob - mp) * 100, 1)
     except Exception:
         pass
     # tennis market odds come from api-tennis (included in the plan), not the
@@ -3427,28 +3457,75 @@ def umpires_diag(name: str | None = None):
     return out
 
 
+def _clv_proven_sports(min_n: int = 30, min_clv: float = 50.0):
+    """Sports that have actually beaten the closing line (CLV >= min_clv%) over at
+    least min_n graded picks. CLV is the honest proof a model beats the market —
+    until a sport clears this bar we PREDICT it but must not RECOMMEND wagers on
+    it, because its 'edges' haven't shown they're real. Protects users from the
+    model's own overconfidence (e.g. tennis edges currently run ~23% CLV)."""
+    from collections import defaultdict
+    from models import PickResult
+    from clv import american_to_prob
+    n = defaultdict(int); beat = defaultdict(int)
+    try:
+        with SessionLocal() as db:
+            for r in db.query(PickResult).all():
+                if r.taken_odds is None or abs(r.taken_odds) < 100:
+                    continue
+                if r.close_odds is None or abs(r.close_odds) < 100:
+                    continue
+                n[r.sport] += 1
+                if american_to_prob(r.taken_odds) < american_to_prob(r.close_odds):
+                    beat[r.sport] += 1
+    except Exception:
+        return set()
+    return {s for s in n if n[s] >= min_n and 100.0 * beat[s] / n[s] >= min_clv}
+
+
+@app.get("/api/calib")
+def calib_params_all():
+    """Per-sport calibration coefficients so the client can show the same honest,
+    overconfidence-corrected probabilities and edges the backend uses."""
+    from calibrate import calib_params
+    sports = ("tennis", "mlb", "nba", "nfl", "nhl", "ncaabb", "ncaaf",
+              "ncaab", "wncaab", "soccer", "ufc", "golf")
+    out = {}
+    for s in sports:
+        try:
+            a, b, n = calib_params(s)
+            out[s] = {"a": round(a, 4), "b": round(b, 4), "n": n}
+        except Exception:
+            pass
+    return out
+
+
 @app.get("/api/value")
 def value_board(date: str | None = None, min_edge: float = 2.0):
     """Cross-sport VALUE board: today's recommended +EV plays only, ranked by the
     model's edge over the live market. The 'what should I actually bet today' view.
     Honest by construction — a play appears solely when the model beats a real
-    market price, so no-edge chalk never shows up here."""
+    market price AND its sport has proven it beats the closing line, so no-edge
+    chalk and unproven 'edges' never show up here."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
+    proven = _clv_proven_sports()
     out = []
     for p in _gather_plays(target):
+        if p.get("sport") not in proven:
+            continue
         p = dict(p)
         try:
             _enrich_odds(p)
         except Exception:
             continue
         e, mo, prob = p.get("edge_pct"), p.get("market_odds"), p.get("prob")
-        if e is None or mo is None or prob is None or e < min_edge:
+        cprob = p.get("cal_prob", prob)
+        if e is None or mo is None or cprob is None or e < min_edge:
             continue
         stake = None
         try:
             b = (mo / 100.0) if mo > 0 else (100.0 / abs(mo))
-            f = (b * prob - (1 - prob)) / b
+            f = (b * cprob - (1 - cprob)) / b
             u = max(0.0, f * 0.25 * 100)
             stake = round(u, 1) if u >= 0.5 else 0
         except Exception:
@@ -3456,13 +3533,14 @@ def value_board(date: str | None = None, min_edge: float = 2.0):
         out.append({
             "sport": p["sport"], "id": p.get("id"),
             "match": p.get("match"), "pick": p.get("pick"),
-            "prob": prob, "market_odds": mo, "fair_odds": p.get("fair_odds"),
+            "prob": cprob, "raw_prob": prob,
+            "market_odds": mo, "fair_odds": p.get("fair_odds"),
             "edge_pct": e, "stake": stake,
             "confidence": p.get("confidence"), "event_time": p.get("event_time"),
         })
     out.sort(key=lambda x: x["edge_pct"], reverse=True)
     return {"date": target.isoformat(), "count": len(out),
-            "min_edge": min_edge, "plays": out}
+            "min_edge": min_edge, "proven_sports": sorted(proven), "plays": out}
 
 
 @app.get("/api/picks/best")

@@ -2027,6 +2027,7 @@ async function renderRecord(){
   let wag={by_sport:{},overall:{}},acc={by_sport:{},overall:{}};
   try{wag=await getJSON("/api/edges/wagers?days=3650&min_edge=0.03&min_sample=25");}catch(e){}
   try{acc=await getJSON("/api/accuracy?days=30");}catch(e){}
+  let tours=null;try{tours=await getJSON("/api/tennis/tours");}catch(e){}
   const ws=wag.by_sport||{},accs=acc.by_sport||{},ov=acc.overall||{},wov=wag.overall||{};
   const minN=wag.min_sample||25;
   const keys={};Object.keys(accs).forEach(k=>keys[k]=1);Object.keys(ws).forEach(k=>keys[k]=1);
@@ -2054,6 +2055,7 @@ async function renderRecord(){
     '<div class="rec-hero-sub">'+tW+'-'+tL+' all-time across '+rows.length+' sports'+(hasU?' &middot; '+sg(tU)+' on graded wagers':'')+'</div></div>'+
     '<div class="rec-note">Verified prediction accuracy across every graded pick. <b>Betting units are tracked separately, only on recommended +EV wagers</b>, and each sport posts its ROI once it clears '+minN+' graded wagers \u2014 so the units you see are real plays, never \u201Cbet every favorite.\u201D</div>';
   rows.forEach(function(r){
+    if(r.sport==="tennis"&&tours&&tours.total_excl_itf){var te=tours.total_excl_itf;r.wins=te.wins;r.losses=te.losses;r.pct=te.win_pct;}
     const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[r.sport])||r.sport.toUpperCase();
     const showClv=(r.clv!=null&&r.wager_n>=20);
     const clv=showClv?('<span class="rec-clv'+(r.clv>=50?' good':'')+'">CLV '+r.clv+'%</span>'):'';
@@ -2065,10 +2067,28 @@ async function renderRecord(){
       right='<span class="rec-pct">'+(r.pct!=null?r.pct+'%':'\u2014')+'</span>';
       sub='<span class="rec-building">+EV wagers building \u00b7 '+r.wager_n+'/'+minN+'</span>';
     }
-    h+='<div class="rec-row"><div class="rec-row-top"><span class="rec-sport">'+lbl+'</span>'+right+'</div>'+
+    const isTennis=(r.sport==="tennis"&&tours&&tours.tours);
+    const caret=isTennis?'<span class="rec-caret" id="ten-caret">\u203A</span>':'';
+    h+='<div class="rec-row'+(isTennis?' rec-exp" onclick="toggleTours()"':'"')+'><div class="rec-row-top"><span class="rec-sport">'+caret+lbl+'</span>'+right+'</div>'+
        '<div class="rec-row-sub"><span class="rec-rec">'+r.wins+'-'+r.losses+' record</span>'+sub+clv+'</div></div>';
+    if(isTennis){
+      const order=["ATP","WTA","CHALLENGER","ITF","EARLIER"];
+      const nm={ATP:"ATP",WTA:"WTA",CHALLENGER:"Challenger",ITF:"ITF",EARLIER:"Earlier (untagged)"};
+      let sh='<div class="rec-tours" id="ten-tours" style="display:none">';
+      order.forEach(function(k){
+        const t=tours.tours[k];if(!t)return;
+        const uu=(t.units!=null)?('<span class="'+(t.units>0?"u-pos":t.units<0?"u-neg":"")+'">'+(t.units>0?"+":"")+t.units.toFixed(1)+'u</span>'):'';
+        const roi=(t.roi_pct!=null)?(' \u00b7 '+t.roi_pct+'% ROI'):'';
+        const cl=(t.clv_beat_pct!=null&&t.priced>=20)?(' \u00b7 CLV '+t.clv_beat_pct+'%'):'';
+        const itf=(k==="ITF")?' <span class="rec-itf">excluded from total</span>':'';
+        sh+='<div class="rec-tour"><span class="rec-tour-n">'+nm[k]+itf+'</span>'+
+            '<span class="rec-tour-v">'+t.wins+'-'+t.losses+(t.win_pct!=null?' ('+t.win_pct+'%)':'')+' '+uu+roi+cl+'</span></div>';
+      });
+      sh+='</div>';h+=sh;
+    }
   });
   list.innerHTML=h;}
+function toggleTours(){var el=document.getElementById("ten-tours"),c=document.getElementById("ten-caret");if(!el)return;var open=el.style.display==="none";el.style.display=open?"block":"none";if(c)c.style.transform=open?"rotate(90deg)":"";}
 function tROIstr(tU,rows){let n=0;rows.forEach(r=>{if(r.units!=null&&r.roi!=null&&r.roi!==0){n+=Math.round(100*r.units/r.roi);}});return n?(Math.round(100*tU/n*10)/10)+'% ROI':'';}
 /* ===== My Bets — view (storage + auth helpers are defined just below) ===== */
 let _betPrefill=null;
@@ -2561,6 +2581,10 @@ function renderTransparency(){
   h+='<div class="tp-foot">The whole point: a prediction you can interrogate, an edge measured against the market, and a permanent, honest record of how it\u2019s done \u2014 wins and losses.</div></div>';
   list.innerHTML=h;}
 var simSport="";
+var CALIB={};
+function calProb(sport,p){var c=CALIB[sport];if(!c||p==null||isNaN(p))return p;var q=Math.min(0.999,Math.max(0.001,p));var x=Math.log(q/(1-q));return 1/(1+Math.exp(-(c.a*x+c.b)));}
+function devigPair(oSide,oOther){function im(o){return o>0?100/(o+100):Math.abs(o)/(Math.abs(o)+100);}if(oOther==null)return im(oSide);var a=im(oSide),b=im(oOther);return (a+b)?a/(a+b):a;}
+(function loadCalib(){try{getJSON("/api/calib").then(function(d){if(d)CALIB=d;}).catch(function(){});}catch(e){}})();
 function setSimSport(s){simSport=s;renderSimulator();}
 function openSimulator(){view="simulator";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
@@ -2623,8 +2647,14 @@ async function renderValueBoard(){
   list.innerHTML=sportLoader("mlb","Scanning today\u2019s slate for value");
   let d;try{d=await getJSON("/api/value?min_edge=2");}catch(e){list.innerHTML='<div class="empty">Couldn\u2019t load the value board.</div>';return;}
   const plays=d.plays||[];
+  const proven=d.proven_sports||[];
   let h='<div class="vb-wrap"><div class="vb-intro">Every game the model rates today, filtered to just the spots where it beats a live market price \u2014 ranked by edge. This is the \u201Cwhat\u2019s actually worth betting\u201D view. No edge, no entry.</div>';
-  if(!plays.length){h+='<div class="empty" style="margin-top:8px">No +EV plays on the board right now. That\u2019s normal \u2014 most days the market is efficient, and forcing bets with no edge is how bankrolls die. Check back as today\u2019s lines post.</div></div>';list.innerHTML=h;return;}
+  if(!proven.length){
+    h+='<div class="vb-gate"><div class="vb-gate-h">No sport has proven it beats the market yet</div>'+
+       '<p>The model predicts every game, but it only earns a spot on this board once it has beaten the <b>closing line (CLV \u2265 50%)</b> over a real sample \u2014 the honest proof an edge is real and not luck. Right now no sport clears that bar, so we\u2019re not recommending any wagers.</p>'+
+       '<p>That\u2019s deliberate. Steering you toward \u201Cvalue\u201D the model hasn\u2019t earned is how pick services lose people money. We\u2019d rather show you nothing than show you a losing bet dressed up as an edge. Watch the <b>Model Accuracy</b> page \u2014 when a sport\u2019s CLV crosses 50%, its plays start appearing here automatically.</p></div></div>';
+    list.innerHTML=h;return;}
+  if(!plays.length){h+='<div class="empty" style="margin-top:8px">No +EV plays right now in '+proven.map(function(s){return (SPORT_LABEL[s]||s.toUpperCase());}).join(", ")+'. The market\u2019s efficient today \u2014 forcing bets with no edge is how bankrolls die. Check back as lines post.</div></div>';list.innerHTML=h;return;}
   plays.forEach(function(p){
     const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[p.sport])||p.sport.toUpperCase();
     const wp=Math.round((p.prob||0)*100);
@@ -2917,7 +2947,7 @@ function predictionReportHTML(g,sp){
   if(!g)return "";
   const ph=(g.prob_home!=null)?g.prob_home:null;
   if(ph==null||isNaN(ph))return "";
-  const favHome=ph>=0.5,modelProb=favHome?ph:(1-ph);
+  const favHome=ph>=0.5,modelProb=calProb(sp,favHome?ph:(1-ph));
   const win=favHome?g.home:g.away;
   const wname=(win&&(win.name||win.short||win.abbr))||"\u2014";
   const wpct=Math.round(modelProb*100);
@@ -2932,6 +2962,8 @@ function predictionReportHTML(g,sp){
   const cn={low:1,medium:2,high:3}[conf]||2;
   let segs="";for(let i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
   let cells="";
+  if(g.home&&g.away&&(g.home.record||g.away.record)){const ha=(g.home.abbr||g.home.short)||"H",aa=(g.away.abbr||g.away.short)||"A";
+    cells+='<div class="pr-cell"><div class="pr-k">Season Records</div><div class="pr-v">'+aa+" "+(g.away.record||"\u2014")+' <span class="pr-sub">vs</span> '+ha+" "+(g.home.record||"\u2014")+'</div></div>';}
   if(g.home_rating_base!=null&&g.away_rating!=null){const ha=(g.home&&(g.home.abbr||g.home.short))||"H",aa=(g.away&&(g.away.abbr||g.away.short))||"A";
     cells+='<div class="pr-cell"><div class="pr-k">Power Ratings</div><div class="pr-v">'+ha+" "+g.home_rating_base+' <span class="pr-sub">vs</span> '+aa+" "+g.away_rating+'</div></div>';}
   if(g.home_edge_pts!=null){cells+='<div class="pr-cell"><div class="pr-k">Home Edge</div><div class="pr-v">+'+g.home_edge_pts+' <span class="pr-sub">pts to the home side</span></div></div>';}
@@ -2941,9 +2973,10 @@ function predictionReportHTML(g,sp){
     cells+='<div class="pr-cell"><div class="pr-k">Expected Runs</div><div class="pr-v">'+aa+" "+(Math.round(g.exp_runs_away*10)/10)+"\u2013"+(Math.round(g.exp_runs_home*10)/10)+" "+ha+'</div></div>';}
   const fair=modelProb>=0.5?-Math.round(100*modelProb/(1-modelProb)):Math.round(100*(1-modelProb)/modelProb);
   const o=g.odds||null,mkt=o?(favHome?o.ml_home:o.ml_away):null;
+  const omkt=o?(favHome?o.ml_away:o.ml_home):null;
   let rec="";
   if(o&&mkt!=null){
-    const mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+    const mImp=devigPair(mkt,omkt);
     const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";
     cells+='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
     if(edge>=3){const k=kellyUnits(modelProb,mkt);
@@ -2965,7 +2998,7 @@ function tennisReportHTML(m){
   if(!m||m.status==="live")return "";
   const p=m.prediction||{},pa=p.prob_a;
   if(pa==null||isNaN(pa))return "";
-  const favA=pa>=0.5,modelProb=favA?pa:(1-pa);
+  const favA=pa>=0.5,modelProb=calProb("tennis",favA?pa:(1-pa));
   const wname=favA?(m.player_a||"Player A"):(m.player_b||"Player B");
   const wpct=Math.round(modelProb*100);
   if(m.status==="finished"){
@@ -2981,9 +3014,10 @@ function tennisReportHTML(m){
   let segs="";for(let i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
   const fair=modelProb>=0.5?-Math.round(100*modelProb/(1-modelProb)):Math.round(100*(1-modelProb)/modelProb);
   const o=m.odds||null,mkt=o?(favA?o.ml_a:o.ml_b):null;
+  const omkt=o?(favA?o.ml_b:o.ml_a):null;
   let cells="",rec="";
   if(o&&mkt!=null){
-    const mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+    const mImp=devigPair(mkt,omkt);
     const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";
     cells='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
     if(edge>=3){const k=kellyUnits(modelProb,mkt);

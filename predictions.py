@@ -38,8 +38,10 @@ def _calibrate(p):
 
 _ATP_TOUR = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_{y}.csv"
 _ATP_CHAL = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_qual_chall_{y}.csv"
+_ATP_FUT = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_futures_{y}.csv"
 _WTA_TOUR = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_matches_{y}.csv"
 _WTA_CHAL = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_matches_qual_chall_{y}.csv"
+_WTA_ITF = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master/wta_matches_qual_itf_{y}.csv"
 
 _USECOLS = ["tourney_date", "surface", "winner_name", "loser_name"]
 
@@ -66,8 +68,17 @@ def _name_key(full_name: str):
 
 
 def _rank_to_rating(rank: int) -> float:
-    """Map an ATP/WTA ranking to an Elo-ish rating for fallback use."""
-    return 1500.0 + 700.0 * math.exp(-rank / 50.0)   # #1≈2186, #50≈1757, #200≈1513
+    """Map an ATP/WTA ranking to an Elo-ish rating for fallback use.
+
+    Logarithmic so it keeps DISCRIMINATING all the way down the list, not just the
+    top 200. The old exp(-rank/50) map flattened everyone past ~#300 to ~1500,
+    which made every ITF / low-tier matchup a 50/50 coin flip. This spans the full
+    range (#1≈2150 down to #1600≈1030), so two low-ranked players get a real,
+    honest edge between them — which is what makes ITF predictable off the live
+    ranking feed with no trained-ratings file needed. Players with trained history
+    still use that (this only affects otherwise-unknown players)."""
+    r = max(1, int(rank))
+    return 2150.0 - 350.0 * math.log10(r)   # #1≈2150, #100≈1450, #300≈1283, #1000≈1100
 
 
 class PredictionEngine:
@@ -92,12 +103,14 @@ class PredictionEngine:
         del df
         return n
 
-    def train_from_sackmann(self, years, include_challengers=True):
+    def train_from_sackmann(self, years, include_challengers=True, include_futures=False):
         total = 0
         for y in years:
             urls = [_ATP_TOUR.format(y=y), _WTA_TOUR.format(y=y)]
             if include_challengers:
                 urls += [_ATP_CHAL.format(y=y), _WTA_CHAL.format(y=y)]
+            if include_futures:                      # ITF futures — men's + women's ITF
+                urls += [_ATP_FUT.format(y=y), _WTA_ITF.format(y=y)]
             for url in urls:
                 total += self._ingest_url(url)
         # index best rating per name-key

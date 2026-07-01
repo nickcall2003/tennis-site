@@ -30,6 +30,12 @@ from base import LiveScore, MatchInfo, MatchStats, TennisProvider
 
 BASE_URL = "https://api.api-tennis.com/tennis/"
 
+# ITF/futures ingestion is ON. Match volume is handled cheaply (the odds warmer
+# prices the whole day's slate in ONE api-tennis call, so ITF adds no odds cost).
+# A kill-switch remains for emergencies only — set INCLUDE_ITF=0 to disable — but
+# no variable is needed to turn ITF ON; it's the default.
+_INCLUDE_ITF = os.environ.get("INCLUDE_ITF", "1").strip().lower() not in ("0", "false", "no", "off")
+
 _TIER_MAP = {
     "Atp Singles": "ATP",
     "Wta Singles": "WTA",
@@ -87,7 +93,11 @@ def _classify_tier(fix):
     'event_type_type' strings vary, so we classify by keyword and, crucially,
     by gender. The key fix: women's events (incl. WTA 125 "challenger"-style
     events like Birmingham/Makarska/Foggia) must map to WTA, not CHALLENGER.
-    Singles only; doubles excluded. ITF/futures excluded as below tour level.
+    Singles only; doubles excluded. ITF/futures excluded as below tour level
+    UNLESS the INCLUDE_ITF env flag is set — then they're tagged 'ITF' so they can
+    be tracked as their own sub-category (never folded into the main tennis units).
+    NOTE: ITF is very high-volume; enabling it materially increases api-tennis
+    calls, so it stays off by default.
     """
     et = (fix.get("event_type_type") or "").strip().lower()
     name = (fix.get("tournament_name") or "").lower()
@@ -121,7 +131,7 @@ def _classify_tier(fix):
     # Genuine ITF women's futures (w15..w100) stay excluded.
     if is_women:
         if is_itf:
-            return None
+            return "ITF" if _INCLUDE_ITF else None
         return "WTA"
     # Men's challenger
     if is_chall and not is_itf:
@@ -129,7 +139,7 @@ def _classify_tier(fix):
     # Men's tour
     if is_men:
         if is_itf:
-            return None
+            return "ITF" if _INCLUDE_ITF else None
         return "ATP"
     # ATP/WTA explicit but gender not otherwise flagged
     if "atp" in hay:
