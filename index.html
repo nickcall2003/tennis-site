@@ -3011,6 +3011,12 @@ function predictionReportHTML(g,sp){
   }else{
     cells+='<div class="pr-cell"><div class="pr-k">Fair Odds</div><div class="pr-v">'+fmtOdds(fair)+' <span class="pr-sub">(awaiting market)</span></div></div>';
   }
+  if(g.h2h&&g.h2h.record){var hh=(g.home&&(g.home.abbr||g.home.short||g.home.name))||"Home",ah=(g.away&&(g.away.abbr||g.away.short||g.away.name))||"Away";
+    var h2sub=(g.h2h.seasons&&g.h2h.seasons>1)?('vs '+ah+' \u00b7 last '+g.h2h.seasons+' seasons'):('vs '+ah+' \u00b7 '+g.h2h.games+' mtg'+(g.h2h.games===1?"":"s")+' this year');
+    if(g.h2h.draws)h2sub+=' \u00b7 W-D-L';
+    cells+='<div class="pr-cell"><div class="pr-k">'+((g.h2h.seasons&&g.h2h.seasons>1)?"Head-to-Head":"Season Series")+'</div><div class="pr-v">'+hh+' '+g.h2h.record+' <span class="pr-sub">'+h2sub+'</span></div></div>';}
+  if(g.series&&g.series.facing_sweep){var sv=g.series,who=(sv.facing_sweep==="home"?((g.home&&(g.home.abbr||g.home.short))||"Home"):((g.away&&(g.away.abbr||g.away.short))||"Away"));
+    cells+='<div class="pr-cell"><div class="pr-k">Motivation Edge</div><div class="pr-v pos">'+who+' facing a sweep <span class="pr-sub">model +'+(Math.round((sv.adj||0)*1000)/10)+'%'+(sv.road_sweep?" \u00b7 road sweep attempt":"")+'</span></div></div>';}
   const _fav=(typeof favBtn==="function"?favBtn(sp,wname):"");const _cb=_confBits(modelProb,edgeVal),cn=_cb.cn,conf=_cb.conf,segs=_cb.segs;
   return '<div class="pr-card">'+
     '<div class="pr-top"><div><div class="pr-k">Predicted Winner</div><div class="pr-win">'+wname+' '+_fav+'</div></div>'+
