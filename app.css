@@ -916,3 +916,32 @@
   .rec-tour-n{color:#cfd6de;font-weight:600}
   .rec-tour-v{font-family:"Space Mono",monospace;color:var(--muted-2);text-align:right}
   .rec-itf{font-size:10px;color:var(--clay-bright);font-style:italic;font-weight:400}
+
+/* ===== Personalization: favorites, My Board, accent picker ===== */
+:root{--accent:#3ad17a;}
+.ll-fav{background:none;border:none;cursor:pointer;font-size:17px;line-height:1;
+  color:var(--muted-2);padding:0 2px;vertical-align:middle;transition:color .12s,transform .1s;}
+.ll-fav:hover{color:var(--accent);}
+.ll-fav.on{color:var(--accent);}
+.ll-fav:active{transform:scale(1.25);}
+.ac-row{display:flex;gap:10px;padding:4px 2px 2px;}
+.ac-opt{width:26px;height:26px;border-radius:50%;border:2px solid var(--line);
+  background:var(--sw);cursor:pointer;padding:0;transition:transform .1s,border-color .12s;}
+.ac-opt:active{transform:scale(1.15);}
+.ac-opt.active{border-color:var(--ink);box-shadow:0 0 0 2px var(--sw);}
+.mb-wrap{max-width:640px;margin:0 auto;padding:6px 2px 40px;}
+.mb-intro{color:var(--muted);font-size:13px;line-height:1.5;margin:6px 4px 14px;}
+.mb-group{margin-bottom:16px;}
+.mb-group-h{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--accent);margin:0 4px 6px;}
+.mb-row{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  background:var(--panel-2);border:1px solid var(--line);border-radius:11px;
+  padding:12px 14px;margin-bottom:7px;cursor:pointer;transition:border-color .12s,background .12s;}
+.mb-row:hover{border-color:var(--accent);background:var(--panel-3);}
+.mb-name{font-weight:700;color:var(--ink);font-size:15px;}
+.mb-x{font-size:16px;}
+.mb-empty{text-align:center;color:var(--muted);padding:34px 18px;background:var(--panel-2);
+  border:1px solid var(--line);border-radius:14px;margin-top:6px;}
+.mb-empty-star{font-size:40px;color:var(--accent);opacity:.55;margin-bottom:6px;}
+.mb-empty-h{font-weight:800;color:var(--ink);font-size:16px;margin-bottom:6px;}
+.mb-empty p{font-size:13px;line-height:1.55;max-width:340px;margin:6px auto 0;}
