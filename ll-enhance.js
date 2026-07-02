@@ -167,35 +167,57 @@
     var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
     if(typeof toggleMenu==="function")toggleMenu(false);
   }
+  function _fmt(t){return t.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>");}
+  function mdToHtml(s){
+    var e=function(t){return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");};
+    var out="",inList=false;
+    String(s==null?"":s).split("\n").forEach(function(ln){
+      var m=ln.match(/^\s*[-\u2022]\s+(.*)$/);
+      if(m){if(!inList){out+="<ul>";inList=true;}out+="<li>"+_fmt(e(m[1]))+"</li>";}
+      else{if(inList){out+="</ul>";inList=false;}out+=ln.trim()===""?"":("<div>"+_fmt(e(ln))+"</div>");}
+    });
+    if(inList)out+="</ul>";
+    return out;
+  }
   function render(){
     var log=document.getElementById("chat-log");if(!log)return;
     log.innerHTML=hist.map(function(m){
-      return '<div class="ch-msg ch-'+m.role+'">'+esc(m.content).replace(/\n/g,"<br>")+'</div>';
-    }).join("")+(window._chatBusy?'<div class="ch-msg ch-assistant ch-typing">\u2026</div>':"");
+      var inner=m.role==="assistant"?mdToHtml(m.content):esc(m.content).replace(/\n/g,"<br>");
+      return '<div class="ch-msg ch-'+m.role+'">'+inner+'</div>';
+    }).join("")+(window._chatBusy?'<div class="ch-msg ch-assistant ch-typing"><span></span><span></span><span></span></div>':"");
     log.scrollTop=log.scrollHeight;
   }
-  async function send(){
-    var inp=document.getElementById("chat-input");if(!inp)return;
-    var msg=(inp.value||"").trim();if(!msg||window._chatBusy)return;
-    inp.value="";hist.push({role:"user",content:msg});window._chatBusy=true;render();
+  function _favs(){try{return JSON.parse(localStorage.getItem("ll_favs")||"[]");}catch(e){return[];}}
+  async function ask(msg){
+    msg=(msg||"").trim();if(!msg||window._chatBusy)return;
+    hist.push({role:"user",content:msg});window._chatBusy=true;render();hideChips();
     try{
       var r=await fetch("/api/chat",{method:"POST",headers:{"content-type":"application/json"},
-        body:JSON.stringify({message:msg,history:hist.slice(0,-1)})});
+        body:JSON.stringify({message:msg,history:hist.slice(0,-1),favorites:_favs()})});
       var d=await r.json();
       hist.push({role:"assistant",content:d.reply||"Sorry, something went wrong."});
     }catch(e){hist.push({role:"assistant",content:"I couldn\u2019t reach the assistant just now."});}
     window._chatBusy=false;render();
   }
+  function send(){var inp=document.getElementById("chat-input");if(!inp)return;var m=inp.value;inp.value="";ask(m);}
+  function hideChips(){var c=document.getElementById("chat-chips");if(c)c.style.display="none";}
   window.openChat=function(){
     setup();
     var list=document.getElementById("list");
-    list.innerHTML='<div class="ch-wrap"><div class="ch-intro">Ask about today\u2019s games \u2014 the assistant answers straight from Line Logic\u2019s model. It only knows what the model actually predicts today, and won\u2019t make up numbers.</div>'+
+    list.innerHTML='<div class="ch-wrap"><div class="ch-intro">Ask about today\u2019s games \u2014 the assistant answers straight from Line Logic\u2019s model. It only knows what the model actually predicts today, and won\u2019t make up numbers. <span class="ch-clear" id="chat-clear">Clear</span></div>'+
       '<div class="ch-log" id="chat-log"></div>'+
+      '<div class="ch-chips" id="chat-chips">'+
+        '<button class="ch-chip">Who does the model like today?</button>'+
+        '<button class="ch-chip">How accurate is the model?</button>'+
+        '<button class="ch-chip">What\u2019s the strongest pick tonight?</button></div>'+
       '<div class="ch-bar"><input id="chat-input" class="ch-input" placeholder="e.g. who does the model like tonight?" autocomplete="off"><button id="chat-send" class="ch-send">Send</button></div></div>';
     if(!hist.length){hist.push({role:"assistant",content:"Hey! Ask me who the model likes in any of today\u2019s games."});}
     render();
     document.getElementById("chat-send").addEventListener("click",send);
     document.getElementById("chat-input").addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();send();}});
+    document.querySelectorAll(".ch-chip").forEach(function(b){b.addEventListener("click",function(){ask(b.textContent);});});
+    document.getElementById("chat-clear").addEventListener("click",function(){hist=[];window._chatBusy=false;openChat();});
+    if(hist.length>1)hideChips();
     document.getElementById("chat-input").focus();
   };
 })();

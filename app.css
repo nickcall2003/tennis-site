@@ -1040,3 +1040,22 @@
 .ch-input:focus{border-color:var(--accent);}
 .ch-send{background:var(--accent);color:#0e1014;border:none;border-radius:12px;padding:0 18px;font-weight:800;font-size:14px;cursor:pointer;}
 .ch-send:active{transform:scale(.97);}
+
+/* chat: suggested chips + clear */
+.ch-clear{float:right;color:var(--accent);font-weight:700;cursor:pointer;font-size:12px;}
+.ch-chips{display:flex;flex-wrap:wrap;gap:7px;padding:2px 2px 8px;}
+.ch-chip{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:999px;
+  padding:8px 13px;font-size:12.5px;cursor:pointer;transition:border-color .12s;}
+.ch-chip:hover{border-color:var(--accent);}
+
+/* chat: animated typing + markdown formatting */
+.ch-typing{display:flex;gap:5px;align-items:center;}
+.ch-typing span{width:6px;height:6px;border-radius:50%;background:var(--muted);display:inline-block;animation:chbounce 1.2s infinite;}
+.ch-typing span:nth-child(2){animation-delay:.15s;}
+.ch-typing span:nth-child(3){animation-delay:.3s;}
+@keyframes chbounce{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+.ch-assistant ul{margin:5px 0;padding-left:18px;}
+.ch-assistant li{margin:3px 0;}
+.ch-assistant div+div{margin-top:5px;}
+.ch-assistant code{background:var(--panel-3);padding:1px 5px;border-radius:4px;font-size:12.5px;}
+.ch-assistant strong{font-weight:800;color:var(--ink);}
