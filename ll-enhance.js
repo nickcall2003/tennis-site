@@ -75,6 +75,24 @@
     document.documentElement.style.setProperty("--accent",c);
     document.querySelectorAll(".ac-opt").forEach(function(b){b.classList.toggle("active",b.dataset.ac===c);});
   }
+  /* Theme presets: surface/background palettes (accent stays independent).
+     Semantic --win/--loss are intentionally left alone so meaning never shifts. */
+  var THEMES={
+    slate:{"--bg":"#0e1014","--panel":"#171a20","--panel-2":"#1e222a","--panel-3":"#262b35","--line":"#2f3540","--ink":"#eef1f5","--muted":"#9aa3b0","--muted-2":"#6b7382"},
+    cyber:{"--bg":"#05060a","--panel":"#0b0f16","--panel-2":"#0f1520","--panel-3":"#16202e","--line":"#1b2838","--ink":"#e8fbff","--muted":"#7f97a8","--muted-2":"#4f6474"},
+    obsidian:{"--bg":"#000000","--panel":"#0c0c0e","--panel-2":"#141417","--panel-3":"#1c1c21","--line":"#26262d","--ink":"#f4f4f6","--muted":"#9a9aa6","--muted-2":"#6a6a76"},
+    midnight:{"--bg":"#080b1a","--panel":"#0f1428","--panel-2":"#151b34","--panel-3":"#1e2645","--line":"#2a3358","--ink":"#eaefff","--muted":"#94a0c8","--muted-2":"#616d94"}
+  };
+  function applyTheme(k){
+    var t=THEMES[k]||THEMES.slate,root=document.documentElement;
+    for(var v in t){root.style.setProperty(v,t[v]);}
+    document.querySelectorAll(".th-opt").forEach(function(b){b.classList.toggle("active",b.dataset.th===k);});
+  }
+  var savedTh="slate";try{savedTh=localStorage.getItem("ll_theme")||"slate";}catch(e){}
+  applyTheme(savedTh);
+  document.querySelectorAll(".th-opt").forEach(function(b){
+    b.addEventListener("click",function(){var k=b.dataset.th;try{localStorage.setItem("ll_theme",k);}catch(e){}applyTheme(k);});
+  });
   var savedAc="#3ad17a";try{savedAc=localStorage.getItem("ll_accent")||"#3ad17a";}catch(e){}
   applyAccent(savedAc);
   document.querySelectorAll(".ac-opt").forEach(function(b){
@@ -192,6 +210,12 @@
         stat(term+" for",d.ppg,"per game")+stat(term+" against",d.opp_ppg,"per game")+'</div>'+
       (formBits?'<div class="tp-form"><div class="tp-lbl">Recent form</div><div class="tp-fbar">'+formBits+'</div></div>':"")+
       (recent?'<div class="tp-recent"><div class="tp-lbl">Last games</div>'+recent+'</div>':"")+
+      (d.adv?('<div class="tp-adv"><div class="tp-lbl">This season \u00b7 advanced</div><div class="tp-stats">'+
+        stat("Goals/game",d.adv.gf_avg)+stat("Conceded/game",d.adv.ga_avg)+
+        stat("Clean sheets",d.adv.clean_sheets)+stat("Failed to score",d.adv.failed_to_score)+
+        stat("Biggest win",d.adv.biggest_win)+stat("Biggest loss",d.adv.biggest_loss)+'</div>'+
+        (d.adv.formations&&d.adv.formations.length?'<div class="tp-forms">Formations: '+d.adv.formations.map(esc).join(" \u00b7 ")+'</div>':"")+
+        '<div class="tp-src">via api-football</div></div>'):"")+
       '<div class="tp-foot">Every figure here is computed from actual game results \u2014 no projected or fabricated ratings.</div></div>';
   }
 })();
