@@ -192,6 +192,60 @@ def calibration(days: int = 365, sport: str | None = None):
             "settled_with_prob": total, "logged_with_prob": len(probs)}
 
 
+@router.get("/api/ext/status")
+def _ext_status():
+    """Which external-API keys are configured (never returns the keys)."""
+    import apifootball, balldontlie
+    return {"apifootball": apifootball.available(),
+            "thesportsdb": True,
+            "balldontlie": balldontlie.available()}
+
+
+@router.get("/api/ext/apifootball")
+def _ext_apifootball(name: str, league: int = 39, season: int = 2024):
+    """Test: rich soccer team season stats for an ESPN team name."""
+    import apifootball
+    if not apifootball.available():
+        return {"error": "APIFOOTBALL_KEY not set"}
+    return apifootball.team_stats(name, league, season) or {"result": None}
+
+
+@router.get("/api/ext/apifootball-fixture")
+def _ext_af_fixture(id: int):
+    """Test raw per-fixture stats (incl xG) by api-football fixture id directly,
+    bypassing team matching — isolates whether your plan returns xG at all."""
+    import apifootball
+    if not apifootball.available():
+        return {"error": "APIFOOTBALL_KEY not set"}
+    return apifootball.fixture_stats(id) or {"result": None}
+
+
+@router.get("/api/ext/apifootball-xg")
+def _ext_af_xg(home: str, away: str, league: int = 39, season: int = 2024, date: str | None = None):
+    """Test the full chain: ESPN match (teams + date) -> api-football fixture -> xG."""
+    import apifootball
+    import datetime as dt
+    if not apifootball.available():
+        return {"error": "APIFOOTBALL_KEY not set"}
+    return apifootball.match_xg(league, season, date or dt.date.today().isoformat(), home, away) or {"result": None}
+
+
+@router.get("/api/ext/thesportsdb")
+def _ext_thesportsdb(name: str):
+    """Test: badge / stadium / jersey media for a team name."""
+    import thesportsdb
+    return thesportsdb.team_media(name) or {"result": None}
+
+
+@router.get("/api/ext/balldontlie")
+def _ext_balldontlie(sport: str = "nba", resource: str = "standings", season: int | None = None):
+    """Test: raw balldontlie payload for a sport + resource."""
+    import balldontlie
+    if not balldontlie.available():
+        return {"error": "BALLDONTLIE_KEY not set"}
+    return balldontlie.get(sport, resource, {"season": season} if season else None) or {"result": None}
+
+
 @router.get("/api/team-profile")
 def team_profile(sport: str, team_id: str, name: str | None = None, league: str | None = None):
     """Honest team profile — power rating (where we have Elo), record, recent
