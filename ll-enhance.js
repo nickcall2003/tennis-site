@@ -179,13 +179,16 @@
     return '<div class="pm-card"><div class="pm-h">'+title+(meta?'<span>'+meta+'</span>':"")+'</div>'+
       '<pre class="pm-text" id="'+id+'">'+esc(text)+'</pre>'+btns+'</div>';
   }
+  function _ah(){try{return (typeof authHeaders==="function")?authHeaders():{};}catch(e){return{};}}
+  async function getAuthed(u){var r=await fetch(u,{cache:"no-store",headers:_ah()});if(!r.ok)throw 0;return r.json();}
   window.openPromote=async function(){
     setup();
     var list=document.getElementById("list");
     list.innerHTML='<div class="pm-wrap"><div class="pm-loading">Building today\u2019s posts\u2026</div></div>';
     var pv={},rc={};
-    try{pv=await getJSON("/api/promo/preview");}catch(e){}
-    try{rc=await getJSON("/api/promo/recap");}catch(e){}
+    try{pv=await getAuthed("/api/promo/preview");}catch(e){}
+    try{rc=await getAuthed("/api/promo/recap");}catch(e){}
+    if(pv&&pv.error==="forbidden"){list.innerHTML='<div class="pm-wrap"><div class="pm-empty">This is the owner-only promotion panel.</div></div>';return;}
     var h='<div class="pm-wrap"><div class="pm-intro">Ready-to-post content from your real data \u2014 it leads with your public track record, the account\u2019s real edge. Copy to X, or push straight to Discord.</div>';
     h+='<div class="pm-sec">Today\u2019s picks</div>';
     h+=_card("x-picks","X / Twitter",(pv.x||"").length+"/280",pv.x||"",false);
@@ -201,11 +204,19 @@
       var el=document.getElementById(b.dataset.t);copyText(el?el.textContent:"",b);});});
     list.querySelectorAll(".pm-send").forEach(function(b){b.addEventListener("click",async function(){
       var note=b.parentElement.querySelector(".pm-note");b.textContent="Sending\u2026";
-      try{var r=await fetch("/api/promo/discord?kind="+encodeURIComponent(b.dataset.kind),{method:"POST"});
+      try{var r=await fetch("/api/promo/discord?kind="+encodeURIComponent(b.dataset.kind),{method:"POST",headers:_ah()});
         var j=await r.json();if(note)note.textContent=j.ok?" Posted \u2713":(" "+(j.error||"failed"));}
       catch(e){if(note)note.textContent=" failed";}
       b.textContent="Send to Discord";});});
   };
+  window.checkPromoteAccess=function(){
+    try{
+      fetch("/api/promo/allowed",{headers:_ah()}).then(function(r){return r.json();}).then(function(j){
+        var nav=document.getElementById("promote-nav");if(nav)nav.style.display=(j&&j.admin)?"":"none";
+      }).catch(function(){});
+    }catch(e){}
+  };
+  checkPromoteAccess();
 })();
 /* ===== AI Assistant chat ===== */
 (function(){
