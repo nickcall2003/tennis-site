@@ -1669,17 +1669,17 @@ def list_matches(date: str | None = None):
         for m in rows:
             ml = _ml_pair(m)
             tier = (m.tier or "").upper()
-            # ITF/futures floods the board with matches api-tennis rarely prices.
-            # Keep them TRACKED in the background (the odds warmer, result grading and
-            # the tours breakdown all still run), but don't bury the tour board with a
-            # wall of "Awaiting market": hide UPCOMING ITF matches that have no market
-            # line. Tour + challenger always show; anything priced shows; anything
-            # live or finished shows.
-            if tier == "ITF" and m.status not in ("live", "finished") and not ml:
-                continue
             row = _match_row(db, m)
             if ml:
                 row["odds"] = ml
+            # ITF/futures floods the board. We still show these tournaments, but
+            # only when there's something useful to show — a model pick OR a price
+            # — so we don't render empty "Awaiting market" shells with no
+            # prediction at all. Tour/challenger, anything priced, and anything
+            # live or finished always show.
+            if (tier == "ITF" and m.status not in ("live", "finished")
+                    and not ml and not row.get("prediction")):
+                continue
             result.append(row)
         # log settled tennis picks for the accuracy tracker (best-effort)
         try:

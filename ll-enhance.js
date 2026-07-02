@@ -78,10 +78,10 @@
   /* Theme presets: surface/background palettes (accent stays independent).
      Semantic --win/--loss are intentionally left alone so meaning never shifts. */
   var THEMES={
-    slate:{"--bg":"#0e1014","--panel":"#171a20","--panel-2":"#1e222a","--panel-3":"#262b35","--line":"#2f3540","--ink":"#eef1f5","--muted":"#9aa3b0","--muted-2":"#6b7382"},
-    cyber:{"--bg":"#05060a","--panel":"#0b0f16","--panel-2":"#0f1520","--panel-3":"#16202e","--line":"#1b2838","--ink":"#e8fbff","--muted":"#7f97a8","--muted-2":"#4f6474"},
-    obsidian:{"--bg":"#000000","--panel":"#0c0c0e","--panel-2":"#141417","--panel-3":"#1c1c21","--line":"#26262d","--ink":"#f4f4f6","--muted":"#9a9aa6","--muted-2":"#6a6a76"},
-    midnight:{"--bg":"#080b1a","--panel":"#0f1428","--panel-2":"#151b34","--panel-3":"#1e2645","--line":"#2a3358","--ink":"#eaefff","--muted":"#94a0c8","--muted-2":"#616d94"}
+    slate:{"--bg":"#0e1014","--panel":"#171a20","--panel-2":"#1e222a","--panel-3":"#262b35","--line":"#2f3540","--ink":"#eef1f5","--muted":"#9aa3b0","--muted-2":"#6b7382","--glow":"#1c160f"},
+    cyber:{"--bg":"#05060a","--panel":"#0b0f16","--panel-2":"#0f1520","--panel-3":"#16202e","--line":"#1b2838","--ink":"#e8fbff","--muted":"#7f97a8","--muted-2":"#4f6474","--glow":"#08222b"},
+    obsidian:{"--bg":"#000000","--panel":"#0c0c0e","--panel-2":"#141417","--panel-3":"#1c1c21","--line":"#26262d","--ink":"#f4f4f6","--muted":"#9a9aa6","--muted-2":"#6a6a76","--glow":"#111111"},
+    midnight:{"--bg":"#080b1a","--panel":"#0f1428","--panel-2":"#151b34","--panel-3":"#1e2645","--line":"#2a3358","--ink":"#eaefff","--muted":"#94a0c8","--muted-2":"#616d94","--glow":"#101a3a"}
   };
   function applyTheme(k){
     var t=THEMES[k]||THEMES.slate,root=document.documentElement;
