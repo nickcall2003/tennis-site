@@ -36,6 +36,17 @@ BASE_URL = "https://api.api-tennis.com/tennis/"
 # no variable is needed to turn ITF ON; it's the default.
 _INCLUDE_ITF = os.environ.get("INCLUDE_ITF", "1").strip().lower() not in ("0", "false", "no", "off")
 
+
+def _fmt_tournament(name):
+    """Append the host country to ITF labels ('M25 Skopje' -> 'M25 Skopje
+    (North Macedonia)'). Best-effort; if the helper module is missing or the city
+    is unknown, the original name is returned unchanged."""
+    try:
+        import tennis_cities
+        return tennis_cities.format_tournament(name)
+    except Exception:
+        return name
+
 _TIER_MAP = {
     "Atp Singles": "ATP",
     "Wta Singles": "WTA",
@@ -276,7 +287,7 @@ class APITennisProvider(TennisProvider):
                 when = day
             out.append(MatchInfo(
                 provider_match_id=key, tier=tier,
-                tournament=fix.get("tournament_name", "Tennis"),
+                tournament=_fmt_tournament(fix.get("tournament_name", "Tennis")),
                 surface=_infer_surface(fix.get("tournament_name", ""), tier, when),
                 player_a=fix.get("event_first_player", "Player A"),
                 player_b=fix.get("event_second_player", "Player B"),
@@ -390,7 +401,7 @@ class APITennisProvider(TennisProvider):
             "status": fix.get("event_status"),
             "score": fix.get("event_final_result") or fix.get("event_game_result"),
             "serving": fix.get("event_serve"),
-            "tournament": fix.get("tournament_name"),
+            "tournament": _fmt_tournament(fix.get("tournament_name")),
             "round": fix.get("tournament_round"),
             "p1": {"name": fix.get("event_first_player"), "key": p1key, "stats": {}},
             "p2": {"name": fix.get("event_second_player"), "key": p2key, "stats": {}},
