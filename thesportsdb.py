@@ -46,9 +46,9 @@ def team_media(name):
     out = {
         "source": "thesportsdb",
         "team": t.get("strTeam"),
-        "badge": t.get("strTeamBadge"),
-        "logo": t.get("strTeamLogo"),
-        "jersey": t.get("strTeamJersey"),
+        "badge": t.get("strBadge") or t.get("strTeamBadge"),
+        "logo": t.get("strLogo") or t.get("strTeamLogo"),
+        "jersey": t.get("strEquipment") or t.get("strTeamJersey"),
         "stadium": t.get("strStadium"),
         "stadium_thumb": t.get("strStadiumThumb"),
         "stadium_capacity": t.get("intStadiumCapacity"),

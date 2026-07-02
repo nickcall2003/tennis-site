@@ -1010,3 +1010,7 @@
 /* draw states for soccer team profiles */
 .tp-f.d{background:var(--muted-2);color:#0e1014;}
 .tp-g-res.d{background:var(--muted-2);color:#0e1014;}
+
+/* team profile crest */
+.tp-badge{width:38px;height:38px;object-fit:contain;margin-right:10px;vertical-align:middle;flex:none;}
+.tp-head{display:flex;align-items:center;}

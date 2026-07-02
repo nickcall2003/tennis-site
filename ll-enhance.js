@@ -184,7 +184,7 @@
         '<span class="tp-g-sc">'+esc(r.score||"")+'</span></div>';}).join("");
     var term=d.score_term||"Pts";
     list.innerHTML='<div class="tp-wrap">'+
-      '<div class="tp-head"><div class="tp-name">'+esc(d.name||"Team")+'</div>'+
+      '<div class="tp-head">'+(d.badge?'<img class="tp-badge" src="'+esc(d.badge)+'" alt="">':"")+'<div class="tp-name">'+esc(d.name||"Team")+'</div>'+
         (d.rating!=null?'<div class="tp-rating">'+esc(d.rating)+'<span>power rating</span></div>':"")+'</div>'+
       '<div class="tp-stats">'+
         stat("Record",d.record,d.games+" gp")+stat("Last 10",d.last10)+stat("Streak",d.streak)+

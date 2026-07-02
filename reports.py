@@ -252,19 +252,31 @@ def team_profile(sport: str, team_id: str, name: str | None = None, league: str 
     form, home/away splits, scoring for/against, current streak — computed from
     the team's real schedule. No fabricated pace/ATS/clutch numbers."""
     try:
+        prof = None
         if sport in ("nba", "nfl", "ncaaf", "ncaab", "wncaab"):
             import espn_provider
-            return espn_provider.team_profile(sport, team_id, name)
-        if sport == "nhl":
+            prof = espn_provider.team_profile(sport, team_id, name)
+        elif sport == "nhl":
             import nhl_games
-            return nhl_games.team_profile(team_id, name)
-        if sport == "mlb":
+            prof = nhl_games.team_profile(team_id, name)
+        elif sport == "mlb":
             import mlb_provider
-            return mlb_provider.team_profile(team_id, name)
-        if sport == "soccer":
+            prof = mlb_provider.team_profile(team_id, name)
+        elif sport == "soccer":
             import soccer_provider
-            return soccer_provider.team_profile(team_id, name, league)
-        return {"sport": sport, "team_id": team_id, "name": name, "unsupported": True}
+            prof = soccer_provider.team_profile(team_id, name, league)
+        else:
+            return {"sport": sport, "team_id": team_id, "name": name, "unsupported": True}
+        # Enrich with a crest/badge (best-effort; a miss just omits it).
+        if isinstance(prof, dict) and prof.get("name") and not prof.get("badge"):
+            try:
+                import thesportsdb
+                b = thesportsdb.badge(prof["name"])
+                if b:
+                    prof["badge"] = b
+            except Exception:
+                pass
+        return prof
     except Exception as e:
         return {"sport": sport, "team_id": team_id, "name": name, "error": str(e)}
 
