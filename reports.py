@@ -192,6 +192,29 @@ def calibration(days: int = 365, sport: str | None = None):
             "settled_with_prob": total, "logged_with_prob": len(probs)}
 
 
+@router.get("/api/team-profile")
+def team_profile(sport: str, team_id: str, name: str | None = None, league: str | None = None):
+    """Honest team profile — power rating (where we have Elo), record, recent
+    form, home/away splits, scoring for/against, current streak — computed from
+    the team's real schedule. No fabricated pace/ATS/clutch numbers."""
+    try:
+        if sport in ("nba", "nfl", "ncaaf", "ncaab", "wncaab"):
+            import espn_provider
+            return espn_provider.team_profile(sport, team_id, name)
+        if sport == "nhl":
+            import nhl_games
+            return nhl_games.team_profile(team_id, name)
+        if sport == "mlb":
+            import mlb_provider
+            return mlb_provider.team_profile(team_id, name)
+        if sport == "soccer":
+            import soccer_provider
+            return soccer_provider.team_profile(team_id, name, league)
+        return {"sport": sport, "team_id": team_id, "name": name, "unsupported": True}
+    except Exception as e:
+        return {"sport": sport, "team_id": team_id, "name": name, "error": str(e)}
+
+
 
 # ---- edges ----
 def _implied(o):
