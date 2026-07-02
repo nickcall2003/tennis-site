@@ -148,6 +148,65 @@
       '<div class="cal-foot">Green rows = claim and reality agree within 6 points. Same honest results the model is graded on \u2014 nothing hand-picked.</div></div>';
   }
 })();
+/* ===== Promote: shareable posts from today's picks ===== */
+(function(){
+  function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function setup(){
+    view="promote";
+    document.getElementById("home").classList.remove("show");
+    document.getElementById("main").style.display="";
+    var d=document.getElementById("detail");if(d)d.style.display="none";
+    var st=document.getElementById("sport-tag");if(st)st.textContent="Promote";
+    document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="promote");});
+    var sd=document.getElementById("side");if(sd)sd.style.display="none";
+    var sh=document.querySelector(".shell");if(sh)sh.style.gridTemplateColumns="1fr";
+    document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+    var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+    var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+    var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+    if(typeof toggleMenu==="function")toggleMenu(false);
+  }
+  function copyText(t,btn){
+    try{navigator.clipboard.writeText(t);}catch(e){
+      var ta=document.createElement("textarea");ta.value=t;document.body.appendChild(ta);ta.select();
+      try{document.execCommand("copy");}catch(_){}document.body.removeChild(ta);}
+    if(btn){var o=btn.textContent;btn.textContent="Copied \u2713";setTimeout(function(){btn.textContent=o;},1400);}
+  }
+  function _card(kind, title, meta, text, discord){
+    var id="pm-"+kind;
+    var btns='<button class="pm-btn pm-copy" data-t="'+id+'">Copy'+(discord?"":" for X")+'</button>';
+    if(discord){btns+=' <button class="pm-btn pm-alt pm-send" data-kind="'+kind.replace("d-","")+'">Send to Discord</button><span class="pm-note"></span>';}
+    return '<div class="pm-card"><div class="pm-h">'+title+(meta?'<span>'+meta+'</span>':"")+'</div>'+
+      '<pre class="pm-text" id="'+id+'">'+esc(text)+'</pre>'+btns+'</div>';
+  }
+  window.openPromote=async function(){
+    setup();
+    var list=document.getElementById("list");
+    list.innerHTML='<div class="pm-wrap"><div class="pm-loading">Building today\u2019s posts\u2026</div></div>';
+    var pv={},rc={};
+    try{pv=await getJSON("/api/promo/preview");}catch(e){}
+    try{rc=await getJSON("/api/promo/recap");}catch(e){}
+    var h='<div class="pm-wrap"><div class="pm-intro">Ready-to-post content from your real data \u2014 it leads with your public track record, the account\u2019s real edge. Copy to X, or push straight to Discord.</div>';
+    h+='<div class="pm-sec">Today\u2019s picks</div>';
+    h+=_card("x-picks","X / Twitter",(pv.x||"").length+"/280",pv.x||"",false);
+    h+=_card("d-picks","Discord","",pv.discord||"",true);
+    if(rc&&rc.has_results){
+      h+='<div class="pm-sec">Yesterday\u2019s recap &middot; '+esc(rc.record||"")+'</div>';
+      h+=_card("x-recap","X / Twitter",(rc.x||"").length+"/280",rc.x||"",false);
+      h+=_card("d-recap","Discord","",rc.discord||"",true);
+    }
+    h+='<div class="pm-tip">The recap is your highest-value post \u2014 people follow accounts that show results, win or lose. Post picks in the morning, the recap the next day, at a consistent time.</div></div>';
+    list.innerHTML=h;
+    list.querySelectorAll(".pm-copy").forEach(function(b){b.addEventListener("click",function(){
+      var el=document.getElementById(b.dataset.t);copyText(el?el.textContent:"",b);});});
+    list.querySelectorAll(".pm-send").forEach(function(b){b.addEventListener("click",async function(){
+      var note=b.parentElement.querySelector(".pm-note");b.textContent="Sending\u2026";
+      try{var r=await fetch("/api/promo/discord?kind="+encodeURIComponent(b.dataset.kind),{method:"POST"});
+        var j=await r.json();if(note)note.textContent=j.ok?" Posted \u2713":(" "+(j.error||"failed"));}
+      catch(e){if(note)note.textContent=" failed";}
+      b.textContent="Send to Discord";});});
+  };
+})();
 /* ===== AI Assistant chat ===== */
 (function(){
   var hist=[];

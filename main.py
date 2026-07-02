@@ -794,6 +794,12 @@ try:
 except Exception as _chat_err:
     print(f"[startup] chat router not loaded: {_chat_err}")
 
+try:
+    from promo_routes import router as promo_router
+    app.include_router(promo_router)
+except Exception as _promo_err:
+    print(f"[startup] promo router not loaded: {_promo_err}")
+
 
 @app.middleware("http")
 async def _no_cache_api(request, call_next):
@@ -2547,6 +2553,7 @@ def _gather_plays_uncached(target: dt.date):
                 plays.append({
                     "sport": "mlb", "id": g["id"], "kind": "moneyline",
                     "match": f"{g['away']['name']} @ {g['home']['name']}",
+                    "h2h": g.get("h2h"),
                     "tournament": g.get("venue", ""),
                     "pick": f"{pick} to win", "prob": round(prob, 3),
                     "confidence": g["confidence"], "event_time": g.get("event_time"),
@@ -2573,6 +2580,7 @@ def _gather_plays_uncached(target: dt.date):
                 plays.append({
                     "sport": _key, "id": g["id"], "kind": "moneyline",
                     "match": f"{g['away']['name']} @ {g['home']['name']}",
+                    "h2h": g.get("h2h"),
                     "tournament": g.get("venue", ""),
                     "pick": f"{pick} to win", "prob": round(prob, 3),
                     "confidence": g["confidence"], "event_time": g.get("event_time"),
@@ -2605,6 +2613,7 @@ def _gather_plays_uncached(target: dt.date):
             plays.append({
                 "sport": "soccer", "id": g["id"], "league": g["league"], "kind": "moneyline",
                 "match": f"{g['away']['name']} @ {g['home']['name']}",
+                "h2h": g.get("h2h"),
                 "tournament": g.get("league_label", ""),
                 "pick": pick, "prob": round(prob, 3),
                 "confidence": conf, "event_time": g.get("event_time"),
