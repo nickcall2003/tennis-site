@@ -181,7 +181,7 @@
   .menu.open{display:block}
   .menu-item{padding:11px 14px;border-radius:8px;cursor:pointer;font-size:15px;font-weight:600}
   .menu-item:hover{background:var(--panel-3)}
-  .menu-item.active{background:var(--clay);color:#0e1014}
+  .menu-item.active{background:var(--accent);color:#0e1014}
   .ts-row{display:flex;gap:6px;padding:2px 12px 10px}
   .ts-opt{flex:1;background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:9px;padding:8px 0;cursor:pointer;font-weight:800;display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1;font-family:"Fraunces",serif}
   .ts-opt:nth-child(1){font-size:14px}
@@ -1077,3 +1077,22 @@
 
 /* promote: section headers */
 .pm-sec{font-size:12px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);margin:6px 2px 10px;}
+
+/* ===== Floating chat bubble + popup ===== */
+#ll-chat-fab{position:fixed;right:16px;bottom:16px;width:56px;height:56px;border-radius:50%;
+  background:var(--accent);color:#0e1014;border:none;font-size:24px;cursor:pointer;z-index:900;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.45);
+  transition:transform .12s,box-shadow .12s;}
+#ll-chat-fab:hover{box-shadow:0 6px 22px rgba(0,0,0,.55);}
+#ll-chat-fab.open{transform:scale(.9);opacity:.9;}
+.ch-pop{position:fixed;right:16px;bottom:82px;width:min(370px,calc(100vw - 24px));height:min(72vh,540px);
+  background:var(--panel);border:1px solid var(--line);border-radius:16px;z-index:901;
+  display:flex;flex-direction:column;overflow:hidden;box-shadow:0 10px 34px rgba(0,0,0,.55);}
+.ch-pop-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line);
+  font-weight:800;font-size:14px;color:var(--ink);}
+.ch-pop-head span{flex:1;}
+.ch-pop-head .ch-clear{background:none;border:none;color:var(--accent);font-weight:700;font-size:12px;cursor:pointer;padding:0;}
+.ch-pop-head .ch-close{background:none;border:none;color:var(--muted);font-size:24px;line-height:1;cursor:pointer;padding:0 2px;}
+.ch-pop .ch-log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:9px;padding:12px;}
+.ch-pop .ch-chips{display:flex;flex-wrap:wrap;gap:7px;padding:0 12px 8px;}
+.ch-pop .ch-bar{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--line);}

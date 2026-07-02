@@ -189,6 +189,7 @@
     try{pv=await getAuthed("/api/promo/preview");}catch(e){}
     try{rc=await getAuthed("/api/promo/recap");}catch(e){}
     if(pv&&pv.error==="forbidden"){list.innerHTML='<div class="pm-wrap"><div class="pm-empty">This is the owner-only promotion panel.</div></div>';return;}
+    if(!pv||!pv.x){list.innerHTML='<div class="pm-wrap"><div class="pm-empty">Couldn\u2019t load posts. Make sure you\u2019re logged in as the owner account and that ADMIN_USERNAME is set, then hard-refresh.</div></div>';return;}
     var h='<div class="pm-wrap"><div class="pm-intro">Ready-to-post content from your real data \u2014 it leads with your public track record, the account\u2019s real edge. Copy to X, or push straight to Discord.</div>';
     h+='<div class="pm-sec">Today\u2019s picks</div>';
     h+=_card("x-picks","X / Twitter",(pv.x||"").length+"/280",pv.x||"",false);
@@ -218,25 +219,10 @@
   };
   checkPromoteAccess();
 })();
-/* ===== AI Assistant chat ===== */
+/* ===== AI Assistant — floating chat bubble ===== */
 (function(){
-  var hist=[];
+  var hist=[], built=false, open=false;
   function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
-  function setup(){
-    view="chat";
-    document.getElementById("home").classList.remove("show");
-    document.getElementById("main").style.display="";
-    var d=document.getElementById("detail");if(d)d.style.display="none";
-    var st=document.getElementById("sport-tag");if(st)st.textContent="Assistant";
-    document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="chat");});
-    var sd=document.getElementById("side");if(sd)sd.style.display="none";
-    var sh=document.querySelector(".shell");if(sh)sh.style.gridTemplateColumns="1fr";
-    document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
-    var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
-    var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
-    var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
-    if(typeof toggleMenu==="function")toggleMenu(false);
-  }
   function _fmt(t){return t.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/`([^`]+)`/g,"<code>$1</code>");}
   function mdToHtml(s){
     var e=function(t){return String(t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");};
@@ -258,6 +244,7 @@
     log.scrollTop=log.scrollHeight;
   }
   function _favs(){try{return JSON.parse(localStorage.getItem("ll_favs")||"[]");}catch(e){return[];}}
+  function hideChips(){var c=document.getElementById("chat-chips");if(c)c.style.display="none";}
   async function ask(msg){
     msg=(msg||"").trim();if(!msg||window._chatBusy)return;
     hist.push({role:"user",content:msg});window._chatBusy=true;render();hideChips();
@@ -270,26 +257,36 @@
     window._chatBusy=false;render();
   }
   function send(){var inp=document.getElementById("chat-input");if(!inp)return;var m=inp.value;inp.value="";ask(m);}
-  function hideChips(){var c=document.getElementById("chat-chips");if(c)c.style.display="none";}
-  window.openChat=function(){
-    setup();
-    var list=document.getElementById("list");
-    list.innerHTML='<div class="ch-wrap"><div class="ch-intro">Ask about today\u2019s games \u2014 the assistant answers straight from Line Logic\u2019s model. It only knows what the model actually predicts today, and won\u2019t make up numbers. <span class="ch-clear" id="chat-clear">Clear</span></div>'+
+  function seed(){if(!hist.length){hist.push({role:"assistant",content:"Hey! Ask me who the model likes in any of today\u2019s games."});}}
+  function build(){
+    if(built||!document.body)return;built=true;
+    var fab=document.createElement("button");
+    fab.id="ll-chat-fab";fab.type="button";fab.setAttribute("aria-label","Ask the assistant");fab.innerHTML="\uD83D\uDCAC";
+    var pop=document.createElement("div");pop.id="ll-chat-pop";pop.className="ch-pop";pop.style.display="none";
+    pop.innerHTML='<div class="ch-pop-head"><span>\uD83C\uDFAF Assistant</span>'+
+      '<button class="ch-clear" id="chat-clear">Clear</button><button class="ch-close" id="ch-close" aria-label="Close">\u00D7</button></div>'+
       '<div class="ch-log" id="chat-log"></div>'+
       '<div class="ch-chips" id="chat-chips">'+
         '<button class="ch-chip">Who does the model like today?</button>'+
         '<button class="ch-chip">How accurate is the model?</button>'+
-        '<button class="ch-chip">What\u2019s the strongest pick tonight?</button></div>'+
-      '<div class="ch-bar"><input id="chat-input" class="ch-input" placeholder="e.g. who does the model like tonight?" autocomplete="off"><button id="chat-send" class="ch-send">Send</button></div></div>';
-    if(!hist.length){hist.push({role:"assistant",content:"Hey! Ask me who the model likes in any of today\u2019s games."});}
-    render();
+        '<button class="ch-chip">Strongest pick tonight?</button></div>'+
+      '<div class="ch-bar"><input id="chat-input" class="ch-input" placeholder="Ask about today\u2019s games\u2026" autocomplete="off"><button id="chat-send" class="ch-send">Send</button></div>';
+    document.body.appendChild(fab);document.body.appendChild(pop);
+    fab.addEventListener("click",function(){setOpen(!open);});
+    document.getElementById("ch-close").addEventListener("click",function(){setOpen(false);});
     document.getElementById("chat-send").addEventListener("click",send);
     document.getElementById("chat-input").addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();send();}});
-    document.querySelectorAll(".ch-chip").forEach(function(b){b.addEventListener("click",function(){ask(b.textContent);});});
-    document.getElementById("chat-clear").addEventListener("click",function(){hist=[];window._chatBusy=false;openChat();});
-    if(hist.length>1)hideChips();
-    document.getElementById("chat-input").focus();
-  };
+    pop.querySelectorAll(".ch-chip").forEach(function(b){b.addEventListener("click",function(){ask(b.textContent);});});
+    document.getElementById("chat-clear").addEventListener("click",function(){hist=[];window._chatBusy=false;seed();render();var c=document.getElementById("chat-chips");if(c)c.style.display="";});
+  }
+  function setOpen(o){
+    open=o;var pop=document.getElementById("ll-chat-pop"),fab=document.getElementById("ll-chat-fab");
+    if(pop)pop.style.display=o?"flex":"none";
+    if(fab)fab.classList.toggle("open",o);
+    if(o){seed();render();if(hist.length>1)hideChips();var inp=document.getElementById("chat-input");if(inp)setTimeout(function(){inp.focus();},50);}
+  }
+  window.openChat=function(){build();setOpen(true);};
+  if(document.body)build();else document.addEventListener("DOMContentLoaded",build);
 })();
 /* ===== Team profile pages ===== */
 (function(){
