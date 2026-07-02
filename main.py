@@ -788,6 +788,12 @@ try:
 except Exception as _ops_err:
     print(f"[startup] ops router not loaded: {_ops_err}")
 
+try:
+    from chat_routes import router as chat_router
+    app.include_router(chat_router)
+except Exception as _chat_err:
+    print(f"[startup] chat router not loaded: {_chat_err}")
+
 
 @app.middleware("http")
 async def _no_cache_api(request, call_next):

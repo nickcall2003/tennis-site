@@ -148,6 +148,57 @@
       '<div class="cal-foot">Green rows = claim and reality agree within 6 points. Same honest results the model is graded on \u2014 nothing hand-picked.</div></div>';
   }
 })();
+/* ===== AI Assistant chat ===== */
+(function(){
+  var hist=[];
+  function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function setup(){
+    view="chat";
+    document.getElementById("home").classList.remove("show");
+    document.getElementById("main").style.display="";
+    var d=document.getElementById("detail");if(d)d.style.display="none";
+    var st=document.getElementById("sport-tag");if(st)st.textContent="Assistant";
+    document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="chat");});
+    var sd=document.getElementById("side");if(sd)sd.style.display="none";
+    var sh=document.querySelector(".shell");if(sh)sh.style.gridTemplateColumns="1fr";
+    document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+    var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+    var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+    var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+    if(typeof toggleMenu==="function")toggleMenu(false);
+  }
+  function render(){
+    var log=document.getElementById("chat-log");if(!log)return;
+    log.innerHTML=hist.map(function(m){
+      return '<div class="ch-msg ch-'+m.role+'">'+esc(m.content).replace(/\n/g,"<br>")+'</div>';
+    }).join("")+(window._chatBusy?'<div class="ch-msg ch-assistant ch-typing">\u2026</div>':"");
+    log.scrollTop=log.scrollHeight;
+  }
+  async function send(){
+    var inp=document.getElementById("chat-input");if(!inp)return;
+    var msg=(inp.value||"").trim();if(!msg||window._chatBusy)return;
+    inp.value="";hist.push({role:"user",content:msg});window._chatBusy=true;render();
+    try{
+      var r=await fetch("/api/chat",{method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({message:msg,history:hist.slice(0,-1)})});
+      var d=await r.json();
+      hist.push({role:"assistant",content:d.reply||"Sorry, something went wrong."});
+    }catch(e){hist.push({role:"assistant",content:"I couldn\u2019t reach the assistant just now."});}
+    window._chatBusy=false;render();
+  }
+  window.openChat=function(){
+    setup();
+    var list=document.getElementById("list");
+    list.innerHTML='<div class="ch-wrap"><div class="ch-intro">Ask about today\u2019s games \u2014 the assistant answers straight from Line Logic\u2019s model. It only knows what the model actually predicts today, and won\u2019t make up numbers.</div>'+
+      '<div class="ch-log" id="chat-log"></div>'+
+      '<div class="ch-bar"><input id="chat-input" class="ch-input" placeholder="e.g. who does the model like tonight?" autocomplete="off"><button id="chat-send" class="ch-send">Send</button></div></div>';
+    if(!hist.length){hist.push({role:"assistant",content:"Hey! Ask me who the model likes in any of today\u2019s games."});}
+    render();
+    document.getElementById("chat-send").addEventListener("click",send);
+    document.getElementById("chat-input").addEventListener("keydown",function(e){if(e.key==="Enter"){e.preventDefault();send();}});
+    document.getElementById("chat-input").focus();
+  };
+})();
 /* ===== Team profile pages ===== */
 (function(){
   var SUP={nba:1,nfl:1,ncaaf:1,ncaab:1,wncaab:1,mlb:1,nhl:1,soccer:1};

@@ -64,6 +64,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-view="value">&#128142; Value Board</div>
           <div class="menu-item" data-view="myboard">&#11088; My Board</div>
           <div class="menu-item" data-view="calibration">&#128200; Calibration</div>
+          <div class="menu-item" data-view="chat">&#128172; Assistant</div>
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           <div class="menu-sec">More</div>
           <div class="menu-item" data-view="record">&#128202; Track Record</div>
@@ -562,6 +563,7 @@ function selectMenu(el){
   else if(el.dataset.view==="value"){openValueBoard();}
   else if(el.dataset.view==="myboard"){openMyBoard();}
   else if(el.dataset.view==="calibration"){openCalibration();}
+  else if(el.dataset.view==="chat"){openChat();}
   else if(el.dataset.view==="bets"){openBets();}
   else if(el.dataset.view==="auth"){openAuth(authToken?"account":"login");}
   else if(el.dataset.view==="parlays"){openParlays();}
