@@ -134,6 +134,46 @@ def accuracy(days: int = 30):
 
 
 # ---- calibration ----
+@router.get("/api/results/recent")
+def recent_results(days: int = 5):
+    """Public: recent graded picks grouped by day \u2014 the honest receipts."""
+    from models import LockedPickSet, PickResult
+    import json
+    import datetime as _dt
+    cutoff = _dt.datetime.now() - _dt.timedelta(days=days + 2)
+    by_day = {}
+    with SessionLocal() as db:
+        try:
+            rows = db.query(LockedPickSet).filter(
+                LockedPickSet.view == "free", LockedPickSet.pick_date >= cutoff).all()
+        except Exception:
+            rows = []
+        outcomes = {(r.sport, str(r.ref)): r.correct for r in db.query(PickResult).all()}
+    for row in rows:
+        try:
+            plist = json.loads(row.payload)
+        except Exception:
+            continue
+        day = str(row.pick_date)[:10]
+        for p in plist:
+            c = outcomes.get((p.get("sport"), str(p.get("id"))))
+            if c is None:
+                continue
+            by_day.setdefault(day, []).append({
+                "pick": (p.get("pick") or "").replace(" to win", ""),
+                "prob": round(float(p.get("prob", 0)) * 100),
+                "sport": p.get("sport"), "won": bool(c), "match": p.get("match")})
+    out = []
+    for day in sorted(by_day.keys(), reverse=True)[:days]:
+        picks = sorted(by_day[day], key=lambda x: x["prob"], reverse=True)
+        w = sum(1 for x in picks if x["won"])
+        out.append({"date": day, "w": w, "l": len(picks) - w,
+                    "record": f"{w}-{len(picks)-w}", "picks": picks})
+    tw = sum(d["w"] for d in out)
+    tl = sum(d["l"] for d in out)
+    return {"days": out, "summary": {"w": tw, "l": tl, "record": f"{tw}-{tl}"}}
+
+
 @router.get("/api/calibration")
 def calibration(days: int = 365, sport: str | None = None):
     """Reliability of the model's probabilities: for picks we said had an X%

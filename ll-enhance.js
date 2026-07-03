@@ -148,6 +148,50 @@
       '<div class="cal-foot">Green rows = claim and reality agree within 6 points. Same honest results the model is graded on \u2014 nothing hand-picked.</div></div>';
   }
 })();
+/* ===== Recent Results (on-site receipts) ===== */
+(function(){
+  function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  function setup(){
+    view="results";
+    document.getElementById("home").classList.remove("show");
+    document.getElementById("main").style.display="";
+    var d=document.getElementById("detail");if(d)d.style.display="none";
+    var st=document.getElementById("sport-tag");if(st)st.textContent="Recent Results";
+    document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="results");});
+    var sd=document.getElementById("side");if(sd)sd.style.display="none";
+    var sh=document.querySelector(".shell");if(sh)sh.style.gridTemplateColumns="1fr";
+    document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+    var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+    var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+    var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+    if(typeof toggleMenu==="function")toggleMenu(false);
+  }
+  function fmtDay(iso){try{var p=iso.split("-");return new Date(p[0],p[1]-1,p[2]).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});}catch(e){return iso;}}
+  window.openResults=async function(){
+    setup();
+    var list=document.getElementById("list");
+    list.innerHTML='<div class="rs-wrap"><div class="rs-loading">Loading results\u2026</div></div>';
+    var d;try{d=await getJSON("/api/results/recent?days=7");}catch(e){
+      list.innerHTML='<div class="rs-wrap"><div class="rs-empty">Couldn\u2019t load results right now.</div></div>';return;}
+    var days=(d&&d.days)||[];
+    var intro='<div class="rs-intro">Every graded pick, win or lose \u2014 no deleted losers. The same record the model is scored on.</div>';
+    if(!days.length){list.innerHTML='<div class="rs-wrap">'+intro+'<div class="rs-empty">No graded results yet. They fill in here as games settle.</div></div>';return;}
+    var sum=(d.summary||{});
+    var h='<div class="rs-wrap">'+intro+
+      '<div class="rs-sum"><div class="rs-sum-v">'+esc(sum.record||"")+'</div><div class="rs-sum-k">last '+days.length+' days \u00b7 model record</div></div>';
+    days.forEach(function(day){
+      h+='<div class="rs-day"><div class="rs-day-h"><span>'+esc(fmtDay(day.date))+'</span><span class="rs-day-rec">'+esc(day.record)+'</span></div>';
+      day.picks.forEach(function(p){
+        h+='<div class="rs-row"><span class="rs-res '+(p.won?"w":"l")+'">'+(p.won?"W":"L")+'</span>'+
+          '<span class="rs-pick">'+esc(p.pick)+'</span>'+
+          '<span class="rs-meta">'+(p.prob)+'% \u00b7 '+esc((p.sport||"").toUpperCase())+'</span></div>';
+      });
+      h+='</div>';
+    });
+    h+='<div class="rs-foot">Same tracked model that grades itself on the Calibration page.</div></div>';
+    list.innerHTML=h;
+  };
+})();
 /* ===== Promote: shareable posts from today's picks ===== */
 (function(){
   function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
@@ -358,4 +402,27 @@
         '<div class="tp-src">via api-football</div></div>'):"")+
       '<div class="tp-foot">Every figure here is computed from actual game results \u2014 no projected or fabricated ratings.</div></div>';
   }
+})();
+/* ===== New-visitor welcome hero (shows once) ===== */
+(function(){
+  try{if(localStorage.getItem("ll_seen_intro"))return;}catch(e){return;}
+  function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+  async function show(){
+    var stat="";
+    try{var d=await getJSON("/api/results/recent?days=7");if(d&&d.summary&&(d.summary.w+d.summary.l)>0)stat=d.summary.record;}catch(e){}
+    var ov=document.createElement("div");ov.id="ll-hero";ov.className="hero-ov";
+    ov.innerHTML='<div class="hero-card">'+
+      '<img class="hero-logo" src="/icon-180.png" alt="Line Logic">'+
+      '<div class="hero-h">Model sports predictions.<br>Every pick tracked.</div>'+
+      '<div class="hero-p">A calibrated model across MLB, NBA, NFL, NHL, tennis, soccer &amp; college \u2014 graded in public. No deleted losers, no hype.</div>'+
+      (stat?'<div class="hero-stat">Model went <b>'+esc(stat)+'</b> the last 7 days</div>':"")+
+      '<div class="hero-btns"><button class="hero-btn" id="hero-results">See the track record</button>'+
+      '<button class="hero-btn hero-alt" id="hero-go">Explore the board</button></div></div>';
+    document.body.appendChild(ov);
+    function close(){try{localStorage.setItem("ll_seen_intro","1");}catch(e){}if(ov.parentNode)ov.parentNode.removeChild(ov);}
+    document.getElementById("hero-go").addEventListener("click",close);
+    document.getElementById("hero-results").addEventListener("click",function(){close();if(typeof openResults==="function")openResults();});
+    ov.addEventListener("click",function(e){if(e.target===ov)close();});
+  }
+  if(document.body)show();else document.addEventListener("DOMContentLoaded",show);
 })();
