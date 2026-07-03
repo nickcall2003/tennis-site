@@ -3029,11 +3029,18 @@ function predictionReportHTML(g,sp){
   let rec="";
   if(o&&mkt!=null){
     const mImp=devigPair(mkt,omkt);
-    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";edgeVal=edge;
-    cells+='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
-    if(edge>=3){const k=kellyUnits(modelProb,mkt);
-      rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
-    }else{rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model agrees with the market \u2014 no edge here</span></div>';}
+    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";
+    const believable=Math.abs(edge)<=20;
+    if(believable){
+      edgeVal=edge;
+      cells+='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
+      if(edge>=3){const k=kellyUnits(modelProb,mkt);
+        rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
+      }else{rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model agrees with the market \u2014 no edge here</span></div>';}
+    }else{
+      cells+='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v">off-market <span class="pr-sub">(model '+Math.round(modelProb*100)+'% vs market '+Math.round(mImp*100)+'% \u2014 line too thin to trust)</span></div></div>';
+      rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model and market disagree too sharply \u2014 no confident edge</span></div>';
+    }
   }else{
     cells+='<div class="pr-cell"><div class="pr-k">Fair Odds</div><div class="pr-v">'+fmtOdds(fair)+' <span class="pr-sub">(awaiting market)</span></div></div>';
   }
@@ -3078,11 +3085,18 @@ function tennisReportHTML(m){
   let cells="",rec="";
   if(o&&mkt!=null){
     const mImp=devigPair(mkt,omkt);
-    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";edgeVal=edge;
-    cells='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
-    if(edge>=3){const k=kellyUnits(modelProb,mkt);
-      rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
-    }else{rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model agrees with the market \u2014 no edge here</span></div>';}
+    const edge=Math.round((modelProb-mImp)*1000)/10,ec=edge>=0?"pos":"neg";
+    const believable=Math.abs(edge)<=20;
+    if(believable){
+      edgeVal=edge;
+      cells='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
+      if(edge>=3){const k=kellyUnits(modelProb,mkt);
+        rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
+      }else{rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model agrees with the market \u2014 no edge here</span></div>';}
+    }else{
+      cells='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v">off-market <span class="pr-sub">(model '+wpct+'% vs market '+Math.round(mImp*100)+'% \u2014 line too thin to trust)</span></div></div>';
+      rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model and market disagree too sharply \u2014 no confident edge</span></div>';
+    }
   }else{
     cells='<div class="pr-cell"><div class="pr-k">Fair Odds</div><div class="pr-v">'+fmtOdds(fair)+' <span class="pr-sub">(awaiting market)</span></div></div>';
   }
@@ -3091,7 +3105,7 @@ function tennisReportHTML(m){
     '<div class="pr-top"><div><div class="pr-k">Predicted Winner</div><div class="pr-win">'+wname+' '+_fav+'</div></div>'+
       '<div class="pr-wp"><div class="pr-wpn">'+wpct+'%</div><div class="pr-k">win prob</div></div></div>'+
     '<div class="pr-conf"><span class="pr-k">Confidence</span><span class="pr-cbar">'+segs+'</span><span class="pr-clab c'+cn+'">'+conf.toUpperCase()+'</span></div>'+
-    '<div class="pr-grid">'+cells+'</div>'+rec+(typeof teamLinks==="function"?teamLinks(g,sp):"")+'</div>';
+    '<div class="pr-grid">'+cells+'</div>'+rec+'</div>';
 }
 function edgeLineHTML(g,homeWP){
   if(homeWP==null||isNaN(homeWP))return "";

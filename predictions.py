@@ -22,17 +22,24 @@ import unicodedata
 
 from elo import TennisElo, expected_score
 
-# Tennis calibration: the raw Elo/surface model is overconfident on favorites
-# (picks priced like 63% favorites were winning ~56%). Shrinking the probability
-# toward 0.5 corrects that. It NEVER changes which player is favored, so the
-# prediction win/loss record is unchanged — it only right-sizes confidence, which
-# tightens edge/wager selection. Raise toward 1.0 as live calibration improves.
+# Tennis calibration: the raw Elo/surface model is overconfident on favorites.
+# Shrinking the probability toward 0.5 corrects that WITHOUT changing which player
+# is favored (win/loss record unchanged) — it only right-sizes confidence.
+#   _TENNIS_CAL      : established players rated from real match history (reliable).
+#   _TENNIS_CAL_RANK : the RANKING FALLBACK (ITF / low-tier, where a player isn't in
+#     the history ratings). Rankings are noise at that level, so the model invents
+#     false "big favorites" — those 90% picks were winning only ~40%. We regress
+#     that path hard toward 50% so it stops claiming confidence it hasn't earned.
+#     Raise it back toward _TENNIS_CAL only if the Calibration page proves the
+#     rank-based picks actually hold up.
 _TENNIS_CAL = 0.85
+_TENNIS_CAL_RANK = 0.35
 
 
-def _calibrate(p):
+def _calibrate(p, rated=True):
     try:
-        return 0.5 + (float(p) - 0.5) * _TENNIS_CAL
+        cal = _TENNIS_CAL if rated else _TENNIS_CAL_RANK
+        return 0.5 + (float(p) - 0.5) * cal
     except (TypeError, ValueError):
         return p
 
@@ -229,13 +236,13 @@ class PredictionEngine:
             try:
                 p = self.model.win_probability(name_a, name_b, surface, surface_weight=0.5)
                 if p is not None:
-                    cp = _calibrate(p)
-                    return cp, _conf_from_prob(cp)
+                    cp = _calibrate(p, rated=True)
+                    return cp, _conf_from_prob(cp, rated=True)
             except Exception:
                 pass
         prob = expected_score(ra, rb)
-        cp = _calibrate(prob)
-        return cp, _conf_from_prob(cp)
+        cp = _calibrate(prob, rated=both_history)
+        return cp, _conf_from_prob(cp, rated=both_history)
 
     def predict_feed_ctx(self, name_a, name_b, ctx=None, surface=None):
         """
