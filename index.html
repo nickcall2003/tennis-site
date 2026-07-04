@@ -78,6 +78,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-view="myboard">&#11088; My Board</div>
           <div class="menu-item" data-view="calibration">&#128200; Calibration</div>
           <div class="menu-item" data-view="results">&#128203; Recent Results</div>
+          <div class="menu-item" data-view="stocks">&#128200; Markets</div>
           <div class="menu-item" data-view="promote" id="promote-nav" style="display:none">&#128227; Promote</div>
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           <div class="menu-sec">More</div>
@@ -572,6 +573,7 @@ function selectMenu(el){
   else if(el.dataset.view==="news"){openNews();}
   else if(el.dataset.view==="record"){openRecord();}
   else if(el.dataset.view==="results"){openResults();}
+  else if(el.dataset.view==="stocks"){if(typeof openStocks==="function")openStocks();}
   else if(el.dataset.view==="calibration"){openCalibration();}
   else if(el.dataset.view==="transparency"){openTransparency();}
   else if(el.dataset.view==="simulator"){openSimulator();}
@@ -3292,5 +3294,6 @@ setInterval(loadAccuracy,300000);
 })();
 </script>
 <script src="/ll-enhance.js?v=3"></script>
+<script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

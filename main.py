@@ -800,6 +800,12 @@ try:
 except Exception as _promo_err:
     print(f"[startup] promo router not loaded: {_promo_err}")
 
+try:
+    from stocks_routes import router as stocks_router
+    app.include_router(stocks_router)
+except Exception as _stocks_err:
+    print(f"[startup] stocks router not loaded: {_stocks_err}")
+
 
 @app.middleware("http")
 async def _no_cache_api(request, call_next):
