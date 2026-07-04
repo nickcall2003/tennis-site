@@ -1223,3 +1223,4 @@ body:has(.sk-app) footer,
 body:has(.sk-app) #datebar,
 body:has(.sk-app) #ll-chat-fab,
 body:has(.sk-app) #ll-chat-pop{display:none !important;}
+.sk-mv-gap{height:14px;}

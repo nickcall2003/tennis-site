@@ -36,7 +36,7 @@
       '<div class="sk-px"><div class="sk-price">'+fp(a.price)+'</div><div class="sk-chip '+(up?"up":"dn")+'">'+(up?"\u25B2":"\u25BC")+" "+Math.abs(a.change_pct).toFixed(2)+'%</div></div></div>';
   }
   function wireRows(box){box.querySelectorAll(".sk-row[data-sym]").forEach(function(el){el.addEventListener("click",function(){openSymbol(el.dataset.sym);});});}
-  function moverCard(a){var up=(a.change_pct||0)>=0;return '<div class="sk-mv" data-sym="'+esc(a.ticker)+'"><div class="sk-mv-nm">'+esc(a.name||a.ticker)+'</div><div class="sk-mv-sym">'+esc(a.ticker.replace("-USD",""))+'</div>'+spark(a.series,up,150,44)+'<div class="sk-mv-px">'+fp(a.price)+'</div><div class="sk-chip '+(up?"up":"dn")+'">'+(up?"\u25B2":"\u25BC")+" "+Math.abs(a.change_pct).toFixed(2)+'%</div></div>';}
+  function moverCard(a){var up=(a.change_pct||0)>=0;return '<div class="sk-mv" data-sym="'+esc(a.ticker)+'"><div class="sk-mv-nm">'+esc(a.name||a.ticker)+'</div><div class="sk-mv-sym">'+esc(a.ticker.replace("-USD",""))+'</div>'+((a.series&&a.series.length>1)?spark(a.series,up,150,44):'<div class="sk-mv-gap"></div>')+'<div class="sk-mv-px">'+fp(a.price)+'</div><div class="sk-chip '+(up?"up":"dn")+'">'+(up?"\u25B2":"\u25BC")+" "+Math.abs(a.change_pct).toFixed(2)+'%</div></div>';}
 
   function setup(){
     view="stocks";
