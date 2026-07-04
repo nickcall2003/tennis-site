@@ -39,7 +39,7 @@
     var sh=document.querySelector(".shell");if(sh)sh.style.gridTemplateColumns="1fr";
     document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
     var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
-    if(typeof toggleMenu==="function")toggleMenu(false);
+    if(typeof toggleMenu==="function")toggleMenu(false);var _ss=document.getElementById("slatesearch");if(_ss)_ss.remove();
     renderMyBoard();
   };
   function renderMyBoard(){
@@ -114,7 +114,7 @@
     var sh=document.querySelector(".shell");if(sh)sh.style.gridTemplateColumns="1fr";
     document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
     var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
-    if(typeof toggleMenu==="function")toggleMenu(false);
+    if(typeof toggleMenu==="function")toggleMenu(false);var _ss=document.getElementById("slatesearch");if(_ss)_ss.remove();
   }
   window.openCalibration=async function(){
     setupCalView();
@@ -164,7 +164,7 @@
     var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
     var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
     var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
-    if(typeof toggleMenu==="function")toggleMenu(false);
+    if(typeof toggleMenu==="function")toggleMenu(false);var _ss=document.getElementById("slatesearch");if(_ss)_ss.remove();
   }
   function fmtDay(iso){try{var p=iso.split("-");return new Date(p[0],p[1]-1,p[2]).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"});}catch(e){return iso;}}
   window.openResults=async function(){
@@ -208,7 +208,7 @@
     var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
     var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
     var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
-    if(typeof toggleMenu==="function")toggleMenu(false);
+    if(typeof toggleMenu==="function")toggleMenu(false);var _ss=document.getElementById("slatesearch");if(_ss)_ss.remove();
   }
   function copyText(t,btn){
     try{navigator.clipboard.writeText(t);}catch(e){
@@ -361,7 +361,7 @@
     var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
     var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
     var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
-    if(typeof toggleMenu==="function")toggleMenu(false);
+    if(typeof toggleMenu==="function")toggleMenu(false);var _ss=document.getElementById("slatesearch");if(_ss)_ss.remove();
   }
   window.openTeamProfile=async function(sport,id,name,league){
     setup(name||"Team");

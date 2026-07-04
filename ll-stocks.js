@@ -22,6 +22,7 @@
     var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
     var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
     if(typeof toggleMenu==="function")toggleMenu(false);
+    var ss=document.getElementById("slatesearch");if(ss)ss.remove();
   }
 
   function spark(series,up,w,h){
