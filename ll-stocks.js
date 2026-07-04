@@ -104,8 +104,9 @@
     var h='<div class="sk-wrap">';
     h+='<div class="sk-search"><input id="sk-q" class="sk-qi" placeholder="Search stocks, ETFs, crypto\u2026" autocomplete="off" autocapitalize="characters"><div id="sk-res" class="sk-res"></div></div>';
     // paper portfolio card
-    h+='<div class="sk-pf"><div class="sk-pf-k">Paper portfolio \u00b7 model</div>'+
+    h+='<div class="sk-pf"><div class="sk-pf-k">Paper portfolio \u00b7 model (not real money)</div>'+
       '<div class="sk-pf-v">'+money(pf.value||100000)+'</div>'+
+      '<div class="sk-pf-note">Hypothetical $100k start, paper-traded to test the model vs. holding SPY.</div>'+
       '<div class="sk-pf-sub"><span class="'+(eqUp?"up":"dn")+'">'+pct(pf.return_pct)+'</span>'+
       (vs!=null?' <span class="sk-vs '+((vs)>=0?"up":"dn")+'">'+pct(vs)+' vs SPY</span>':"")+'</div>'+
       bigChart(eqSeries,eqUp)+
@@ -135,15 +136,16 @@
       var q=inp.value.trim();
       if(_sT)clearTimeout(_sT);
       if(!q){res.innerHTML="";res.classList.remove("on");return;}
+      res.innerHTML='<div class="sk-hit sk-hit-msg">Searching\u2026</div>';res.classList.add("on");
       _sT=setTimeout(async function(){
         try{var d=await getJSON("/api/stocks/search?q="+encodeURIComponent(q));
           var rows=(d&&d.results)||[];
+          if(!rows.length){res.innerHTML='<div class="sk-hit sk-hit-msg">No matches \u2014 try a ticker like AAPL, TSLA, BTC.</div>';return;}
           res.innerHTML=rows.map(function(r){
             return '<div class="sk-hit" data-s="'+esc(r.symbol)+'"><span class="sk-hit-s">'+esc(r.symbol.replace("-USD",""))+'</span>'+
               '<span class="sk-hit-n">'+esc(r.name||"")+'</span><span class="sk-hit-t">'+esc(r.type||"")+'</span></div>';}).join("");
-          res.classList.add("on");
-          res.querySelectorAll(".sk-hit").forEach(function(el){el.addEventListener("click",function(){openSymbol(el.dataset.s);});});
-        }catch(e){}
+          res.querySelectorAll(".sk-hit").forEach(function(el){el.addEventListener("click",function(){res.classList.remove("on");inp.value="";openSymbol(el.dataset.s);});});
+        }catch(e){res.innerHTML='<div class="sk-hit sk-hit-msg">Search unavailable \u2014 the stocks API may still be deploying, or yfinance isn\u2019t installed yet.</div>';}
       },220);
     });
   }
@@ -155,7 +157,7 @@
     async function draw(){
       var d;try{d=await getJSON("/api/stocks/quote?symbol="+encodeURIComponent(sym)+"&range="+encodeURIComponent(symRange));}catch(e){d={error:"failed"};}
       var wrap=document.getElementById("list");
-      if(!d||d.error){wrap.innerHTML='<div class="sk-wrap"><button class="sk-back" id="sk-bk">\u2190 Markets</button><div class="sk-loading">No data for '+esc(sym)+'.</div></div>';
+      if(!d||d.error){wrap.innerHTML='<div class="sk-wrap"><button class="sk-back" id="sk-bk">\u2190 Markets</button><div class="sk-loading">No price data for '+esc(sym)+' yet. If every symbol is empty, the market-data source (yfinance) isn\u2019t returning data \u2014 confirm it\u2019s in requirements.txt.</div></div>';
         var b=document.getElementById("sk-bk");if(b)b.addEventListener("click",openStocks);return;}
       var up=(d.change_pct||0)>=0;
       var h='<div class="sk-wrap"><button class="sk-back" id="sk-bk">\u2190 Markets</button>'+

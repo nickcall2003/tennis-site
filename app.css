@@ -1192,3 +1192,7 @@
 .sk-d-px{font-size:30px;font-weight:800;color:var(--ink);font-variant-numeric:tabular-nums;}
 .sk-d-chg{font-size:14px;font-weight:700;margin-bottom:6px;}
 .sk-d-chg.up{color:var(--accent);} .sk-d-chg.dn{color:var(--loss);}
+
+/* markets: paper note + search states */
+.sk-pf-note{font-size:11px;color:var(--muted-2);margin:2px 0 10px;line-height:1.4;}
+.sk-hit-msg{color:var(--muted);font-size:12.5px;cursor:default;justify-content:center;}
