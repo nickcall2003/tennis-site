@@ -71,17 +71,21 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-sport="soccer">&#9917; Soccer</div>
           <div class="menu-item" data-sport="ufc">&#129354; UFC</div>
           <div class="menu-item" data-sport="golf">&#9971; Golf</div>
-          <div class="menu-sec">Picks</div>
+          <div class="menu-sec menu-gear" id="offseason-toggle" style="display:none" onclick="var s=document.getElementById('offseason-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#128197; Off-season leagues</div>
+          <div id="offseason-body" style="display:none"></div>
+          <div class="menu-sec menu-gear open" onclick="var s=document.getElementById('picks-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#128081; Picks</div>
+          <div id="picks-body">
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
-          <div class="menu-item" data-view="value">&#128142; Value Board</div>
           <div class="menu-item" data-view="myboard">&#11088; My Board</div>
           <div class="menu-item" data-view="calibration">&#128200; Calibration</div>
           <div class="menu-item" data-view="results">&#128203; Recent Results</div>
           <div class="menu-item" data-view="stocks">&#128200; Markets</div>
           <div class="menu-item" data-view="promote" id="promote-nav" style="display:none">&#128227; Promote</div>
           <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
-          <div class="menu-sec">More</div>
+          </div>
+          <div class="menu-sec menu-gear" onclick="var s=document.getElementById('more-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#8943; More</div>
+          <div id="more-body" style="display:none">
           <div class="menu-item" data-view="record">&#128202; Track Record</div>
           <div class="menu-item" data-view="calibration">&#128208; Model Accuracy</div>
           <div class="menu-item" data-view="transparency">&#128270; How the model works</div>
@@ -89,6 +93,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-view="bets">&#128176; My Bets</div>
           <div class="menu-item" id="menu-account" data-view="auth">&#128100; Sign in</div>
           <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
+          </div>
           <div class="menu-sec menu-gear" id="settings-toggle" onclick="var s=document.getElementById('settings-body');var o=s.style.display==='none';s.style.display=o?'block':'none';this.classList.toggle('open',o);">&#9881;&#65039; Display &amp; settings</div>
           <div id="settings-body" style="display:none">
           <div class="menu-sec">Text size</div>
@@ -337,7 +342,7 @@ function showView(detail){document.getElementById("main").style.display=detail?"
   const useSide=(sport==="tennis"||sport==="soccer");
   document.getElementById("side").style.display=(detail||!useSide)?"none":"";document.getElementById("detail").style.display=detail?"block":"none";}
 async function openDetail(id){detailId=id;detailTab="analysis";showView(true);
-  document.getElementById("detail").innerHTML='<div class="empty">Loading match&hellip;</div>';await refreshDetail();
+  document.getElementById("detail").innerHTML='<div class="skel-wrap"><div class="skel-card" style="height:130px"></div><div class="skel-card"></div><div class="skel-card"></div></div>';await refreshDetail();
   if(detailTimer)clearInterval(detailTimer);detailTimer=setInterval(()=>{if(detailId)refreshDetail(true);},10000);}
 function closeDetail(){detailId=null;if(detailTimer)clearInterval(detailTimer);
   if(view==="home"){document.getElementById("detail").style.display="none";document.getElementById("home").classList.add("show");return;}
@@ -483,9 +488,14 @@ function applySportsMeta(){
     var teams=SPORTS_META.filter(function(s){return s.team;}).map(function(s){return s.key;});
     if(teams.length){TEAM_SPORTS.length=0;teams.forEach(function(k){TEAM_SPORTS.push(k);});}
     var act={};SPORTS_META.forEach(function(s){act[s.key]=(s.active!==false);});
+    var offBody=document.getElementById("offseason-body"),offTog=document.getElementById("offseason-toggle"),anyOff=false;
     document.querySelectorAll(".menu-item[data-sport]").forEach(function(it){
-      var k=it.dataset.sport;if(Object.prototype.hasOwnProperty.call(act,k))it.style.display=act[k]?"":"none";
+      var k=it.dataset.sport;it.style.display="";
+      if(Object.prototype.hasOwnProperty.call(act,k)&&!act[k]){
+        anyOff=true;if(offBody&&it.parentNode!==offBody)offBody.appendChild(it);
+      }
     });
+    if(offTog)offTog.style.display=anyOff?"":"none";
   }catch(e){}
 }
 function isTeam(s){return TEAM_SPORTS.indexOf(s)>=0;}
@@ -1025,7 +1035,7 @@ function renderTeam(){renderDatebar();renderTabsTeam();
     let cls="card";if(fin&&g.winner){const pick=g.prob_home>=0.5?"home":"away";cls+=pick===g.winner?" correct":" wrong";}else if(g.status==="live")cls+=" live";
     el.className=cls;el.innerHTML=teamCardHTML(g);el.onclick=()=>openFn(g.id);list.appendChild(el);});}
 async function openMLBDetail(id){detailId="mlb"+id;mlbDetailTab="prediction";mlbMatchups=null;mlbInjuries=null;mlbProps=null;mlbBox=null;showView(true);
-  document.getElementById("detail").innerHTML='<div class="empty">Loading game&hellip;</div>';await refreshMLBDetail(id);
+  document.getElementById("detail").innerHTML='<div class="skel-wrap"><div class="skel-card" style="height:130px"></div><div class="skel-card"></div><div class="skel-card"></div></div>';await refreshMLBDetail(id);
   if(detailTimer)clearInterval(detailTimer);detailTimer=setInterval(()=>{if(detailId==="mlb"+id)refreshMLBDetail(id);},10000);}
 async function refreshMLBDetail(id){let g;try{g=await getJSON("/api/mlb/game/"+id+"?date="+ymd(selected));}catch(e){return;}if(detailId!=="mlb"+id||g.error)return;mlbGame=g;renderMLBDetail(g);if(mlbDetailTab==="box"&&mlbBox&&mlbBox!=="loading")loadMLBBox(id,true);}
 function setMLBTab(t){mlbDetailTab=t;renderMLBDetail(mlbGame);
@@ -1112,7 +1122,7 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
   if(mlbDetailTab==="prediction")setTimeout(function(){loadOfficials("mlb",g.id,(g.exp_runs_home||0)+(g.exp_runs_away||0));},30);}
 // ===== NBA / NFL DETAIL =====
 async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";teamProps=null;teamBox=null;showView(true);
-  document.getElementById("detail").innerHTML='<div class="empty">Loading game&hellip;</div>';await refreshTeamDetail(id,sport);
+  document.getElementById("detail").innerHTML='<div class="skel-wrap"><div class="skel-card" style="height:130px"></div><div class="skel-card"></div><div class="skel-card"></div></div>';await refreshTeamDetail(id,sport);
   if(detailTimer)clearInterval(detailTimer);const sp=sport;
   detailTimer=setInterval(()=>{
     if(detailId!==sp+id)return;
@@ -1585,7 +1595,7 @@ function renderUFC(){
 }
 async function openUFCDetail(id){
   detailId="ufc"+id;showView(true);
-  document.getElementById("detail").innerHTML='<div class="empty">Loading bout&hellip;</div>';
+  document.getElementById("detail").innerHTML='<div class="skel-wrap"><div class="skel-card" style="height:130px"></div><div class="skel-card"></div><div class="skel-card"></div></div>';
   await refreshUFCDetail(id);
   if(detailTimer)clearInterval(detailTimer);
   detailTimer=setInterval(()=>{if(detailId!=="ufc"+id)return;const cur=byId["ufc"+id];if(cur&&cur.status==="live")refreshUFCDetail(id);},10000);
@@ -1744,7 +1754,7 @@ function renderSoccer(){
 async function openSoccerDetail(id,league){
   detailId="soccer"+id;soccerDetailTab="prediction";soccerBox=null;soccerProps=null;soccerDetailLeague=league||soccerLeague;
   showView(true);
-  document.getElementById("detail").innerHTML='<div class="empty">Loading match&hellip;</div>';
+  document.getElementById("detail").innerHTML='<div class="skel-wrap"><div class="skel-card" style="height:130px"></div><div class="skel-card"></div><div class="skel-card"></div></div>';
   await refreshSoccerDetail(id);
   if(detailTimer)clearInterval(detailTimer);
   detailTimer=setInterval(()=>{if(detailId!=="soccer"+id)return;const cur=byId["soccer"+id];if(cur&&cur.status==="live")refreshSoccerDetail(id);},10000);
