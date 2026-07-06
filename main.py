@@ -1974,6 +1974,58 @@ def match_detail(match_id: int):
 _recorded_refs = set()   # in-memory guard: skip results we've already logged this run
 
 
+@app.get("/api/admin/regrade")
+@app.post("/api/admin/regrade")
+def admin_regrade(ref: str, result: str, sport: str = "tennis",
+                  token: str = "", authorization: str | None = Header(None)):
+    """Owner-only: correct a settled pick (e.g. a tennis retirement that wrongly
+    voided). result = win | loss | void, from the MODEL PICK's point of view
+    (a retirement where the OPPONENT retired = win). Clears any prior result and
+    re-records with real odds so units/ROI update."""
+    admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
+    ok = bool(admin_tok) and token == admin_tok
+    if not ok:
+        try:
+            import accounts
+            _adm = os.environ.get("ADMIN_USERNAME", "").strip().lower()
+            with SessionLocal() as _db:
+                _u = accounts._user_from_token(_db, accounts._bearer(authorization))
+            ok = bool(_u and _adm and (getattr(_u, "username", "") or "").strip().lower() == _adm)
+        except Exception:
+            ok = False
+    if not ok:
+        return {"error": "forbidden"}
+    result = (result or "").strip().lower()
+    if result not in ("win", "loss", "void"):
+        return {"error": "result must be win, loss or void"}
+    from models import PickResult
+    with SessionLocal() as db:
+        m = db.query(Match).filter(Match.id == ref).one_or_none() if str(ref).isdigit() else None
+        pw = None
+        if m is not None:
+            pw = (_match_row(db, m) or {}).get("predicted_winner")
+        if not pw:
+            # fall back to any prior result's predicted side
+            prev = db.query(PickResult).filter(PickResult.sport == sport, PickResult.ref == str(ref)).first()
+            pw = getattr(prev, "predicted", None) if prev else None
+        if pw not in ("a", "b"):
+            return {"error": "could not resolve which side the model picked for ref " + str(ref)}
+        if result == "win":
+            actual = pw
+        elif result == "loss":
+            actual = "b" if pw == "a" else "a"
+        else:
+            actual = "canceled"
+        db.query(PickResult).filter(PickResult.sport == sport, PickResult.ref == str(ref)).delete()
+        db.commit()
+    _recorded_refs.discard((sport, str(ref)))
+    with SessionLocal() as db:
+        _record_result(db, sport, str(ref), pw, actual)
+        db.commit()
+    return {"ok": True, "sport": sport, "ref": str(ref), "picked_side": pw,
+            "graded": result, "actual": actual}
+
+
 def _norm_team(s):
     return "".join(c for c in (s or "").lower() if c.isalnum())
 
@@ -2144,6 +2196,21 @@ def _settle_stale_tennis(hours=None):
                        .filter(Match.scheduled < cutoff, Match.scheduled >= lo)
                        .all())
             wrote = False
+            _dayres = {}
+
+            def _final(mm):
+                """Definitive (status, winner) for a match, re-fetched per date and
+                cached. Catches retirements the live feed dropped before recording."""
+                try:
+                    day = mm.scheduled.date() if hasattr(mm.scheduled, "date") else mm.scheduled
+                    k = str(day)
+                    if k not in _dayres:
+                        _dayres[k] = provider.final_results(day) or {}
+                    return _dayres[k].get(str(mm.provider_match_id))
+                except Exception:
+                    return None
+
+            # 1) settle newly-stale tracked picks \u2014 re-fetch the real result before voiding
             for m in stale:
                 if str(m.id) in have:
                     continue
@@ -2152,12 +2219,44 @@ def _settle_stale_tennis(hours=None):
                 if not pw:
                     continue                       # not a tracked pick
                 sc = row.get("score") or {}
-                if row.get("status") == "finished" and sc.get("winner") in ("a", "b"):
-                    _record_result(db, "tennis", m.id, pw, sc["winner"])
+                winner = sc.get("winner") if row.get("status") == "finished" else None
+                if winner not in ("a", "b"):
+                    fr = _final(m)                 # definitive result (catches retirements)
+                    if fr and fr[0] == "finished" and fr[1] in ("a", "b"):
+                        winner = fr[1]
+                if winner in ("a", "b"):
+                    _record_result(db, "tennis", m.id, pw, winner)
                 else:
                     _record_result(db, "tennis", m.id, pw, "canceled")
                     pushed += 1
                 wrote = True
+
+            # 2) fix ALREADY-voided tennis picks: a retirement the feed reported late
+            #    should flip from void to a real win/loss, restoring units/ROI.
+            try:
+                voids = (db.query(PickResult)
+                           .filter(PickResult.sport == "tennis",
+                                   PickResult.actual.in_(["canceled", "cancelled", "void"]))
+                           .all())
+                recent = {str(mm.id): mm for mm in
+                          db.query(Match).filter(Match.scheduled >= lo).all()}
+                for pr in voids:
+                    m = recent.get(str(pr.ref))
+                    if not m:
+                        continue
+                    fr = _final(m)
+                    if fr and fr[0] == "finished" and fr[1] in ("a", "b"):
+                        pw = getattr(pr, "predicted", None) or (_match_row(db, m) or {}).get("predicted_winner")
+                        if pw not in ("a", "b"):
+                            continue
+                        db.delete(pr)
+                        db.commit()
+                        _recorded_refs.discard(("tennis", str(pr.ref)))
+                        _record_result(db, "tennis", m.id, pw, fr[1])
+                        wrote = True
+            except Exception as _ve:
+                print(f"[stale-tennis] void re-check failed: {_ve}")
+
             if wrote:
                 db.commit()
     except Exception as e:
