@@ -1976,14 +1976,14 @@ _recorded_refs = set()   # in-memory guard: skip results we've already logged th
 
 @app.get("/api/admin/regrade")
 @app.post("/api/admin/regrade")
-def admin_regrade(result: str, ref: str = "", player: str = "", sport: str = "tennis",
-                  token: str = "", authorization: str | None = Header(None)):
+def admin_regrade(result: str, ref: str = "", player: str = "", opponent: str = "",
+                  sport: str = "tennis", token: str = "", authorization: str | None = Header(None)):
     """Owner-only: correct a settled pick (e.g. a tennis retirement that wrongly
     voided). Pass ?player=<name> (easiest) or ?ref=<match id>. result = win | loss
     | void from the MODEL PICK's point of view (opponent retired = win). Clears any
     prior result and re-records with real odds so units/ROI update."""
     admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
-    ok = bool(admin_tok) and token == admin_tok
+    ok = bool(admin_tok) and (token or "").strip().strip('"') == admin_tok
     if not ok:
         try:
             import accounts
@@ -1996,8 +1996,8 @@ def admin_regrade(result: str, ref: str = "", player: str = "", sport: str = "te
     if not ok:
         return {"error": "forbidden"}
     result = (result or "").strip().lower()
-    if result not in ("win", "loss", "void"):
-        return {"error": "result must be win, loss or void"}
+    if result not in ("win", "loss", "void", "reset", "clear"):
+        return {"error": "result must be win, loss, void, or reset"}
     from models import PickResult
     with SessionLocal() as db:
         m = None
@@ -2005,17 +2005,30 @@ def admin_regrade(result: str, ref: str = "", player: str = "", sport: str = "te
             m = db.query(Match).filter(Match.id == int(ref)).one_or_none()
         if m is None and player:
             pl = player.strip().lower()
+            op = opponent.strip().lower()
             lo = dt.datetime.now() - dt.timedelta(days=28)
-            cands = [x for x in db.query(Match).filter(Match.scheduled >= lo).all()
-                     if pl in (getattr(x, "player_a", "") or "").lower()
-                     or pl in (getattr(x, "player_b", "") or "").lower()]
+            cands = []
+            for x in db.query(Match).filter(Match.scheduled >= lo).all():
+                a = (getattr(x, "player_a", "") or "").lower()
+                b = (getattr(x, "player_b", "") or "").lower()
+                if pl in a or pl in b:
+                    if op and not (op in a or op in b):
+                        continue                    # opponent given but not in this match
+                    cands.append(x)
             cands.sort(key=lambda x: x.scheduled, reverse=True)
             if cands:
                 m = cands[0]
                 ref = str(m.id)
         if m is None:
-            return {"error": "no tennis match found \u2014 pass ?player=<name> or ?ref=<id>"}
+            return {"error": "no tennis match found \u2014 pass ?player=<name>&opponent=<name> or ?ref=<id>"}
         matchup = (getattr(m, "player_a", "") or "?") + " vs " + (getattr(m, "player_b", "") or "?")
+        # RESET: remove any existing result (un-grade). Use for a wrongly graded or
+        # not-yet-played match.
+        if result in ("reset", "clear"):
+            n = db.query(PickResult).filter(PickResult.sport == sport, PickResult.ref == str(ref)).delete()
+            db.commit()
+            _recorded_refs.discard((sport, str(ref)))
+            return {"ok": True, "match_id": str(ref), "matchup": matchup, "graded": "reset", "removed": n}
         pw = (_match_row(db, m) or {}).get("predicted_winner")
         if not pw:
             prev = db.query(PickResult).filter(PickResult.sport == sport, PickResult.ref == str(ref)).first()
