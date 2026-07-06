@@ -1976,12 +1976,12 @@ _recorded_refs = set()   # in-memory guard: skip results we've already logged th
 
 @app.get("/api/admin/regrade")
 @app.post("/api/admin/regrade")
-def admin_regrade(ref: str, result: str, sport: str = "tennis",
+def admin_regrade(result: str, ref: str = "", player: str = "", sport: str = "tennis",
                   token: str = "", authorization: str | None = Header(None)):
     """Owner-only: correct a settled pick (e.g. a tennis retirement that wrongly
-    voided). result = win | loss | void, from the MODEL PICK's point of view
-    (a retirement where the OPPONENT retired = win). Clears any prior result and
-    re-records with real odds so units/ROI update."""
+    voided). Pass ?player=<name> (easiest) or ?ref=<match id>. result = win | loss
+    | void from the MODEL PICK's point of view (opponent retired = win). Clears any
+    prior result and re-records with real odds so units/ROI update."""
     admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
     ok = bool(admin_tok) and token == admin_tok
     if not ok:
@@ -2000,16 +2000,29 @@ def admin_regrade(ref: str, result: str, sport: str = "tennis",
         return {"error": "result must be win, loss or void"}
     from models import PickResult
     with SessionLocal() as db:
-        m = db.query(Match).filter(Match.id == ref).one_or_none() if str(ref).isdigit() else None
-        pw = None
-        if m is not None:
-            pw = (_match_row(db, m) or {}).get("predicted_winner")
+        m = None
+        if str(ref).isdigit():
+            m = db.query(Match).filter(Match.id == int(ref)).one_or_none()
+        if m is None and player:
+            pl = player.strip().lower()
+            lo = dt.datetime.now() - dt.timedelta(days=28)
+            cands = [x for x in db.query(Match).filter(Match.scheduled >= lo).all()
+                     if pl in (getattr(x, "player_a", "") or "").lower()
+                     or pl in (getattr(x, "player_b", "") or "").lower()]
+            cands.sort(key=lambda x: x.scheduled, reverse=True)
+            if cands:
+                m = cands[0]
+                ref = str(m.id)
+        if m is None:
+            return {"error": "no tennis match found \u2014 pass ?player=<name> or ?ref=<id>"}
+        matchup = (getattr(m, "player_a", "") or "?") + " vs " + (getattr(m, "player_b", "") or "?")
+        pw = (_match_row(db, m) or {}).get("predicted_winner")
         if not pw:
-            # fall back to any prior result's predicted side
             prev = db.query(PickResult).filter(PickResult.sport == sport, PickResult.ref == str(ref)).first()
             pw = getattr(prev, "predicted", None) if prev else None
         if pw not in ("a", "b"):
-            return {"error": "could not resolve which side the model picked for ref " + str(ref)}
+            return {"error": "found match (" + matchup + ") but couldn't resolve the model's pick side",
+                    "match_id": str(ref)}
         if result == "win":
             actual = pw
         elif result == "loss":
@@ -2022,8 +2035,8 @@ def admin_regrade(ref: str, result: str, sport: str = "tennis",
     with SessionLocal() as db:
         _record_result(db, sport, str(ref), pw, actual)
         db.commit()
-    return {"ok": True, "sport": sport, "ref": str(ref), "picked_side": pw,
-            "graded": result, "actual": actual}
+    return {"ok": True, "sport": sport, "match_id": str(ref), "matchup": matchup,
+            "picked_side": pw, "graded": result, "actual": actual}
 
 
 def _norm_team(s):
