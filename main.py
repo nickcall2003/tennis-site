@@ -1734,8 +1734,18 @@ def list_tournaments(date: str | None = None):
             g["count"] += 1
             if m.status == "live":
                 g["live"] += 1
-        # sort: live first, then by size
-        return sorted(groups.values(), key=lambda g: (-g["live"], -g["count"], g["name"]))
+        vals = list(groups.values())
+        # When the same tournament name exists for both tours (e.g. an ATP and a
+        # WTA event share a name), prefix each with its tour to tell them apart.
+        from collections import defaultdict
+        tiers_by_name = defaultdict(set)
+        for g in vals:
+            tiers_by_name[g["name"]].add(g.get("tier"))
+        for g in vals:
+            if len(tiers_by_name[g["name"]]) > 1 and g.get("tier") in ("ATP", "WTA"):
+                g["name"] = g["tier"] + " " + g["name"]
+        # alphabetical by (display) name
+        return sorted(vals, key=lambda g: (g["name"] or "").lower())
 
 
 def _tennis_stats_from_array(fix):

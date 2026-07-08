@@ -87,12 +87,13 @@ def _infer_surface(name, tier=None, when=None):
         return "Grass"
     if any(k in n for k in _CLAY_KW):
         return "Clay"
+    # Season fallback is CLAY-ONLY: every grass event is named in _GRASS_KW, so we
+    # never guess grass from the calendar (that wrongly painted July hard/clay
+    # events grass during the grass weeks). Unknowns default to Hard, the modal.
     try:
         mo, dy = when.month, when.day
         if mo in (4, 5) or (mo == 6 and dy <= 8):              # European clay swing
             return "Clay"
-        if (mo == 6 and dy >= 9) or (mo == 7 and dy <= 15):    # grass swing
-            return "Grass"
     except Exception:
         pass
     return "Hard"
