@@ -3741,8 +3741,11 @@ def value_board(date: str | None = None, min_edge: float = 2.0):
 
 
 @app.get("/api/picks/best")
-def best_bets(date: str | None = None, sport: str | None = None, min_prob: float = 0.0):
-    """Larger, filterable board with in-depth rationale (premium-style)."""
+def best_bets(date: str | None = None, sport: str | None = None,
+              min_prob: float = 0.0, min_edge: float = 0.0):
+    """Larger, filterable board with in-depth rationale (premium-style).
+    Filterable by sport, model win% (min_prob) and market edge% (min_edge) \u2014 all
+    of which work for every sport including tennis."""
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     _ensure_day(target)
     plays = _gather_plays(target)
@@ -3755,20 +3758,27 @@ def best_bets(date: str | None = None, sport: str | None = None, min_prob: float
             continue
         if p["prob"] < min_prob:
             continue
-        p["reason"] = narrate.prose(_long_reason(p), kind="reason",
-                                    sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
-        _enrich_odds(p)
-        # premium "why it's a best bet" layer (paywall-ready): standout vs the
-        # day's board, model-derived stake sizing, and the model's track record.
-        pf = premium.premium_facts(p, slate, SessionLocal)
-        pf["text"] = narrate.prose(pf["text"], kind="premium",
-                                   sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
-        p["premium"] = pf
+        try:
+            _enrich_odds(p)                 # market_odds + edge_pct (every sport)
+        except Exception:
+            pass
+        if min_edge > 0 and (p.get("edge_pct") is None or p.get("edge_pct", 0) < min_edge):
+            continue                        # edge filter (needs a captured market line)
+        try:
+            p["reason"] = narrate.prose(_long_reason(p), kind="reason",
+                                        sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
+            # premium "why it's a best bet" layer (paywall-ready)
+            pf = premium.premium_facts(p, slate, SessionLocal)
+            pf["text"] = narrate.prose(pf["text"], kind="premium",
+                                       sport=p["sport"], llm=LLM_COMPLETE, budget=budget)
+            p["premium"] = pf
+        except Exception as _pe:
+            print(f"[best] enrich failed for {p.get('sport')}/{p.get('id')}: {_pe}")
         p.pop("score_key", None)
         p.pop("ctx", None)
         out.append(p)
     # log the unfiltered top board (so the record reflects the view's real picks)
-    if not sport and min_prob == 0.0:
+    if not sport and min_prob == 0.0 and min_edge == 0.0:
         _log_shown_picks("best", target, out)
     return {"date": target.isoformat(), "count": len(out), "picks": out}
 

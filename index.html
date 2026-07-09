@@ -299,13 +299,24 @@ function favPct(x){var p;
 function _byConfidence(a,b){var fa=a.status==="finished",fb=b.status==="finished";
   if(fa!==fb)return fa?1:-1;return favPct(b)-favPct(a);}
 function edgeVal(x){
-  if(x&&x.odds&&(x.odds.ml_home!=null||x.odds.ml_away!=null)){
+  // team sports: odds.ml_home / ml_away with prob_home
+  if(x&&x.odds&&(x.odds.ml_home!=null||x.odds.ml_away!=null)&&x.prob_home!=null){
     var favHome=x.prob_home>=0.5;
     var mkt=favHome?x.odds.ml_home:x.odds.ml_away;
     if(mkt!=null){
       var modelProb=favHome?x.prob_home:(1-x.prob_home);
       var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
       return (modelProb-mImp)*100;
+    }
+  }
+  // tennis: odds.ml_a / ml_b with prediction.prob_a
+  if(x&&x.odds&&(x.odds.ml_a!=null||x.odds.ml_b!=null)&&x.prediction&&x.prediction.prob_a!=null){
+    var pa=x.prediction.prob_a,favA=pa>=0.5;
+    var tmkt=favA?x.odds.ml_a:x.odds.ml_b;
+    if(tmkt!=null){
+      var mp=favA?pa:(1-pa);
+      var ti=tmkt>0?100/(tmkt+100):Math.abs(tmkt)/(Math.abs(tmkt)+100);
+      return (mp-ti)*100;
     }
   }
   return null;
@@ -2045,7 +2056,7 @@ async function togglePropHist(i,el){
   host.innerHTML=chartHTML(h);}
 
 // ===== PICKS VIEWS =====
-let bestFilter={sport:"",min:0};
+let bestFilter={sport:"",min:0,edge:0};
 function openPicks(which){view=which;if(detailId)closeDetail();
   selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
@@ -2893,7 +2904,9 @@ async function loadHotPick(){
   const p=d.pick;
   const meta=SPORTS_META.find(function(s){return s.key===p.sport;});
   const emoji=meta?meta.emoji:"\u{1F525}",lbl=meta?meta.label:(p.sport||"").toUpperCase();
-  const odds=(p.market_odds!=null)?(p.market_odds>0?"+"+p.market_odds:""+p.market_odds):null;
+  const mktStr=(p.market_odds!=null)?fmtOdds(p.market_odds):null;
+  const modelLine=probToAmerican(p.prob);
+  const modelStr=(modelLine!=null)?fmtOdds(modelLine):null;
   const k=p.kelly_units?'<span class="hp-kelly" title="Suggested stake at quarter-Kelly">'+p.kelly_units+'u</span>':"";
   const resCls=p.result==="win"?" won":(p.result==="loss"?" lost":"");
   const resBadge=p.result==="win"?'<div class="hp-result win">\u2713 Winner</div>':(p.result==="loss"?'<div class="hp-result loss">\u2717 Lost</div>':"");
@@ -2905,7 +2918,8 @@ async function loadHotPick(){
     resBadge+
     '<div class="hp-stats"><span class="hp-edge">+'+p.edge_pct+'% edge</span>'+
       '<span class="hp-stat">'+Math.round(p.prob*100)+'% win</span>'+
-      (odds?'<span class="hp-stat">'+odds+'</span>':"")+k+'</div>'+
+      (mktStr?'<span class="hp-stat" title="Market price \u2014 what you\u2019d actually bet at">Mkt '+mktStr+'</span>':"")+
+      (modelStr?'<span class="hp-stat" title="Model fair line (from the model\u2019s win %)">Model '+modelStr+'</span>':"")+k+'</div>'+
     (p.result?"":('<div class="hp-cta">Biggest gap between our model and the market today \u2192</div>'))+
     lineMoveHTML(p)+
     '</div>';
@@ -2923,7 +2937,7 @@ async function renderPicks(){
     else html+=d.picks.map(p=>pickCardHTML(p,true)).join("");
     list.innerHTML=html;bindPickCards();celebrateWins(d.picks);
   }else{
-    let d;try{d=await getJSON("/api/picks/best?date="+ymd(selected)+(bestFilter.sport?"&sport="+bestFilter.sport:"")+"&min_prob="+bestFilter.min);}catch(e){d={picks:[]};}
+    let d;try{d=await getJSON("/api/picks/best?date="+ymd(selected)+(bestFilter.sport?"&sport="+bestFilter.sport:"")+"&min_prob="+bestFilter.min+"&min_edge="+(bestFilter.edge||0));}catch(e){d={picks:[]};}
     if(view!=="best")return;
     let html='<div class="picks-head">\u{1F451} Best Bets'+head30+'</div><div class="picks-sub">The model\u2019s full board, ranked by win probability, with market price &amp; edge. Filter by sport and confidence. Not betting advice.</div>'+recBanner;
     html+='<div class="filters">'+
@@ -2931,7 +2945,11 @@ async function renderPicks(){
       SPORTS_META.map(function(s){return filterBtn(s.key==="ncaabb"?"NCAA BB":s.label,bestFilter.sport===s.key,"sport",s.key);}).join("")+
       filterBtn("60%+",bestFilter.min===0.6,"min",0.6)+
       filterBtn("70%+",bestFilter.min===0.7,"min",0.7)+
-      filterBtn("Any",bestFilter.min===0,"min",0)+'</div>';
+      filterBtn("Any%",bestFilter.min===0,"min",0)+
+      '<span class="filter-div"></span>'+
+      filterBtn("Edge 3%+",bestFilter.edge===3,"edge",3)+
+      filterBtn("5%+",bestFilter.edge===5,"edge",5)+
+      filterBtn("Any edge",bestFilter.edge===0,"edge",0)+'</div>';
     if(!d.picks||!d.picks.length)html+='<div class="empty">No plays match these filters today.</div>';
     else html+=d.picks.map(p=>pickCardHTML(p,false)).join("");
     list.innerHTML=html;bindPickCards();
@@ -2947,8 +2965,12 @@ function recordBannerHTML(rec){
   return '<div class="rec-banner '+cls+'"><span>Today\u2019s results</span>'+
     '<b>'+t.wins+'\u2013'+t.losses+'</b><span class="rec-pct">'+(t.hit_rate!=null?t.hit_rate+'% hit rate':'')+'</span></div>';}
 function filterBtn(label,active,key,val){return '<button class="pill'+(active?" active":"")+'" onclick="setBestFilter(\''+key+'\',\''+val+'\')">'+label+'</button>';}
-function setBestFilter(key,val){bestFilter[key]=(key==="min")?parseFloat(val):val;renderPicks();}
+function setBestFilter(key,val){bestFilter[key]=(key==="min"||key==="edge")?parseFloat(val):val;renderPicks();}
 function fmtOdds(o){return o==null?"":(o>0?"+"+o:""+o);}
+function probToAmerican(prob){
+  if(prob==null||isNaN(prob)||prob<=0||prob>=1)return null;
+  return prob>=0.5?-Math.round(prob/(1-prob)*100):Math.round((1-prob)/prob*100);
+}
 function lineMoveHTML(p){
   if(!p||!p.line_move)return "";
   const m=p.line_move,t=m.toward;

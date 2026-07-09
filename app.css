@@ -1241,8 +1241,11 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 @keyframes emptypulse{0%,100%{opacity:.55}50%{opacity:.9}}
 
 /* ===== Collapsible settings in menu ===== */
-.menu-gear{cursor:pointer;display:flex;align-items:center;justify-content:space-between;border-radius:8px;transition:background .12s;}
+.menu-gear{cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+  padding:11px 14px;border-radius:8px;font-size:13.5px;font-weight:700;color:var(--muted);
+  text-transform:none;letter-spacing:normal;transition:background .12s;margin-top:2px;}
 .menu-gear:hover{background:var(--panel-2);}
-.menu-gear::after{content:"\203A";font-size:16px;color:var(--muted);transition:transform .15s;}
+.menu-gear::after{content:"\203A";font-size:17px;color:var(--muted);transition:transform .15s;line-height:1;}
 .menu-gear.open::after{transform:rotate(90deg);}
 #settings-body{padding-top:2px;}
+.filter-div{display:inline-block;width:1px;height:20px;background:var(--line);margin:0 4px;vertical-align:middle;}
