@@ -48,7 +48,7 @@ def _make_llm_complete():
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         return None
-    model = os.environ.get("ANTHROPIC_MODEL", "claude-3-5-haiku-latest")
+    model = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=key)
