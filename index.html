@@ -299,27 +299,22 @@ function favPct(x){var p;
 function _byConfidence(a,b){var fa=a.status==="finished",fb=b.status==="finished";
   if(fa!==fb)return fa?1:-1;return favPct(b)-favPct(a);}
 function edgeVal(x){
-  // team sports: odds.ml_home / ml_away with prob_home
-  if(x&&x.odds&&(x.odds.ml_home!=null||x.odds.ml_away!=null)&&x.prob_home!=null){
-    var favHome=x.prob_home>=0.5;
-    var mkt=favHome?x.odds.ml_home:x.odds.ml_away;
-    if(mkt!=null){
-      var modelProb=favHome?x.prob_home:(1-x.prob_home);
-      var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
-      return (modelProb-mImp)*100;
-    }
+  if(x&&x.edge_pct!=null&&!isNaN(x.edge_pct))return x.edge_pct;   // backend-computed (authoritative)
+  if(!x||!x.odds)return null;
+  var o=x.odds,probA=null,priceA=null,priceB=null;
+  if(x.prediction&&x.prediction.prob_a!=null){          // tennis: prob_a + ml_home(=player_a)/ml_away, or ml_a/ml_b
+    probA=x.prediction.prob_a;
+    priceA=(o.ml_home!=null?o.ml_home:o.ml_a);
+    priceB=(o.ml_away!=null?o.ml_away:o.ml_b);
+  }else if(x.prob_home!=null){                           // team sports: prob_home + ml_home/ml_away
+    probA=x.prob_home;priceA=o.ml_home;priceB=o.ml_away;
   }
-  // tennis: odds.ml_a / ml_b with prediction.prob_a
-  if(x&&x.odds&&(x.odds.ml_a!=null||x.odds.ml_b!=null)&&x.prediction&&x.prediction.prob_a!=null){
-    var pa=x.prediction.prob_a,favA=pa>=0.5;
-    var tmkt=favA?x.odds.ml_a:x.odds.ml_b;
-    if(tmkt!=null){
-      var mp=favA?pa:(1-pa);
-      var ti=tmkt>0?100/(tmkt+100):Math.abs(tmkt)/(Math.abs(tmkt)+100);
-      return (mp-ti)*100;
-    }
-  }
-  return null;
+  if(probA==null)return null;
+  var favA=probA>=0.5,mkt=favA?priceA:priceB;
+  if(mkt==null)return null;
+  var mp=favA?probA:(1-probA);
+  var mImp=mkt>0?100/(mkt+100):Math.abs(mkt)/(Math.abs(mkt)+100);
+  return (mp-mImp)*100;                                  // model% minus market-implied% (can be negative)
 }
 function _byEdge(a,b){
   var fa=a.status==="finished",fb=b.status==="finished";

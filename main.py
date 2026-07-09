@@ -1690,6 +1690,19 @@ def list_matches(date: str | None = None):
             row = _match_row(db, m)
             if ml:
                 row["odds"] = ml
+                # authoritative edge% = model prob(picked side) - market implied%.
+                # Can be negative (model likes a favorite the market likes even more).
+                try:
+                    pr = (row.get("prediction") or {}).get("prob_a")
+                    if pr is not None:
+                        favA = pr >= 0.5
+                        mkt = ml["ml_home"] if favA else ml["ml_away"]
+                        if mkt is not None:
+                            mimp = 100.0 / (mkt + 100) if mkt > 0 else abs(mkt) / (abs(mkt) + 100.0)
+                            mp = pr if favA else (1 - pr)
+                            row["edge_pct"] = round((mp - mimp) * 100, 1)
+                except Exception:
+                    pass
             # ITF/futures floods the board. We still show these tournaments, but
             # only when there's something useful to show — a model pick OR a price
             # — so we don't render empty "Awaiting market" shells with no
