@@ -1100,7 +1100,7 @@ def elo_build(sport: str = "", confirm: str = "", start: str = "", end: str = ""
     sport = (sport or "").lower()
     if confirm != "yes" or not sport:
         return JSONResponse({"note": "append ?sport=nba&confirm=yes (optional &seasons=2 &start=&end=)",
-                             "sports": ["nba", "nfl", "ncaaf", "ncaab", "wncaab"]})
+                             "sports": ["nba", "wnba", "nfl", "ncaaf", "ncaab", "wncaab"]})
     if _ELO_BUILD["running"] and force != "yes":
         return JSONResponse({"status": "already running", "poll": "/api/elo/build-status",
                              "tip": "add &force=yes if stuck"})
@@ -2871,7 +2871,7 @@ def _enrich_odds(p):
         # market odds: team sports via snapshot, tennis via per-tournament feed
     try:
         import odds_api
-        if odds_api.enabled() and p["sport"] in ("mlb", "nba", "nfl"):
+        if odds_api.enabled() and p["sport"] in ("mlb", "nba", "nfl", "wnba"):
             from models import OddsSnapshot
             with SessionLocal() as db:
                 snap = db.query(OddsSnapshot).filter_by(sport=p["sport"], ref=str(p["id"])).first()
@@ -3684,7 +3684,7 @@ def officials(sport: str, game_id: str):
             except Exception:
                 pass
             return data
-        if sp in ("nba", "nfl", "ncaaf", "ncaab", "wncaab"):
+        if sp in ("nba", "wnba", "nfl", "ncaaf", "ncaab", "wncaab"):
             from espn_provider import get_officials
             return get_officials(sp, game_id)
     except Exception as e:
@@ -3990,6 +3990,7 @@ SPORT_SEASON = {
     "soccer": set(range(1, 13)),
     "mlb":    {2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
     "nba":    {10, 11, 12, 1, 2, 3, 4, 5, 6},
+    "wnba":   {5, 6, 7, 8, 9, 10},
     "nhl":    {9, 10, 11, 12, 1, 2, 3, 4, 5, 6},
     "ncaabb": {2, 3, 4, 5, 6},
     "nfl":    {8, 9, 10, 11, 12, 1, 2},

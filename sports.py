@@ -138,6 +138,10 @@ SPORTS: dict[str, Sport] = {
         key="nba", label="NBA", emoji="\U0001F3C0", color="#c8612f",
         kind="espn", source="ESPN + Elo model", has_props=True, blurb="Spreads \u00b7 player props",
         games=_espn_games("nba"), game=_espn_game("nba")),
+    "wnba": Sport(
+        key="wnba", label="WNBA", emoji="\U0001F3C0", color="#e2732f",
+        kind="espn", source="ESPN + Elo model", has_props=False, blurb="Spreads \u00b7 model lines",
+        games=_espn_games("wnba"), game=_espn_game("wnba")),
     "nfl": Sport(
         key="nfl", label="NFL", emoji="\U0001F3C8", color="#4f9d6a",
         kind="espn", source="ESPN + Elo model", has_props=True, blurb="Spreads \u00b7 yardage props",
