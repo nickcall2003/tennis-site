@@ -87,12 +87,17 @@ def _infer_surface(name, tier=None, when=None):
         return "Grass"
     if any(k in n for k in _CLAY_KW):
         return "Clay"
-    # Season fallback is CLAY-ONLY: every grass event is named in _GRASS_KW, so we
-    # never guess grass from the calendar (that wrongly painted July hard/clay
-    # events grass during the grass weeks). Unknowns default to Hard, the modal.
+    import re as _re
+    is_itf = (str(tier or "").upper() == "ITF") or bool(_re.match(r"^[mw]\d{2,3}\b", n))
     try:
         mo, dy = when.month, when.day
-        if mo in (4, 5) or (mo == 6 and dy <= 8):              # European clay swing
+        if mo in (4, 5) or (mo == 6 and dy <= 8):              # ATP/WTA clay swing
+            return "Clay"
+        # ITF grass barely exists, and the European ITF clay circuit runs deep into
+        # summer. So an ITF event with no grass/hard name signal is far more likely
+        # clay than grass or hard \u2014 this stops "grass-season" mislabels of M15/W15
+        # clay events (e.g. Kursumlijska Banja).
+        if is_itf and mo in (5, 6, 7, 8, 9):
             return "Clay"
     except Exception:
         pass

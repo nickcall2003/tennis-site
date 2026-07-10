@@ -3008,7 +3008,13 @@ function kellyUnits(prob,americanOdds){
   if(b<=0)return null;
   const f=prob-(1-prob)/b;                 // full Kelly fraction of bankroll
   if(f<=0)return null;                      // no edge -> no bet
-  let u=Math.min(f*0.25*100,4);            // quarter-Kelly, 1u = 1% bankroll, cap 4u
+  const MAXU=4;
+  let u=f*0.25*100;                          // quarter-Kelly, 1u = 1% bankroll
+  // variance-aware ceiling: Kelly assumes the probability is exact, least true on
+  // longshots. Cap the stake lower as win prob drops so a coin-flip +1000 can't get
+  // the same size as a reliable favorite, even with a big "edge".
+  const ceil=MAXU*Math.min(1,Math.max(0.12,(prob-0.45)/0.30));
+  u=Math.min(u,ceil,MAXU);
   return u<0.1?null:u.toFixed(1);}
 function _confMeter(modelProb,edge){
   // Confidence the user SEES = strength of the pick, so it can never contradict the

@@ -388,6 +388,10 @@ def _backfill_results(days: int) -> None:
     today = dt.date.today()
     try:
         _settle_stale_tennis()   # clear canceled/stuck tennis bets on startup too
+        try:
+            _reinfer_tennis_surfaces()   # correct stale/wrong stored surfaces + re-predict
+        except Exception as _se:
+            print(f"[surface] startup reinfer skipped: {_se}")
     except Exception as e:
         print(f"[backfill] stale-tennis sweep failed: {e}")
 
@@ -2225,6 +2229,46 @@ def _is_push(r):
 
 
 STALE_TENNIS_HOURS = int(os.environ.get("TENNIS_STALE_HOURS", "48"))
+
+
+def _reinfer_tennis_surfaces():
+    """Correct stored tennis surfaces for upcoming matches (and re-run their
+    predictions on the corrected surface). Fixes stale/wrong values \u2014 e.g. clay
+    ITF events that were mislabeled grass before the surface-logic fix."""
+    try:
+        from apitennis import _infer_surface
+    except Exception:
+        return
+    try:
+        with SessionLocal() as db:
+            now = dt.datetime.now()
+            rows = (db.query(Match, Prediction)
+                      .outerjoin(Prediction, Prediction.match_id == Match.id)
+                      .filter(Match.scheduled >= now - dt.timedelta(hours=18))
+                      .all())
+            changed = 0
+            for m, pred in rows:
+                if not m.tournament:
+                    continue
+                new = _infer_surface(m.tournament, m.tier, m.scheduled)
+                if not new or new == m.surface:
+                    continue
+                m.surface = new
+                changed += 1
+                if pred is not None and engine is not None:
+                    try:
+                        res = engine.predict_feed(m.player_a, m.player_b, new)
+                        if res and res[0] is not None:
+                            pred.prob_a = res[0]
+                            if len(res) > 1 and res[1]:
+                                pred.confidence = res[1]
+                    except Exception:
+                        pass
+            if changed:
+                db.commit()
+                print(f"[surface] corrected {changed} tennis surfaces + re-predicted")
+    except Exception as e:
+        print(f"[surface] reinfer failed: {e}")
 
 
 def _settle_stale_tennis(hours=None):

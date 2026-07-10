@@ -98,10 +98,18 @@ def stake_suggestion(play):
                         "basis": f"no value at {_fmt_odds(price)}"}
             # 1 unit == 1% of bankroll, so units = fraction * 100
             units = f_full * kf * 100.0
+            # Variance-aware ceiling: Kelly assumes the probability is exact, which
+            # is least true on longshots. A coin-flip +1000 carries enormous variance
+            # and its edge is the least reliable, so cap the stake lower as win
+            # probability drops \u2014 full ceiling for heavy favorites (~75%+), tapering
+            # down toward the floor below. A -130/80% favorite can reach the max; a
+            # +1000/50% shot is held near the minimum even with a big "edge".
+            ceil = max_u * min(1.0, max(0.12, (p - 0.45) / 0.30))
+            units = min(units, ceil)
             units = max(0.5, min(max_u, round(units * 2) / 2.0))
             return {"units": units, "priced": True, "pass": False,
                     "kelly": round(f_full, 4), "price": price,
-                    "basis": f"quarter-Kelly at {_fmt_odds(price)}"}
+                    "basis": f"quarter-Kelly at {_fmt_odds(price)}, variance-capped by win%"}
 
     # --- no live line: confidence/probability ladder ---
     if p is None:
