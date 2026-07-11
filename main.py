@@ -5743,6 +5743,37 @@ def mlb_prop_history(game_id: int, player: str, stat: str, line: float,
         return {"games": []}
 
 
+@app.get("/api/prop-diag")
+def prop_diag(player: str, sport: str = "wnba", stat: str = "points"):
+    """Diagnostic: shows exactly where WNBA prop projection resolution succeeds or
+    fails (search hits, resolved athlete id, gamelog labels + event count)."""
+    out = {"player": player, "sport": sport, "stat": stat}
+    try:
+        from espn_provider import _athlete_id_by_name, _get, GAMELOG, _LOG_LABEL
+        sdata = _get("https://site.web.api.espn.com/apis/search/v2",
+                     {"query": player, "limit": 8})
+        hits = []
+        for grp in (sdata.get("results") or []):
+            for it in (grp.get("contents") or []):
+                if it.get("type") == "player":
+                    hits.append({"name": it.get("displayName"),
+                                 "subtitle": it.get("subtitle"), "uid": it.get("uid")})
+        out["search_player_hits"] = hits[:6]
+        pid = _athlete_id_by_name(sport, player)
+        out["resolved_pid"] = pid
+        out["stat_col_target"] = _LOG_LABEL.get((stat or "").lower())
+        if pid and sport in GAMELOG:
+            gdata = _get(GAMELOG[sport].format(pid=pid))
+            out["gamelog_names"] = gdata.get("names")
+            out["gamelog_labels"] = gdata.get("labels")
+            st = gdata.get("seasonTypes") or []
+            out["gamelog_event_count"] = sum(
+                len(cat.get("events", [])) for s in st for cat in (s.get("categories") or []))
+    except Exception as e:
+        out["error"] = str(e)[:400]
+    return out
+
+
 @app.get("/api/{sport}/prop-history/{game_id}")
 def team_prop_history(sport: str, game_id: str, player: str, stat: str,
                       line: float, date: str | None = None):
