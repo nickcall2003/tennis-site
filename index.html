@@ -1989,7 +1989,7 @@ function projFromGames(games){
   const vs=dated.map(d=>d[1]);
   return Math.round(vs.reduce((a,b)=>a+b,0)/vs.length*10)/10;}
 function fillProjections(props){
-  if(["mlb","nba","nfl","soccer"].indexOf(propsSport)<0)return;
+  if(["mlb","nba","wnba","nfl","soccer"].indexOf(propsSport)<0)return;
   (props||[]).forEach(p=>{
     const key=(p.player||"")+"|"+(p.stat||p.label||"");
     if(propHitCache[key]!=null||projInflight[key])return;   // log already fetched (gives proj + hit-rate)
