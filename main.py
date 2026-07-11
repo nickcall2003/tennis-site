@@ -5569,7 +5569,7 @@ def _enrich_projections(sport, game_id, date, props, league=None):
     """Best-effort, time-boxed parallel fill of `projection` for props that
     lack one (book lines). Cached per player+stat; whatever doesn't finish in
     the budget is filled lazily on the client instead."""
-    if sport not in ("mlb", "nba", "nfl", "soccer"):
+    if sport not in ("mlb", "nba", "wnba", "nfl", "soccer"):
         return
     need = [p for p in props if p.get("projection") is None][:30]
     if not need:
@@ -5602,7 +5602,7 @@ def _enrich_projections(sport, game_id, date, props, league=None):
                 pass
     # backfill any still-missing projections from the model's own numbers
     missing = [p for p in props if p.get("projection") is None]
-    if missing and sport in ("mlb", "nba", "nfl"):
+    if missing and sport in ("mlb", "nba", "wnba", "nfl"):
         mm = _model_projection_map(sport, game_id, date)
         if mm:
             for p in missing:
