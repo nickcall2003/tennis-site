@@ -1190,7 +1190,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     '<div class="d-score"><span>'+g.away.name+(g.away.record?' &middot; '+g.away.record:"")+'</span></div>'+
     '<div class="d-score"><span>'+g.home.name+(g.home.record?' &middot; '+g.home.record:"")+'</span></div>'+
     ((g.status==="live"&&sp==="ncaabb")?ncaabbLiveBarHTML(g):(g.status==="live"&&(sp==="nfl"||sp==="ncaaf"))?nflLiveBarHTML(g):(g.status==="live"&&sp==="nba")?nbaLiveBarHTML(g):(g.status==="live"&&sp==="nhl")?nhlLiveBarHTML(g):(g.status==="live"&&sp==="ncaab")?ncaabLiveBarHTML(g):(g.status==="live"&&sp==="wncaab")?wncaabLiveBarHTML(g):g.status==="live"?predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status):dPredBar(g.away.abbr,pa,g.home.abbr,ph))+((g.status==="live"&&(sp==="nfl"||sp==="ncaaf"))?nflFieldHTML(g):(g.status==="live"&&sp==="ncaabb")?mlbSituationHTML(g):"")+'</div>';
-  const propsTab=(sp==="nba"||sp==="nfl")?'<button class="d-tab '+(teamDetailTab==="props"?"active":"")+'" onclick="setTeamTab(\'props\')">Props</button>':'';
+  const propsTab=(sp==="nba"||sp==="wnba"||sp==="nfl")?'<button class="d-tab '+(teamDetailTab==="props"?"active":"")+'" onclick="setTeamTab(\'props\')">Props</button>':'';
   const tabs='<div class="d-tabs"><button class="d-tab '+(teamDetailTab==="prediction"?"active":"")+'" onclick="setTeamTab(\'prediction\')">Prediction</button>'+propsTab+
     '<button class="d-tab '+(teamDetailTab==="box"?"active":"")+'" onclick="setTeamTab(\'box\')">Live Stats</button></div>';
   let body;
