@@ -1971,6 +1971,7 @@ function propRowHTML(p,i){
       '<div class="pc-col"><div class="pc-v">'+(line==null?"\u2014":line)+'</div><div class="pc-k">Line</div>'+(oddsTxt?'<div class="pc-sub">'+oddsTxt+'</div>':"")+'</div>'+
       '<div class="pc-col"><div class="pc-v">'+actCell+'</div><div class="pc-k">Actual</div></div>'+
     '</div>'+
+    (p.context?'<div class="pc-ctx">\uD83C\uDFAF '+p.context+'</div>':"")+
     '<div class="pc-hit-row"><span class="pc-hit" data-hit-idx="'+i+'">'+hitInit+'</span></div>'+
     '<div class="pc-foot">'+leanTxt+(badge||"")+
       '<button class="pc-log" onclick="togglePropHist('+i+',this.closest(\'.prop-row2\'))">Recent log \u25BE</button></div>'+

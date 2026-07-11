@@ -1249,3 +1249,6 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .menu-gear.open::after{transform:rotate(90deg);}
 #settings-body{padding-top:2px;}
 .filter-div{display:inline-block;width:1px;height:20px;background:var(--line);margin:0 4px;vertical-align:middle;}
+
+/* prop opponent/pace context line */
+.pc-ctx{font-size:11px;color:var(--muted);margin:2px 2px 4px;line-height:1.4;text-align:center;}
