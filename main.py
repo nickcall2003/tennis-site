@@ -5547,7 +5547,7 @@ def _model_projection_map(sport, game_id, date):
         if sport == "mlb":
             from mlb_provider import get_props
             mp = get_props(date, int(game_id))
-        elif sport in ("nba", "nfl", "ncaaf", "ncaab", "wncaab"):
+        elif sport in ("nba", "wnba", "nfl", "ncaaf", "ncaab", "wncaab"):
             from espn_provider import get_props
             mp = get_props(sport, date, game_id)
         else:
