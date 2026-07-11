@@ -5494,7 +5494,7 @@ def _prop_log(sport, game_id, date, player, stat, line, league=None):
         if sport == "mlb":
             from mlb_provider import get_prop_history
             return get_prop_history(date, int(game_id), player, stat, line)
-        if sport in ("nba", "nfl"):
+        if sport in ("nba", "wnba", "nfl"):
             from espn_provider import get_prop_history
             return get_prop_history(sport, date, game_id, player, stat, line)
     except Exception:
@@ -5690,7 +5690,7 @@ def mlb_props(game_id: int, date: str | None = None):
 
 @app.get("/api/{sport}/props/{game_id}")
 def team_props(sport: str, game_id: str, date: str | None = None):
-    if sport not in ("nba", "nfl"):
+    if sport not in ("nba", "wnba", "nfl"):
         return {"props": []}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     status = None
@@ -5746,7 +5746,7 @@ def mlb_prop_history(game_id: int, player: str, stat: str, line: float,
 @app.get("/api/{sport}/prop-history/{game_id}")
 def team_prop_history(sport: str, game_id: str, player: str, stat: str,
                       line: float, date: str | None = None):
-    if sport not in ("nba", "nfl"):
+    if sport not in ("nba", "wnba", "nfl"):
         return {"history": []}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     try:
@@ -5762,7 +5762,7 @@ def sport_news(sport: str, date: str | None = None):
     """News headlines + today's injury report for a sport.
     Injuries from ESPN (structured); headlines from Yardbarker (trades, signings,
     free agency, transfer portal) with ESPN headlines as a fallback."""
-    if sport not in ("nba", "nfl", "mlb"):
+    if sport not in ("nba", "wnba", "nfl", "mlb"):
         return {"news": [], "injuries": [], "headlines": []}
     target = dt.date.fromisoformat(date) if date else dt.date.today()
     news = injuries = headlines = []
