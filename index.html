@@ -1195,7 +1195,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     '<button class="d-tab '+(teamDetailTab==="box"?"active":"")+'" onclick="setTeamTab(\'box\')">Live Stats</button></div>';
   let body;
   if(teamDetailTab==="box"){body=boxscoreHTML(teamBox);}
-  else if(teamDetailTab==="props"&&(sp==="nba"||sp==="nfl")){body=propsPanelHTML(teamProps);}
+  else if(teamDetailTab==="props"){body=propsPanelHTML(teamProps);}
   else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel">'+predictionReportHTML(g,sp)+whyChipsHTML(g)+'<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin:14px 0 18px">'+mp+'</div>'+
     teamFactorsHTML(g,sp)+
