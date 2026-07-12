@@ -5747,17 +5747,27 @@ def mlb_prop_history(game_id: int, player: str, stat: str, line: float,
 def hoops_adv_diag(sport: str = "wnba"):
     """Is stats.nba.com/stats.wnba.com reachable from this server? (Datacenter IPs
     are often blocked.) Shows whether advanced stats can be used at all."""
+    import time as _t
+    t0 = _t.time()
     try:
         import hoops_advanced as HA
-        st = HA.status(sport)
-        ta = HA.team_advanced(sport)
+        ta = HA.team_advanced(sport)          # one probe only; 6s timeout inside
+        elapsed = round(_t.time() - t0, 1)
+        if not ta:
+            return {"reachable": False, "elapsed_sec": elapsed,
+                    "health": dict(HA._health), "season": HA._season(sport),
+                    "meaning": ("stats.nba.com is NOT reachable from this server "
+                                "(datacenter IP likely blocked). Props still work \u2014 "
+                                "they fall back to the ESPN proxy.")}
         pu = HA.player_usage(sport)
-        sample_t = list(ta.items())[:2] if ta else None
-        sample_p = list(pu.items())[:2] if pu else None
-        return {"status": st, "team_advanced_ok": bool(ta), "player_usage_ok": bool(pu),
-                "sample_team": sample_t, "sample_player": sample_p}
+        return {"reachable": True, "elapsed_sec": elapsed, "teams": len(ta),
+                "sample_team": list(ta.items())[:2],
+                "usage_ok": bool(pu),
+                "sample_player": (list(pu.items())[:2] if pu else None),
+                "season": HA._season(sport)}
     except Exception as e:
-        return {"error": str(e)[:300]}
+        return {"reachable": False, "error": str(e)[:300],
+                "elapsed_sec": round(_t.time() - t0, 1)}
 
 
 @app.get("/api/prop-diag")
