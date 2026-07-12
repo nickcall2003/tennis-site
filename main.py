@@ -5743,6 +5743,23 @@ def mlb_prop_history(game_id: int, player: str, stat: str, line: float,
         return {"games": []}
 
 
+@app.get("/api/hoops-adv-diag")
+def hoops_adv_diag(sport: str = "wnba"):
+    """Is stats.nba.com/stats.wnba.com reachable from this server? (Datacenter IPs
+    are often blocked.) Shows whether advanced stats can be used at all."""
+    try:
+        import hoops_advanced as HA
+        st = HA.status(sport)
+        ta = HA.team_advanced(sport)
+        pu = HA.player_usage(sport)
+        sample_t = list(ta.items())[:2] if ta else None
+        sample_p = list(pu.items())[:2] if pu else None
+        return {"status": st, "team_advanced_ok": bool(ta), "player_usage_ok": bool(pu),
+                "sample_team": sample_t, "sample_player": sample_p}
+    except Exception as e:
+        return {"error": str(e)[:300]}
+
+
 @app.get("/api/prop-diag")
 def prop_diag(player: str, sport: str = "wnba", stat: str = "points"):
     """Diagnostic: shows exactly where WNBA prop projection resolution succeeds or

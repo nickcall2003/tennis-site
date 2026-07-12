@@ -1977,17 +1977,77 @@ function propRowHTML(p,i){
       '<button class="pc-log" onclick="togglePropHist('+i+',this.closest(\'.prop-row2\'))">Recent log \u25BE</button></div>'+
     '<div class="ph-host"></div></div>';}
 function propLeagueParam(){return propsSport==="soccer"?("&league="+encodeURIComponent((soccerGame&&soccerGame.league)||soccerDetailLeague||"epl")):"";}
-function projFromGames(games){
+function _formOrdered(games){
   const dated=(games||[]).filter(g=>typeof g.value==="number").map(g=>[g.date||"",g.value]);
   if(!dated.length)return null;
-  const allDated=dated.every(d=>d[0])&&new Set(dated.map(d=>d[0])).size>1;
-  if(allDated){
-    const ordered=dated.slice().sort((a,b)=>a[0]<b[0]?1:(a[0]>b[0]?-1:0)).map(d=>d[1]);
-    const n=ordered.length;let acc=0,w=0;
-    for(let i=0;i<n;i++){const ww=n-i;acc+=ww*ordered[i];w+=ww;}
-    return Math.round(acc/w*10)/10;}
-  const vs=dated.map(d=>d[1]);
-  return Math.round(vs.reduce((a,b)=>a+b,0)/vs.length*10)/10;}
+  const hasDates=dated.every(d=>d[0])&&new Set(dated.map(d=>d[0])).size>1;
+  return hasDates?dated.slice().sort((a,b)=>a[0]<b[0]?1:(a[0]>b[0]?-1:0)).map(d=>d[1]):dated.map(d=>d[1]);}
+function _restFactor(games,gameDateStr){
+  // Days of rest before THIS game, from the player's most recent logged game.
+  // Back-to-backs sap production (esp. scoring); long rest is roughly neutral.
+  try{
+    if(!gameDateStr)return {f:1,days:null};
+    const o=(games||[]).filter(g=>g.date).map(g=>g.date).sort();
+    if(!o.length)return {f:1,days:null};
+    const last=new Date(o[o.length-1]+"T00:00:00"),now=new Date(gameDateStr+"T00:00:00");
+    const days=Math.round((now-last)/86400000);
+    if(!isFinite(days)||days<0)return {f:1,days:null};
+    let f=1;
+    if(days<=1)f=0.96;           // back-to-back
+    else if(days===2)f=1.0;
+    else if(days>=3)f=1.01;      // extra rest, small bump
+    return {f:f,days:days};
+  }catch(e){return {f:1,days:null};}
+}
+function _minutesTrend(games){
+  // Recent minutes vs. baseline minutes: a player whose role is growing/shrinking
+  // projects up/down proportionally. Uses MIN from the game log when present.
+  const v=(games||[]).filter(g=>typeof g.min==="number"&&g.min>0);
+  if(v.length<5)return {f:1,exp:null};
+  const dated=v.filter(g=>g.date).sort((a,b)=>a.date<b.date?1:-1);
+  const arr=dated.length?dated:v;
+  const l5=_avg(arr.slice(0,5).map(g=>g.min)),all=_avg(arr.map(g=>g.min));
+  if(!l5||!all)return {f:1,exp:null};
+  const f=Math.max(0.90,Math.min(1.10,l5/all));   // cap +/-10%
+  return {f:f,exp:Math.round(l5)};
+}
+function _avg(arr){return (arr&&arr.length)?arr.reduce((a,b)=>a+b,0)/arr.length:null;}
+function _homeSplit(games,isHome){
+  // player's split for THIS game's venue vs their overall — a bounded nudge, only
+  // when there's enough of a sample on both sides to mean anything.
+  if(isHome==null)return 1;
+  const v=(games||[]).filter(g=>typeof g.value==="number"&&typeof g.home==="boolean");
+  if(v.length<6)return 1;
+  const at=_avg(v.filter(g=>g.home===isHome).map(g=>g.value));
+  const all=_avg(v.map(g=>g.value));
+  if(at==null||!all)return 1;
+  const r=at/all;
+  return Math.max(0.92,Math.min(1.08,r));   // cap the swing at +/-8%
+}
+function teamIsHomeForProp(p){
+  try{
+    const g=teamGame;if(!g||!p||!p.team)return null;
+    const ha=(g.home&&(g.home.abbr||g.home.name))||"";
+    return String(ha).toUpperCase().indexOf(String(p.team).toUpperCase())>=0;
+  }catch(e){return null;}
+}
+function formSplits(games){
+  const o=_formOrdered(games);if(!o)return null;
+  const r=v=>v==null?null:Math.round(v*10)/10;
+  return {L5:r(_avg(o.slice(0,5))),L10:r(_avg(o.slice(0,10))),season:r(_avg(o)),n:o.length};}
+function projFromGames(games,isHome,gameDateStr){
+  const o=_formOrdered(games);if(!o)return null;
+  const L5=_avg(o.slice(0,5)),L10=_avg(o.slice(0,10)),season=_avg(o);
+  // recent-form blend: last-5 weighted most, then last-10, then full season.
+  // Only windows that exist contribute, so a player with few games still projects.
+  let num=0,den=0;
+  if(L5!=null){num+=0.5*L5;den+=0.5;}
+  if(L10!=null){num+=0.3*L10;den+=0.3;}
+  if(season!=null){num+=0.2*season;den+=0.2;}
+  if(!den)return null;
+  const base=num/den;
+  const adj=base*_homeSplit(games,isHome)*_restFactor(games,gameDateStr).f*_minutesTrend(games).f;
+  return Math.round(adj*10)/10;}
 function fillProjections(props){
   if(["mlb","nba","wnba","nfl","soccer"].indexOf(propsSport)<0)return;
   (props||[]).forEach(p=>{
@@ -2003,7 +2063,8 @@ function pumpProj(){
     const url="/api/"+propsSport+"/prop-history/"+propsGameId+"?player="+encodeURIComponent(p.player)+"&stat="+encodeURIComponent(p.stat||p.label)+"&line="+(p.line!=null?p.line:0.5)+"&date="+ymd(selected)+propLeagueParam();
     getJSON(url).then(h=>{
       if(h&&h.games&&h.games.length){
-        const avg=projFromGames(h.games);
+        h.isHome=teamIsHomeForProp(p);
+        const avg=projFromGames(h.games,h.isHome,ymd(selected));
         if(propProjCache[key]==null)propProjCache[key]=(avg==null?"miss":avg);
         propHistCache[propsSport+"|"+propsGameId+"|"+p.player+"|"+(p.stat||p.label)+"|"+p.line]=h;
         propHitCache[key]=(h.total&&p.line!=null)?{pct:Math.round(100*h.hits/h.total),hits:h.hits,total:h.total}:"miss";
@@ -2034,8 +2095,18 @@ function chartHTML(h){
   let bars=h.games.map(g=>{const over=g.value>h.line;const ht=Math.max(8,g.value/mx*100);
     return '<div class="ph-bar"><div class="bar '+(over?"over":"under")+'" style="height:'+ht+'%">'+g.value+'</div>'+
       '<div class="lbl">'+(g.opp||"")+(g.date?'<br>'+g.date:"")+'</div></div>';}).join("");
+  const fs=formSplits(h.games);
+  const cell=(v)=>'<b>'+(v!=null?v:"\u2014")+'</b>';
+  const _ih=(h&&h.isHome!=null)?h.isHome:null;
+  const splits=fs?('<div class="ph-form"><span>Season '+cell(fs.season)+'</span><span>L10 '+cell(fs.L10)+'</span><span>L5 '+cell(fs.L5)+'</span><span class="ph-proj">Proj '+cell(projFromGames(h.games,_ih,ymd(selected)))+'</span></div>'):"";
+  const _r=_restFactor(h.games,ymd(selected)),_m=_minutesTrend(h.games);
+  const ctxBits=[];
+  if(_r.days!=null)ctxBits.push(_r.days<=1?'back-to-back':(_r.days+'d rest'));
+  if(_m.exp!=null)ctxBits.push('~'+_m.exp+' min');
+  if(_ih!=null)ctxBits.push(_ih?'home':'away');
+  const ctxRow=ctxBits.length?'<div class="ph-ctx">'+ctxBits.join(' \u00b7 ')+'</div>':"";
   return '<div class="ph-wrap"><div class="ph-head"><span>Last '+h.total+' \u00b7 line '+h.line+(h.avg!=null?' \u00b7 avg '+h.avg:"")+'</span>'+
-    '<span class="ph-rate">'+h.hits+'/'+h.total+' over</span></div>'+
+    '<span class="ph-rate">'+h.hits+'/'+h.total+' over</span></div>'+splits+ctxRow+
     '<div class="ph-chart"><div class="ph-line" style="top:'+linePctFromTop+'%"><span>'+h.line+'</span></div>'+bars+'</div></div>';}
 async function togglePropHist(i,el){
   const host=el.querySelector(".ph-host");
