@@ -5857,6 +5857,57 @@ def _autolog_props(day=None, sports=("nba", "wnba", "nfl", "mlb")):
     return out
 
 
+@app.get("/api/props-source-diag")
+def props_source_diag(sport: str = "wnba", date: str | None = None, token: str = ""):
+    """Which prop source actually works for this sport today? Shows, per game,
+    what SportsGameOdds, The Odds API, and the model projection each return."""
+    admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
+    if admin_tok and (token or "").strip() != admin_tok:
+        return {"error": "forbidden"}
+    day = dt.date.fromisoformat(date) if date else dt.date.today()
+    out = {"sport": sport, "date": day.isoformat(), "games": []}
+    try:
+        games = team_games(sport, day.isoformat())
+        rows = (games.get("games") if isinstance(games, dict) else games) or []
+    except Exception as e:
+        return {"error": f"slate failed: {str(e)[:150]}"}
+    for g in rows[:3]:
+        gid = g.get("id") or g.get("game_id")
+        entry = {"game_id": gid,
+                 "matchup": f"{(g.get('away') or {}).get('name')} @ {(g.get('home') or {}).get('name')}",
+                 "status": g.get("status")}
+        try:
+            from espn_provider import get_game
+            gg = get_game(sport, day, str(gid))
+            home = (gg or {}).get("home", {}).get("name")
+            away = (gg or {}).get("away", {}).get("name")
+            entry["espn_teams"] = [away, home]
+            try:
+                import sgo_api
+                entry["sgo_enabled"] = sgo_api.enabled()
+                sp = sgo_api.get_player_props(sport, home, away) if sgo_api.enabled() else None
+                entry["sgo_props"] = len(sp or [])
+            except Exception as e:
+                entry["sgo_error"] = str(e)[:120]
+            try:
+                import odds_api
+                entry["oddsapi_enabled"] = odds_api.enabled()
+                op = odds_api.get_player_props(sport, home, away) if odds_api.enabled() else None
+                entry["oddsapi_props"] = len(op or [])
+            except Exception as e:
+                entry["oddsapi_error"] = str(e)[:120]
+            try:
+                from espn_provider import get_props as _mp
+                mp = _mp(sport, day, str(gid))
+                entry["model_props"] = len((mp or {}).get("props") or [])
+            except Exception as e:
+                entry["model_error"] = str(e)[:120]
+        except Exception as e:
+            entry["error"] = str(e)[:150]
+        out["games"].append(entry)
+    return out
+
+
 @app.get("/api/props/autolog")
 def props_autolog(date: str | None = None, token: str = ""):
     """Manually trigger the slate-wide prop logging sweep (also runs on a schedule)."""
