@@ -3079,6 +3079,10 @@ def _settle_parlays():
     from models import ParlaySlip, PickResult
     _settle_stale_tennis()   # push out canceled/stuck tennis so legs stop hanging
     try:
+        _settle_props()      # grade player props from final boxscores (model-quality only)
+    except Exception as _pe:
+        print(f"[props] periodic settle skipped: {_pe}")
+    try:
         with SessionLocal() as db:
             pend = db.query(ParlaySlip).filter(ParlaySlip.result == "pending").all()
             pend_data = [(s.slip_date, json.loads(s.legs_json).get("legs", [])) for s in pend]
@@ -5640,7 +5644,7 @@ def _enrich_props(sport, game_id, date, result, status, league=None):
     if not props:
         return result
     box = None
-    if sport in ("mlb", "nba", "nfl", "soccer") and status and str(status).lower() in _LIVE_OR_FINAL:
+    if sport in ("mlb", "nba", "wnba", "nfl", "soccer") and status and str(status).lower() in _LIVE_OR_FINAL:
         try:
             box = _props_boxscore(sport, game_id, date, league)
         except Exception as e:
@@ -5657,6 +5661,24 @@ def _enrich_props(sport, game_id, date, result, status, league=None):
             except Exception:
                 pass
         _grade_prop(p)
+    # Persist for model-quality tracking (separate from the betting record).
+    try:
+        import prop_tracking as PT
+        with SessionLocal() as _db:
+            PT.log_props(_db, sport, game_id, props)
+            done = {}
+            for p in props:
+                a = p.get("actual")
+                if a is None:
+                    continue
+                st = (p.get("stat") or p.get("label") or "").strip().lower()
+                nm = (p.get("player") or "").strip().lower()
+                if nm and st:
+                    done[(nm, st)] = a
+            if done:
+                PT.grade_props(_db, sport, game_id, done)
+    except Exception as _pe:
+        print(f"[{sport}] prop tracking failed: {_pe}")
     result["graded"] = (box is not None)
     return result
 
@@ -5743,6 +5765,84 @@ def mlb_prop_history(game_id: int, player: str, stat: str, line: float,
         return {"games": []}
 
 
+@app.post("/api/admin/hoops-upload")
+def hoops_upload(payload: dict, token: str = ""):
+    """Owner-only: receive the advanced hoops stats fetched from a NON-datacenter
+    IP (see fetch_hoops.py, run on your PC). Saved to the Railway volume and used
+    by the prop projections. stats.nba.com blocks this server, so this is how the
+    real defensive ratings / usage / defense-vs-position get in."""
+    admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
+    if not admin_tok or (token or "").strip() != admin_tok:
+        return {"error": "forbidden"}
+    try:
+        import hoops_advanced as HA
+        return HA.save_uploaded(payload)
+    except Exception as e:
+        return {"error": str(e)[:300]}
+
+
+@app.get("/api/props/record")
+def props_record(sport: str | None = None, days: int = 30):
+    """How the PROJECTION model is performing on player props. Model-quality only —
+    these results never touch the site's win/loss record, units, or ROI."""
+    try:
+        import prop_tracking as PT
+        with SessionLocal() as db:
+            return PT.prop_record(db, sport, days)
+    except Exception as e:
+        return {"error": str(e)[:200], "graded": 0}
+
+
+@app.get("/api/props/recent")
+def props_recent(sport: str | None = None, limit: int = 60):
+    """Recently graded props: projection vs. line vs. what the player actually did."""
+    try:
+        import prop_tracking as PT
+        with SessionLocal() as db:
+            return {"props": PT.recent_props(db, sport, limit)}
+    except Exception as e:
+        return {"error": str(e)[:200], "props": []}
+
+
+@app.get("/api/props/settle")
+def props_settle(days: int = 3, token: str = ""):
+    """Grade finished games' props with the players' ACTUAL stats. Runs on a
+    schedule; can be triggered manually with the owner token."""
+    admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
+    if admin_tok and (token or "").strip() != admin_tok:
+        return {"error": "forbidden"}
+    return _settle_props(days)
+
+
+def _settle_props(days=3):
+    """For each recent game with logged, ungraded props: pull the final boxscore and
+    grade the model's leans. Best-effort; never raises."""
+    graded = 0
+    try:
+        import prop_tracking as PT
+        from espn_provider import final_player_stats
+        from models import PropResult
+        with SessionLocal() as db:
+            since = dt.datetime.now() - dt.timedelta(days=days)
+            rows = db.query(PropResult).filter(
+                PropResult.settled_date >= since,
+                PropResult.actual.is_(None)).all()
+            pending = {}
+            for r in rows:
+                pending.setdefault((r.sport, r.game_ref), []).append(r)
+            for (sport, ref), items in pending.items():
+                if sport not in ("nba", "wnba", "nfl"):
+                    continue          # MLB grading uses its own boxscore shape
+                day = items[0].settled_date.date() if items[0].settled_date else dt.date.today()
+                actuals = final_player_stats(sport, day, ref)
+                if not actuals:
+                    continue
+                graded += PT.grade_props(db, sport, ref, actuals)
+    except Exception as e:
+        print(f"[props] settle failed: {e}")
+    return {"graded": graded}
+
+
 @app.get("/api/hoops-adv-diag")
 def hoops_adv_diag(sport: str = "wnba"):
     """Is stats.nba.com/stats.wnba.com reachable from this server? (Datacenter IPs
@@ -5751,16 +5851,17 @@ def hoops_adv_diag(sport: str = "wnba"):
     t0 = _t.time()
     try:
         import hoops_advanced as HA
-        ta = HA.team_advanced(sport)          # one probe only; 6s timeout inside
+        up = HA.uploaded_status()
+        ta = HA.team_advanced(sport)          # uploaded snapshot first, then live probe
         elapsed = round(_t.time() - t0, 1)
         if not ta:
-            return {"reachable": False, "elapsed_sec": elapsed,
+            return {"uploaded": up, "reachable": False, "elapsed_sec": elapsed,
                     "health": dict(HA._health), "season": HA._season(sport),
                     "meaning": ("stats.nba.com is NOT reachable from this server "
                                 "(datacenter IP likely blocked). Props still work \u2014 "
                                 "they fall back to the ESPN proxy.")}
         pu = HA.player_usage(sport)
-        return {"reachable": True, "elapsed_sec": elapsed, "teams": len(ta),
+        return {"uploaded": up, "reachable": True, "elapsed_sec": elapsed, "teams": len(ta),
                 "sample_team": list(ta.items())[:2],
                 "usage_ok": bool(pu),
                 "sample_player": (list(pu.items())[:2] if pu else None),

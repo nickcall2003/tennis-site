@@ -128,6 +128,35 @@ class PickResult(Base):
     __table_args__ = (UniqueConstraint("sport", "ref", name="uq_sport_ref"),)
 
 
+class PropResult(Base):
+    """
+    A settled PLAYER PROP: what the model projected, the book's line, which side
+    the model leaned, and what the player actually did.
+
+    DELIBERATELY SEPARATE from PickResult: prop performance is tracked so we can
+    see whether the projection model is any good, but it does NOT feed the site's
+    win/loss record, units, or ROI. It's a model-quality scoreboard, not a betting
+    record.
+    """
+    __tablename__ = "prop_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[str] = mapped_column(String(10), index=True)
+    game_ref: Mapped[str] = mapped_column(String(40), index=True)
+    settled_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    player: Mapped[str] = mapped_column(String(80), index=True)
+    stat: Mapped[str] = mapped_column(String(24))              # Points|Rebounds|Strikeouts...
+    line: Mapped[float] = mapped_column(Float)                 # book line
+    projection: Mapped[float] = mapped_column(Float)           # model's number
+    lean: Mapped[str] = mapped_column(String(6))               # OVER|UNDER
+    actual: Mapped[float | None] = mapped_column(Float, nullable=True)   # what they did
+    correct: Mapped[bool | None] = mapped_column(nullable=True)          # lean hit? (None = push)
+    odds: Mapped[int | None] = mapped_column(nullable=True)    # price on the leaned side
+
+    __table_args__ = (UniqueConstraint("sport", "game_ref", "player", "stat",
+                                       name="uq_prop_ref"),)
+
+
 class PickLog(Base):
     """
     Records which picks were SHOWN in each view (free / best) on a given day,
