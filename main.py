@@ -664,6 +664,30 @@ async def lifespan(app: FastAPI):
         _thr_nw.Thread(target=_narration_warmer, daemon=True).start()
         print("[ai] narration warmer started")
 
+    # ---- prop auto-logger -------------------------------------------------
+    # Sweeps the whole slate on a loop so EVERY game's props get logged (not just
+    # the ones someone opens), then grades them once games finish. This is what
+    # makes the prop model-quality record a complete, unbiased sample.
+    if run_bg and os.environ.get("PROPS_AUTOLOG", "1").strip().lower() not in ("0", "false", "no"):
+        def _props_sweeper():
+            import time as _t
+            _t.sleep(120)          # let startup settle first
+            while True:
+                try:
+                    res = _autolog_props()
+                    if res.get("logged"):
+                        print(f"[props] autolog {res['logged']}")
+                    # grade anything that has finished (yesterday included)
+                    g = _settle_props(days=3)
+                    if g.get("graded"):
+                        print(f"[props] graded {g['graded']}")
+                except Exception as e:
+                    print(f"[props] autolog sweep failed: {e}")
+                _t.sleep(int(os.environ.get("PROPS_AUTOLOG_INTERVAL", "14400")))
+        import threading as _thr_pa
+        _thr_pa.Thread(target=_props_sweeper, daemon=True).start()
+        print("[props] auto-logger started")
+
     if USE_REAL and run_bg and startup_build:
         def _startup_bg():
             import time as _t
@@ -5732,11 +5756,25 @@ def team_props(sport: str, game_id: str, date: str | None = None):
     # 2) fall back to model projections
     try:
         from espn_provider import get_props
-        return _enrich_props(sport, game_id, target,
-                             get_props(sport, target, game_id), status)
+        res = _enrich_props(sport, game_id, target,
+                            get_props(sport, target, game_id), status)
+        if (res or {}).get("props"):
+            return res
     except Exception as e:
         print(f"[{sport}] props failed: {e}")
-        return {"props": []}
+    # 3) STORED props: once a game ends the books pull their lines, so serve the
+    #    props we already logged (with their graded actuals). This is what makes a
+    #    finished game keep showing its props instead of going blank.
+    try:
+        import prop_tracking as PT
+        with SessionLocal() as db:
+            stored = PT.stored_props(db, sport, game_id)
+        if stored:
+            return {"game_id": game_id, "props": stored, "source": "stored",
+                    "graded": any(p.get("actual") is not None for p in stored)}
+    except Exception as e:
+        print(f"[{sport}] stored props failed: {e}")
+    return {"props": []}
 
 
 @app.get("/api/soccer/prop-history/{game_id}")
@@ -5779,6 +5817,54 @@ def hoops_upload(payload: dict, token: str = ""):
         return HA.save_uploaded(payload)
     except Exception as e:
         return {"error": str(e)[:300]}
+
+
+def _autolog_props(day=None, sports=("nba", "wnba", "nfl", "mlb")):
+    """Load + log props for EVERY game on the slate, so prop tracking is a complete,
+    unbiased sample instead of only the games someone happened to open. Idempotent:
+    re-running refreshes ungraded props and grades any that have finished.
+    Best-effort per game; one bad game never stops the sweep."""
+    day = day or dt.date.today()
+    out = {"date": day.isoformat(), "logged": {}, "errors": 0}
+    for sport in sports:
+        # only sweep sports that are actually in season today
+        try:
+            if day.month not in SPORT_SEASON.get(sport, set(range(1, 13))):
+                continue
+        except Exception:
+            pass
+        n = 0
+        try:
+            games = team_games(sport, day.isoformat())
+            rows = games.get("games") if isinstance(games, dict) else games
+            for g in (rows or []):
+                gid = g.get("id") or g.get("game_id")
+                if not gid:
+                    continue
+                try:
+                    # going through team_props means props get logged + graded by the
+                    # same path the UI uses (no duplicate logic to drift)
+                    res = team_props(sport, str(gid), date=day.isoformat())
+                    n += len((res or {}).get("props") or [])
+                except Exception as e:
+                    out["errors"] += 1
+                    print(f"[autolog] {sport}/{gid}: {e}")
+        except Exception as e:
+            out["errors"] += 1
+            print(f"[autolog] {sport} slate failed: {e}")
+        if n:
+            out["logged"][sport] = n
+    return out
+
+
+@app.get("/api/props/autolog")
+def props_autolog(date: str | None = None, token: str = ""):
+    """Manually trigger the slate-wide prop logging sweep (also runs on a schedule)."""
+    admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
+    if admin_tok and (token or "").strip() != admin_tok:
+        return {"error": "forbidden"}
+    day = dt.date.fromisoformat(date) if date else None
+    return _autolog_props(day)
 
 
 @app.get("/api/props/record")
