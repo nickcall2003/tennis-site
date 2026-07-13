@@ -5744,6 +5744,18 @@ def team_props(sport: str, game_id: str, date: str | None = None):
     try:
         from espn_provider import get_game
         g = get_game(sport, target, game_id)
+        if not g:
+            # get_game can miss (cache/date edge). Rebuild the teams from the slate
+            # so book props still resolve — the books have the lines either way.
+            try:
+                slate = team_games(sport, target.isoformat())
+                for row in ((slate.get("games") if isinstance(slate, dict) else slate) or []):
+                    if str(row.get("id") or row.get("game_id")) == str(game_id):
+                        g = {"home": row.get("home") or {}, "away": row.get("away") or {},
+                             "status": row.get("status")}
+                        break
+            except Exception:
+                g = None
         if g:
             status = g.get("status")
             b = _book_props(sport, g)
@@ -5902,6 +5914,17 @@ def props_source_diag(sport: str = "wnba", date: str | None = None, token: str =
                 entry["model_props"] = len((mp or {}).get("props") or [])
             except Exception as e:
                 entry["model_error"] = str(e)[:120]
+            # what the ACTUAL endpoint the UI/chat calls returns (the real test)
+            try:
+                tp = team_props(sport, str(gid), date=day.isoformat())
+                entry["team_props_count"] = len((tp or {}).get("props") or [])
+                entry["team_props_source"] = (tp or {}).get("source")
+            except Exception as e:
+                entry["team_props_error"] = str(e)[:160]
+            try:
+                entry["get_game_ok"] = bool(get_game(sport, day, str(gid)))
+            except Exception as e:
+                entry["get_game_error"] = str(e)[:120]
         except Exception as e:
             entry["error"] = str(e)[:150]
         out["games"].append(entry)
