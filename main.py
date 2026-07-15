@@ -3107,6 +3107,10 @@ def _settle_parlays():
     except Exception as _pe:
         print(f"[props] periodic settle skipped: {_pe}")
     try:
+        _settle_ladder()     # roll/reset the daily ladder challenge
+    except Exception as _le:
+        print(f"[ladder] periodic settle skipped: {_le}")
+    try:
         with SessionLocal() as db:
             pend = db.query(ParlaySlip).filter(ParlaySlip.result == "pending").all()
             pend_data = [(s.slip_date, json.loads(s.legs_json).get("legs", [])) for s in pend]
@@ -4046,8 +4050,10 @@ def sports_meta():
         in_season = mo in SPORT_SEASON.get(entry["key"], set(range(1, 13)))
         entry["active"] = in_season and entry["key"] not in hidden
     # Golf is served by a dedicated leaderboard view, not the matchup registry,
-    # so it isn't in sports.py SPORTS. Surface it here so the home grid shows it.
-    if not any(e.get("key") == "golf" for e in meta):
+    # so it isn't in sports.py SPORTS. Surface it here so the home grid shows it \u2014
+    # but let HIDDEN_SPORTS hide it like any other sport (set HIDDEN_SPORTS to
+    # include "golf" to remove it, no code change needed).
+    if "golf" not in hidden and not any(e.get("key") == "golf" for e in meta):
         meta.append({"key": "golf", "label": "Golf", "emoji": "\u26F3",
                      "color": "#3f9b59", "team": False, "has_props": False,
                      "blurb": "Leaderboards \u00b7 projections \u00b7 matchups",
@@ -6366,3 +6372,35 @@ def index():
     return FileResponse("index.html", headers={
         "Cache-Control": "no-cache, no-store, must-revalidate",
         "Pragma": "no-cache", "Expires": "0"})
+
+
+def _settle_ladder():
+    """Grade the current ladder leg once its game is final, using the SAME win/loss
+    the pick record uses (PickResult). Rolls or resets the challenge. Best-effort."""
+    try:
+        import ladder as L
+        from models import LadderLeg, PickResult
+        with SessionLocal() as db:
+            leg = (db.query(LadderLeg)
+                     .filter(LadderLeg.settled == False)  # noqa: E712
+                     .order_by(LadderLeg.pick_date.asc()).first())
+            if not leg or not leg.game_ref:
+                return {"settled": 0}
+            pr = (db.query(PickResult)
+                    .filter(PickResult.sport == leg.sport,
+                            PickResult.ref == leg.game_ref).first())
+            if not pr or pr.correct is None:
+                return {"settled": 0}          # game not graded yet
+            L.settle_leg(db, leg, bool(pr.correct))
+            return {"settled": 1, "result": leg.result}
+    except Exception as e:
+        print(f"[ladder] settle failed: {e}")
+        return {"settled": 0, "error": str(e)[:150]}
+
+
+@app.get("/api/ladder/settle")
+def ladder_settle(token: str = ""):
+    admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
+    if admin_tok and (token or "").strip() != admin_tok:
+        return {"error": "forbidden"}
+    return _settle_ladder()

@@ -157,6 +157,44 @@ class PropResult(Base):
                                        name="uq_prop_ref"),)
 
 
+class LadderState(Base):
+    """
+    The running state of the daily Ladder Challenge: $10 rolled through up to 10
+    winning legs, resetting to rung 1 on any loss. There's exactly one active row.
+    Its own record — completely separate from the pick record and prop record.
+    """
+    __tablename__ = "ladder_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rung: Mapped[int] = mapped_column(default=1)                 # 1..10
+    bankroll: Mapped[float] = mapped_column(Float, default=10.0)
+    start_bankroll: Mapped[float] = mapped_column(Float, default=10.0)
+    attempt: Mapped[int] = mapped_column(default=1)              # which run we're on
+    best_rung_ever: Mapped[int] = mapped_column(default=0)
+    best_bankroll_ever: Mapped[float] = mapped_column(Float, default=10.0)
+    completed_runs: Mapped[int] = mapped_column(default=0)       # times all 10 hit
+    updated: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class LadderLeg(Base):
+    """One day's ladder pick + its outcome. The public history of the challenge."""
+    __tablename__ = "ladder_legs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    pick_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    attempt: Mapped[int] = mapped_column(default=1)
+    rung: Mapped[int] = mapped_column(default=1)
+    sport: Mapped[str] = mapped_column(String(10))
+    game_ref: Mapped[str] = mapped_column(String(40), index=True)
+    pick: Mapped[str] = mapped_column(String(160))
+    odds: Mapped[int | None] = mapped_column(nullable=True)
+    edge_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stake: Mapped[float] = mapped_column(Float, default=10.0)
+    to_return: Mapped[float] = mapped_column(Float, default=0.0)
+    result: Mapped[str | None] = mapped_column(String(6), nullable=True)   # win|loss|push|void
+    settled: Mapped[bool] = mapped_column(default=False)
+
+
 class PickLog(Base):
     """
     Records which picks were SHOWN in each view (free / best) on a given day,
