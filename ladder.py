@@ -17,10 +17,16 @@ from sqlalchemy import select
 
 from models import LadderState, LadderLeg
 
-BAND_LO = -120       # most negative american odds allowed
-BAND_HI = 100        # most positive
+import os
+
+BAND_LO = -110       # most negative american odds allowed
+BAND_HI = 110        # most positive
 RUNGS = 10
 START = 10.0
+# a ladder leg must clear a real edge, not a rounding-error edge. Your example
+# (market -108, model -200) is a huge edge and qualifies easily; a +0.2% edge does
+# not. Tunable via LADDER_MIN_EDGE.
+MIN_EDGE = float(os.environ.get("LADDER_MIN_EDGE", "3.0"))
 
 
 def _dec(american):
@@ -46,14 +52,15 @@ def _state(db):
 
 
 def best_leg(picks):
-    """The single best in-band edge among today's picks, or None."""
+    """The single best in-band edge among today's picks, or None.
+    Filters on MARKET odds in the +100/-120 band AND a real model edge over it."""
     best = None
     for p in picks or []:
         o, e = p.get("market_odds"), p.get("edge_pct")
         if o is None or e is None or not _in_band(o):
-            continue
+            continue                 # market price must sit in the ladder band
         try:
-            if float(e) <= 0:
+            if float(e) < MIN_EDGE:  # and the model must have a genuine edge on it
                 continue
         except (TypeError, ValueError):
             continue
