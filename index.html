@@ -535,7 +535,7 @@ function sportLoader(sp,msg){
   const icons={tennis:"\u{1F3BE}",mlb:"\u26BE",ncaabb:"\u26BE",nba:"\u{1F3C0}",ncaab:"\u{1F3C0}",wncaab:"\u{1F3C0}",nfl:"\u{1F3C8}",ncaaf:"\u{1F3C8}",nhl:"\u{1F3D2}",soccer:"\u26BD",golf:"\u26F3",ufc:"\u{1F94A}"};
   const ic=icons[sp]||"\u{1F3BE}";
   return '<div class="sload"><div class="sload-track"><span class="sload-ball s-'+(sp||"tennis")+'">'+ic+'</span></div><div class="sload-msg">'+(msg||"Loading")+'</div></div>';}
-async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record"||view==="bets"||view==="auth"||view==="calibration"||view==="transparency"||view==="simulator"||view==="value")return;const tok=++loadToken;const mySport=sport;
+async function reload(){if(detailId)return;if(view==="free"||view==="best"||view==="parlays"||view==="news"||view==="home"||view==="help"||view==="record"||view==="bets"||view==="auth"||view==="calibration"||view==="transparency"||view==="simulator"||view==="value"||view==="ladder")return;const tok=++loadToken;const mySport=sport;
   renderDatebar();document.getElementById("list").innerHTML=sportLoader(mySport,'Loading &middot; first load after idle can take ~30s');
   if(mySport==="soccer"){await loadSoccer();if(tok!==loadToken||sport!=="soccer"||view!=="sport")return;renderSoccer();}
   else if(mySport==="ufc"){await loadUFC();if(tok!==loadToken||sport!=="ufc"||view!=="sport")return;renderUFC();}
@@ -2909,24 +2909,32 @@ function openHome(){view="home";if(detailId)closeDetail();
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="home"));
   document.getElementById("home").classList.add("show");
   toggleMenu(false);renderHome();}
-async function openLadder(){
-  view="ladder";detailId=null;
-  const main=document.getElementById("main")||document.querySelector(".main")||document.body;
-  let d;try{d=await getJSON("/api/ladder");}catch(e){d=null;}
-  const host=document.getElementById("home")||main;
-  if(document.getElementById("home"))document.getElementById("home").style.display="";
+function openLadder(){view="ladder";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";
+  document.getElementById("detail").style.display="none";
+  document.getElementById("sport-tag").textContent="Ladder Challenge";
+  document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="ladder"));
+  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  document.getElementById("side").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+  document.getElementById("datebar")&&(document.getElementById("datebar").innerHTML="");
+  renderLadder();}
+async function renderLadder(){
+  const list=document.getElementById("list");
+  list.innerHTML=sportLoader("wnba","Building today's ladder");
+  let d;try{d=await getJSON("/api/ladder");}catch(e){list.innerHTML='<div class="bvp-none">Ladder unavailable right now.</div>';return;}
   const st=(d&&d.state)||{},rec=(st.record)||{};
   let html='<div class="ladder-page">';
   html+='<h2 class="lp-title">\ud83e\udea2 Line Logic Ladder Challenge</h2>';
   html+='<p class="lp-sub">One pick a day \u2014 the best model edge on a market line between \u2212110 and +110. Win rolls the bankroll forward; a loss resets to $10. Its own record.</p>';
-  // record strip
   html+='<div class="lp-rec">'+
     '<div class="lp-stat"><b>'+(rec.wins||0)+'\u2013'+(rec.losses||0)+'</b><span>Record</span></div>'+
     '<div class="lp-stat"><b>'+(rec.win_pct!=null?rec.win_pct+'%':'\u2014')+'</b><span>Win %</span></div>'+
     '<div class="lp-stat"><b class="'+((rec.units||0)>=0?'pos':'neg')+'">'+((rec.units||0)>=0?'+':'')+(rec.units!=null?rec.units:'\u2014')+'u</b><span>Units</span></div>'+
     '<div class="lp-stat"><b class="'+((rec.roi_pct||0)>=0?'pos':'neg')+'">'+(rec.roi_pct!=null?((rec.roi_pct>=0?'+':'')+rec.roi_pct+'%'):'\u2014')+'</b><span>ROI</span></div>'+
     '</div>';
-  // today's pick / challenge state
   if(d&&d.leg){
     const g=d.leg,o=(g.odds>0?'+':'')+g.odds;
     html+='<div class="lp-today"><div class="lp-day">Day '+g.rung+'/10 \u00b7 Attempt #'+(st.attempt||1)+' \u00b7 bankroll $'+(+st.bankroll||10)+'</div>'+
@@ -2938,7 +2946,6 @@ async function openLadder(){
     html+='<div class="lp-today lp-hold">No qualifying pick yet today \u2014 the run holds at rung '+(st.current_rung||1)+'. We never force a leg. Check back as lines post.</div>';
   }
   if(st.best_rung_ever)html+='<div class="lp-best">Best run: reached rung '+st.best_rung_ever+(st.completed_runs?' \u00b7 '+st.completed_runs+' full ladders completed':'')+'</div>';
-  // history
   if(st.history&&st.history.length){
     html+='<h3 class="lp-h3">Recent legs</h3><div class="lp-hist">';
     st.history.forEach(function(h){
@@ -2949,8 +2956,7 @@ async function openLadder(){
     html+='</div>';
   }
   html+='<p class="lp-foot">Tracked publicly \u00b7 separate from the site record \u00b7 not betting advice.</p></div>';
-  host.innerHTML=html;
-  window.scrollTo(0,0);
+  list.innerHTML=html;
 }
 async function loadLadderCard(){
   let d;try{d=await getJSON("/api/ladder");}catch(e){return;}
