@@ -69,7 +69,59 @@ def best_leg(picks):
     return best
 
 
-def todays_pick(db, day=None, picks=None):
+def _implied(american):
+    a = float(american)
+    return (100 / (a + 100)) if a > 0 else (abs(a) / (abs(a) + 100))
+
+
+def best_combo(picks, max_legs=3):
+    """When no single pick sits in the band, combine 2-3 value FAVORITES whose
+    COMBINED odds land in the +/-band. Each leg must be a genuine value play: the
+    model's win prob must beat the market's implied prob by MIN_EDGE — so a -400
+    the model rates even higher qualifies, but a -400 it secretly sees as -180 does
+    NOT. Legs are from different games (independent, no correlation)."""
+    favs = []
+    for p in picks or []:
+        o = p.get("market_odds")
+        prob = p.get("prob")
+        if o is None or prob is None:
+            continue
+        try:
+            o = int(o)
+            prob = float(prob)
+        except (TypeError, ValueError):
+            continue
+        if o >= 0:                     # combos are built from favorites
+            continue
+        edge = (prob - _implied(o)) * 100      # model prob vs market implied
+        if edge < MIN_EDGE:            # must be real value, not a fake favorite
+            continue
+        gid = p.get("id") or p.get("game_id") or p.get("match")
+        favs.append({"p": p, "odds": o, "prob": prob, "edge": edge, "gid": gid,
+                     "dec": _dec(o)})
+    favs.sort(key=lambda x: -x["edge"])          # best value first
+    # greedily grow a combo until its combined american odds enters the band
+    import itertools
+    best = None
+    for n in range(2, max_legs + 1):
+        for combo in itertools.combinations(favs[:8], n):
+            if len({c["gid"] for c in combo}) != n:
+                continue                          # different games only
+            dec = 1.0
+            for c in combo:
+                dec *= c["dec"]
+            amer = round((dec - 1) * 100) if dec >= 2 else round(-100 / (dec - 1))
+            if not _in_band(amer):
+                continue
+            combo_prob = 1.0
+            for c in combo:
+                combo_prob *= c["prob"]
+            combo_edge = sum(c["edge"] for c in combo) / n     # avg leg edge
+            cand = {"amer": amer, "dec": dec, "prob": combo_prob,
+                    "avg_edge": round(combo_edge, 1), "legs": combo}
+            if best is None or combo_prob > best["prob"]:
+                best = cand
+    return best
     """Return today's ladder leg (existing if already chosen, else pick one). Skips
     the day silently if nothing qualifies."""
     day = day or dt.date.today()
@@ -83,20 +135,39 @@ def todays_pick(db, day=None, picks=None):
     if picks is None:
         return None
     leg = best_leg(picks)
-    if not leg:
-        return None                       # skip the day
-    s = _state(db)
     from promo_routes import _pick_line
-    try:
-        pick_txt, _ = _pick_line(leg)
-    except Exception:
-        pick_txt = leg.get("pick") or "?"
-    odds = int(leg.get("market_odds"))
+    if leg:
+        try:
+            pick_txt, _ = _pick_line(leg)
+        except Exception:
+            pick_txt = leg.get("pick") or "?"
+        odds = int(leg.get("market_odds"))
+        edge = leg.get("edge_pct")
+        gref = str(leg.get("id") or leg.get("game_id") or leg.get("match") or "")
+    else:
+        # no single in-band edge -> try a value-favorite combo that reaches the band
+        combo = best_combo(picks)
+        if not combo:
+            return None                 # skip the day
+        names = []
+        for c in combo["legs"]:
+            try:
+                t, _ = _pick_line(c["p"])
+            except Exception:
+                t = c["p"].get("pick") or "?"
+            o = c["odds"]
+            names.append(f"{t} ({o})")
+        pick_txt = " + ".join(names)     # e.g. "Yankees (-400) + Dodgers (-380)"
+        odds = combo["amer"]
+        edge = combo["avg_edge"]
+        gref = "combo:" + ",".join(str(c["gid"]) for c in combo["legs"])
+    s = _state(db)
     row = LadderLeg(
         pick_date=dt.datetime.combine(day, dt.time(12, 0)),
-        attempt=s.attempt, rung=s.rung, sport=leg.get("sport") or "",
-        game_ref=str(leg.get("id") or leg.get("game_id") or leg.get("match") or ""),
-        pick=pick_txt[:160], odds=odds, edge_pct=leg.get("edge_pct"),
+        attempt=s.attempt, rung=s.rung,
+        sport=(leg.get("sport") if leg else "combo") or "",
+        game_ref=gref,
+        pick=pick_txt[:160], odds=odds, edge_pct=edge,
         stake=round(s.bankroll, 2),
         to_return=round(s.bankroll * _dec(odds), 2), result=None, settled=False)
     db.add(row)
