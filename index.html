@@ -78,6 +78,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div id="picks-body">
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
+          <div class="menu-item" data-view="ladder">&#129948; Ladder Challenge</div>
           <div class="menu-item" data-view="myboard">&#11088; My Board</div>
           <div class="menu-item" data-view="calibration">&#128200; Calibration</div>
           <div class="menu-item" data-view="results">&#128203; Recent Results</div>
@@ -593,6 +594,7 @@ function selectMenu(el){
   else if(el.dataset.view==="news"){openNews();}
   else if(el.dataset.view==="record"){openRecord();}
   else if(el.dataset.view==="results"){openResults();}
+  else if(el.dataset.view==="ladder"){openLadder();}
   else if(el.dataset.view==="stocks"){if(typeof openStocks==="function")openStocks();}
   else if(el.dataset.view==="calibration"){openCalibration();}
   else if(el.dataset.view==="transparency"){openTransparency();}
@@ -2907,6 +2909,49 @@ function openHome(){view="home";if(detailId)closeDetail();
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="home"));
   document.getElementById("home").classList.add("show");
   toggleMenu(false);renderHome();}
+async function openLadder(){
+  view="ladder";detailId=null;
+  const main=document.getElementById("main")||document.querySelector(".main")||document.body;
+  let d;try{d=await getJSON("/api/ladder");}catch(e){d=null;}
+  const host=document.getElementById("home")||main;
+  if(document.getElementById("home"))document.getElementById("home").style.display="";
+  const st=(d&&d.state)||{},rec=(st.record)||{};
+  let html='<div class="ladder-page">';
+  html+='<h2 class="lp-title">\ud83e\udea2 Line Logic Ladder Challenge</h2>';
+  html+='<p class="lp-sub">One pick a day \u2014 the best model edge on a market line between \u2212110 and +110. Win rolls the bankroll forward; a loss resets to $10. Its own record.</p>';
+  // record strip
+  html+='<div class="lp-rec">'+
+    '<div class="lp-stat"><b>'+(rec.wins||0)+'\u2013'+(rec.losses||0)+'</b><span>Record</span></div>'+
+    '<div class="lp-stat"><b>'+(rec.win_pct!=null?rec.win_pct+'%':'\u2014')+'</b><span>Win %</span></div>'+
+    '<div class="lp-stat"><b class="'+((rec.units||0)>=0?'pos':'neg')+'">'+((rec.units||0)>=0?'+':'')+(rec.units!=null?rec.units:'\u2014')+'u</b><span>Units</span></div>'+
+    '<div class="lp-stat"><b class="'+((rec.roi_pct||0)>=0?'pos':'neg')+'">'+(rec.roi_pct!=null?((rec.roi_pct>=0?'+':'')+rec.roi_pct+'%'):'\u2014')+'</b><span>ROI</span></div>'+
+    '</div>';
+  // today's pick / challenge state
+  if(d&&d.leg){
+    const g=d.leg,o=(g.odds>0?'+':'')+g.odds;
+    html+='<div class="lp-today"><div class="lp-day">Day '+g.rung+'/10 \u00b7 Attempt #'+(st.attempt||1)+' \u00b7 bankroll $'+(+st.bankroll||10)+'</div>'+
+      '<div class="lp-pick">'+g.pick+' <span class="lh-odds">'+o+'</span></div>'+
+      '<div class="lp-flip">$'+(+g.stake)+' \u2192 <b>$'+(+g.to_return)+'</b> if it hits \u00b7 <span class="lh-edge">+'+g.edge_pct+'% edge</span></div>'+
+      (g.result?'<div class="lh-res '+g.result+'">'+(g.result==="win"?"\u2713 won":g.result==="loss"?"\u2717 lost":g.result)+'</div>':'')+
+      '</div>';
+  }else{
+    html+='<div class="lp-today lp-hold">No qualifying pick yet today \u2014 the run holds at rung '+(st.current_rung||1)+'. We never force a leg. Check back as lines post.</div>';
+  }
+  if(st.best_rung_ever)html+='<div class="lp-best">Best run: reached rung '+st.best_rung_ever+(st.completed_runs?' \u00b7 '+st.completed_runs+' full ladders completed':'')+'</div>';
+  // history
+  if(st.history&&st.history.length){
+    html+='<h3 class="lp-h3">Recent legs</h3><div class="lp-hist">';
+    st.history.forEach(function(h){
+      const o=(h.odds>0?'+':'')+h.odds;
+      const r=h.result?'<span class="lh-res '+h.result+'">'+(h.result==="win"?"\u2713":h.result==="loss"?"\u2717":h.result)+'</span>':'<span class="lp-pend">pending</span>';
+      html+='<div class="lp-leg"><span class="lp-ld">'+(h.date||'')+'</span><span class="lp-lp">R'+h.rung+' \u00b7 '+h.pick+' ('+o+')</span>'+r+'</div>';
+    });
+    html+='</div>';
+  }
+  html+='<p class="lp-foot">Tracked publicly \u00b7 separate from the site record \u00b7 not betting advice.</p></div>';
+  host.innerHTML=html;
+  window.scrollTo(0,0);
+}
 async function loadLadderCard(){
   let d;try{d=await getJSON("/api/ladder");}catch(e){return;}
   const host=document.getElementById("ladder-card");if(!host||!d)return;

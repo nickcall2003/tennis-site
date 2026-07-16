@@ -127,6 +127,33 @@ def settle_leg(db, leg, won):
     db.commit()
 
 
+def ladder_record(db):
+    """Full performance record of the ladder challenge — its OWN W-L, units, ROI.
+    Every settled daily leg counts once at a flat 1u risk, so this is an honest
+    'how do the ladder picks do' scoreboard, separate from the site's main record."""
+    legs = db.execute(
+        select(LadderLeg).where(LadderLeg.settled == True)  # noqa: E712
+    ).scalars().all()
+    w = sum(1 for l in legs if l.result == "win")
+    losses = sum(1 for l in legs if l.result == "loss")
+    graded = w + losses
+    # flat-stake units: +decimal_profit on a win, -1 on a loss (1u risked per leg)
+    units = 0.0
+    for l in legs:
+        if l.result == "win" and l.odds is not None:
+            units += (_dec(l.odds) - 1)
+        elif l.result == "loss":
+            units -= 1
+    return {
+        "graded": graded, "wins": w, "losses": losses,
+        "win_pct": round(100 * w / graded, 1) if graded else None,
+        "units": round(units, 2),
+        "roi_pct": round(100 * units / graded, 1) if graded else None,
+        "note": "Ladder's own record — 1u flat per daily leg. Separate from the "
+                "site win/loss record, units, and ROI.",
+    }
+
+
 def state_summary(db):
     s = _state(db)
     legs = db.execute(
@@ -138,6 +165,7 @@ def state_summary(db):
         "best_rung_ever": s.best_rung_ever,
         "best_bankroll_ever": round(s.best_bankroll_ever, 2),
         "completed_runs": s.completed_runs,
+        "record": ladder_record(db),
         "history": [{
             "date": l.pick_date.date().isoformat(), "attempt": l.attempt, "rung": l.rung,
             "pick": l.pick, "odds": l.odds, "stake": l.stake, "to_return": l.to_return,
