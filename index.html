@@ -2959,19 +2959,19 @@ async function renderLadder(){
   list.innerHTML=html;
 }
 async function loadLadderCard(){
-  let d;try{d=await getJSON("/api/ladder");}catch(e){return;}
-  const host=document.getElementById("ladder-card");if(!host||!d)return;
-  const st=d.state||{};
-  if(!d.leg){
-    host.innerHTML='<div class="ladder-home"><div class="lh-top"><span class="lh-badge">\ud83e\ude9c Ladder Challenge</span>'+
+  const host=document.getElementById("ladder-card");if(!host)return;
+  let d;try{d=await getJSON("/api/ladder");}catch(e){d=null;}
+  const st=(d&&d.state)||{};
+  if(!d||!d.leg){
+    host.innerHTML='<div class="ladder-home" onclick="openLadder()"><div class="lh-top"><span class="lh-badge">\ud83e\udea2 Ladder Challenge</span>'+
       '<span class="lh-rung">Rung '+(st.current_rung||1)+'/10</span></div>'+
-      '<div class="lh-skip">No qualifying edge today \u2014 the run holds. We never force a leg.</div></div>';
+      '<div class="lh-skip">No qualifying play yet today \u2014 the run holds. We never force a leg. Resets at midnight; check back as lines post.</div></div>';
     return;
   }
   const g=d.leg,o=(g.odds>0?"+":"")+g.odds;
   const res=g.result?('<span class="lh-res '+g.result+'">'+(g.result==="win"?"\u2713 won":g.result==="loss"?"\u2717 lost":g.result)+'</span>'):"";
-  host.innerHTML='<div class="ladder-home"><div class="lh-top">'+
-    '<span class="lh-badge">\ud83e\ude9c Ladder Challenge</span>'+
+  host.innerHTML='<div class="ladder-home" onclick="openLadder()"><div class="lh-top">'+
+    '<span class="lh-badge">\ud83e\udea2 Ladder Challenge</span>'+
     '<span class="lh-rung">Day '+g.rung+'/10 \u00b7 Attempt #'+(st.attempt||1)+'</span></div>'+
     '<div class="lh-pick">'+g.pick+' <span class="lh-odds">'+o+'</span>'+res+'</div>'+
     '<div class="lh-flip">$'+(+g.stake)+' \u2192 <b>$'+(+g.to_return)+'</b> if it hits \u00b7 <span class="lh-edge">+'+g.edge_pct+'% edge</span></div>'+
@@ -2990,8 +2990,8 @@ function renderHome(){
     '<div class="home-hero"><h2>Line Logic<span class="dot">.</span></h2>'+
     '<p>Data-driven predictions and model betting lines across tennis, baseball, basketball, and football. Pick a sport to see today\u2019s board.</p>'+
     accLine+'</div>'+
-    '<div id="hotpick"></div>'+
     '<div id="ladder-card"></div>'+
+    '<div id="hotpick"></div>'+
     '<div class="sport-grid">'+tileHTML+'</div>'+
     '<div class="home-picks">'+
       '<div class="home-pick-btn free" onclick="openPicks(\'free\')"><div class="nm">\u2b50 Free Picks</div><div class="sub">Today\u2019s highest-confidence plays, across every sport.</div></div>'+
