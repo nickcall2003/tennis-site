@@ -2187,7 +2187,7 @@ async function renderRecord(){
     '<div class="rec-hero-sub">'+tW+'-'+tL+' all-time across '+rows.length+' sports'+(hasU?' &middot; '+sg(tU)+' on graded wagers':'')+'</div></div>'+
     '<div class="rec-note">Verified prediction accuracy across every graded pick. <b>Betting units are tracked separately, only on recommended +EV wagers</b>, and each sport posts its ROI once it clears '+minN+' graded wagers \u2014 so the units you see are real plays, never \u201Cbet every favorite.\u201D</div>';
   rows.forEach(function(r){
-    if(r.sport==="tennis"&&tours&&tours.total_excl_itf){var te=tours.total_excl_itf;r.wins=te.wins;r.losses=te.losses;r.pct=te.win_pct;}
+    if(r.sport==="tennis"&&tours&&tours.total_excl_itf){var te=tours.total_excl_itf;r.wins=te.wins;r.losses=te.losses;r.pct=te.win_pct;r.units=te.units;r.roi=te.roi_pct;r.wager_n=te.priced;r.mature=(te.priced>=minN);}
     const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[r.sport])||r.sport.toUpperCase();
     const showClv=(r.clv!=null&&r.wager_n>=20);
     const clv=showClv?('<span class="rec-clv'+(r.clv>=50?' good':'')+'">CLV '+r.clv+'%</span>'):'';
