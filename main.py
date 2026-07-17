@@ -6698,62 +6698,17 @@ def slate_counts(date: str | None = None):
             "counts": dict(counts)}
 
 
+
 # ═══════════════════════════════════════════════════════════════════════════════
-# CAPPER PICK TRACKER — Stage 1 (store only; grading comes in Stage 3)
-# Self-contained: own table, own Base, no changes to models.py. Members track a
-# pick with /track; the line is captured from the model board at time of bet.
+# CAPPER PICK TRACKER — Stage 1 (store only; grading in Stage 3)
+# Uses the CapperPick model you added to models.py + your existing SessionLocal.
 # ═══════════════════════════════════════════════════════════════════════════════
-
-from sqlalchemy import Column, Integer, String, Float, DateTime, create_engine
-from sqlalchemy.orm import declarative_base
-import datetime as _capdt
-
-_CapBase = declarative_base()
-
-
-class CapperPick(_CapBase):
-    __tablename__ = "capper_picks"
-    id = Column(Integer, primary_key=True)
-    discord_user_id = Column(String(32), index=True)   # who tracked it
-    discord_username = Column(String(64))              # display name at time of bet
-    sport = Column(String(24))
-    match = Column(String(200))                        # "Texas Rangers @ Atlanta Braves"
-    pick = Column(String(200))                         # "Atlanta Braves to win"
-    market_odds = Column(Integer)                      # American odds captured at track time
-    stake_units = Column(Float, default=1.0)           # user-specified, default 1u
-    prob = Column(Float)                               # model prob at track time (for reference)
-    status = Column(String(12), default="pending")     # pending | win | loss | push
-    units_pl = Column(Float)                           # filled at grading (Stage 3)
-    event_date = Column(String(10))                    # ISO date of the game
-    created_at = Column(DateTime, default=_capdt.datetime.utcnow)
-    graded_at = Column(DateTime)
-
-
-def _cap_engine():
-    # Reuse the app's database URL
-    from db import DATABASE_URL
-    return create_engine(DATABASE_URL)
-
-
-def _ensure_capper_table():
-    try:
-        CapperPick.__table__.create(bind=_cap_engine(), checkfirst=True)
-    except Exception as e:
-        print(f"[capper] table create failed: {e}")
-
-
-def _cap_session():
-    from sqlalchemy.orm import sessionmaker
-    return sessionmaker(bind=_cap_engine())()
-
 
 @app.post("/api/capper/track")
 async def capper_track(payload: dict):
-    """Store a tracked pick. The BOT resolves the pick via /api/model first, then
-    posts the captured details here. Body:
-      { user_id, username, team, sport?, stake_units? }
-    Returns the stored pick, or an error if the team isn't on the board."""
-    _ensure_capper_table()
+    """Store a tracked pick. Bot posts: {user_id, username, team, sport?, stake_units?}
+    The line is captured from the model board via model_lookup."""
+    from models import CapperPick
     user_id = str(payload.get("user_id") or "").strip()
     username = str(payload.get("username") or "").strip()[:64]
     team = str(payload.get("team") or "").strip()
@@ -6762,25 +6717,23 @@ async def capper_track(payload: dict):
         stake = float(stake) if stake is not None else 1.0
     except (TypeError, ValueError):
         stake = 1.0
-    stake = max(0.1, min(stake, 100.0))  # sane bounds
+    stake = max(0.1, min(stake, 100.0))
     if not user_id or not team:
         return {"ok": False, "error": "missing user or team"}
 
-    # Resolve the pick against the model board (captures odds + match)
     look = model_lookup(team=team, sport=payload.get("sport") or None)
     if not look.get("found"):
         return {"ok": False, "error": "not_on_board",
-                "message": f"'{team}' isn't on the model board right now, so it can't be tracked yet."}
+                "message": f"'{team}' isn't on the model board right now."}
 
     row = CapperPick(
         discord_user_id=user_id, discord_username=username,
         sport=look.get("sport"), match=look.get("match"), pick=look.get("pick"),
         market_odds=look.get("market_odds"), stake_units=stake,
-        prob=look.get("prob"), status="pending",
-        event_date=look.get("date"),
+        prob=look.get("prob"), status="pending", event_date=look.get("date"),
     )
     try:
-        with _cap_session() as db:
+        with SessionLocal() as db:
             db.add(row)
             db.commit()
             db.refresh(row)
@@ -6796,18 +6749,105 @@ async def capper_track(payload: dict):
 
 @app.get("/api/capper/mine")
 def capper_mine(user_id: str):
-    """Raw list of a user's tracked picks (Stage 2 will compute stats from this)."""
-    _ensure_capper_table()
+    """Raw list of a user's tracked picks."""
+    from models import CapperPick
     try:
-        with _cap_session() as db:
+        with SessionLocal() as db:
             rows = (db.query(CapperPick)
                       .filter(CapperPick.discord_user_id == str(user_id))
                       .order_by(CapperPick.id.desc()).all())
+            out = [{
+                "id": r.id, "pick": r.pick, "match": r.match, "sport": r.sport,
+                "market_odds": r.market_odds, "stake_units": r.stake_units,
+                "status": r.status, "units_pl": r.units_pl, "event_date": r.event_date,
+            } for r in rows]
     except Exception as e:
         print(f"[capper] mine query failed: {e}")
         return {"picks": []}
-    return {"picks": [{
-        "id": r.id, "pick": r.pick, "match": r.match, "sport": r.sport,
-        "market_odds": r.market_odds, "stake_units": r.stake_units,
-        "status": r.status, "units_pl": r.units_pl, "event_date": r.event_date,
-    } for r in rows]}
+    return {"picks": out}
+
+
+# ---- Capper stats: per-user record + leaderboard (Stage 2) --------------------
+
+def _capper_summarize(rows):
+    """Aggregate a list of CapperPick rows into a record. units_pl is only set on
+    graded picks, so pending picks contribute to counts but not W/L/units."""
+    wins = losses = pushes = pending = 0
+    units_pl = units_staked = 0.0
+    for r in rows:
+        st = (r.status or "pending").lower()
+        if st == "win":
+            wins += 1
+        elif st == "loss":
+            losses += 1
+        elif st == "push":
+            pushes += 1
+        else:
+            pending += 1
+            continue
+        units_staked += (r.stake_units or 0)
+        if r.units_pl is not None:
+            units_pl += r.units_pl
+    decided = wins + losses
+    return {
+        "total": len(rows), "wins": wins, "losses": losses,
+        "pushes": pushes, "pending": pending,
+        "record": f"{wins}-{losses}" + (f"-{pushes}" if pushes else ""),
+        "win_pct": round(100 * wins / decided, 1) if decided else None,
+        "units_pl": round(units_pl, 2),
+        "roi_pct": round(100 * units_pl / units_staked, 1) if units_staked else None,
+    }
+
+
+@app.get("/api/capper/stats")
+def capper_stats(user_id: str):
+    """One user's tracked-pick record."""
+    from models import CapperPick
+    try:
+        with SessionLocal() as db:
+            rows = (db.query(CapperPick)
+                      .filter(CapperPick.discord_user_id == str(user_id)).all())
+            summ = _capper_summarize(rows)
+    except Exception as e:
+        print(f"[capper] stats failed: {e}")
+        return {"total": 0}
+    summ["user_id"] = str(user_id)
+    return summ
+
+
+@app.get("/api/capper/leaderboard")
+def capper_leaderboard(sort: str = "units", min_decided: int = 1):
+    """Leaderboard across all cappers. sort: 'units' (default) or 'winpct'.
+    min_decided filters out people with too few graded picks to rank fairly."""
+    from models import CapperPick
+    from collections import defaultdict
+    try:
+        with SessionLocal() as db:
+            rows = db.query(CapperPick).all()
+    except Exception as e:
+        print(f"[capper] leaderboard failed: {e}")
+        return {"cappers": []}
+
+    by_user = defaultdict(list)
+    names = {}
+    for r in rows:
+        by_user[r.discord_user_id].append(r)
+        if r.discord_username:
+            names[r.discord_user_id] = r.discord_username
+
+    board = []
+    for uid, urows in by_user.items():
+        s = _capper_summarize(urows)
+        s["user_id"] = uid
+        s["username"] = names.get(uid, "capper")
+        board.append(s)
+
+    decided = [c for c in board if (c["wins"] + c["losses"]) >= min_decided]
+    if sort == "winpct":
+        decided.sort(key=lambda c: (c["win_pct"] or -1, c["units_pl"]), reverse=True)
+    else:
+        decided.sort(key=lambda c: (c["units_pl"], c["win_pct"] or -1), reverse=True)
+
+    # people with only pending picks (not yet rankable) shown separately as count
+    building = [c for c in board if (c["wins"] + c["losses"]) < min_decided]
+    return {"cappers": decided[:15], "building": len(building), "total_cappers": len(board)}
