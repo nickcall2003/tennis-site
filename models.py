@@ -383,3 +383,27 @@ class RecoveryCode(Base):
     user_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
     code_hash: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class CapperPick(Base):
+    """A pick tracked by a Discord member via /track. The market line is captured
+    at track time; status is graded later against game results (same settling
+    path as PickResult). Persists as long as the database does — use a persistent
+    Postgres DATABASE_URL so tracked picks survive restarts."""
+    __tablename__ = "capper_picks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    discord_user_id: Mapped[str] = mapped_column(String(32), index=True)
+    discord_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sport: Mapped[str] = mapped_column(String(12), index=True)
+    ref: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)  # match/game id, for grading
+    match: Mapped[str] = mapped_column(String(200))          # "Texas Rangers @ Atlanta Braves"
+    pick: Mapped[str] = mapped_column(String(200))           # "Atlanta Braves to win"
+    market_odds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stake_units: Mapped[float] = mapped_column(Float, default=1.0)
+    prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|win|loss|push
+    units_pl: Mapped[float | None] = mapped_column(Float, nullable=True)  # set at grading
+    event_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO game date
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    graded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
