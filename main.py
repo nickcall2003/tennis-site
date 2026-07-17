@@ -6696,3 +6696,118 @@ def slate_counts(date: str | None = None):
     counts = Counter(str(p.get("sport", "")).lower() for p in plays if p.get("sport"))
     return {"date": target.isoformat(), "total": sum(counts.values()),
             "counts": dict(counts)}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CAPPER PICK TRACKER — Stage 1 (store only; grading comes in Stage 3)
+# Self-contained: own table, own Base, no changes to models.py. Members track a
+# pick with /track; the line is captured from the model board at time of bet.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from sqlalchemy import Column, Integer, String, Float, DateTime, create_engine
+from sqlalchemy.orm import declarative_base
+import datetime as _capdt
+
+_CapBase = declarative_base()
+
+
+class CapperPick(_CapBase):
+    __tablename__ = "capper_picks"
+    id = Column(Integer, primary_key=True)
+    discord_user_id = Column(String(32), index=True)   # who tracked it
+    discord_username = Column(String(64))              # display name at time of bet
+    sport = Column(String(24))
+    match = Column(String(200))                        # "Texas Rangers @ Atlanta Braves"
+    pick = Column(String(200))                         # "Atlanta Braves to win"
+    market_odds = Column(Integer)                      # American odds captured at track time
+    stake_units = Column(Float, default=1.0)           # user-specified, default 1u
+    prob = Column(Float)                               # model prob at track time (for reference)
+    status = Column(String(12), default="pending")     # pending | win | loss | push
+    units_pl = Column(Float)                           # filled at grading (Stage 3)
+    event_date = Column(String(10))                    # ISO date of the game
+    created_at = Column(DateTime, default=_capdt.datetime.utcnow)
+    graded_at = Column(DateTime)
+
+
+def _cap_engine():
+    # Reuse the app's database URL
+    from db import DATABASE_URL
+    return create_engine(DATABASE_URL)
+
+
+def _ensure_capper_table():
+    try:
+        CapperPick.__table__.create(bind=_cap_engine(), checkfirst=True)
+    except Exception as e:
+        print(f"[capper] table create failed: {e}")
+
+
+def _cap_session():
+    from sqlalchemy.orm import sessionmaker
+    return sessionmaker(bind=_cap_engine())()
+
+
+@app.post("/api/capper/track")
+async def capper_track(payload: dict):
+    """Store a tracked pick. The BOT resolves the pick via /api/model first, then
+    posts the captured details here. Body:
+      { user_id, username, team, sport?, stake_units? }
+    Returns the stored pick, or an error if the team isn't on the board."""
+    _ensure_capper_table()
+    user_id = str(payload.get("user_id") or "").strip()
+    username = str(payload.get("username") or "").strip()[:64]
+    team = str(payload.get("team") or "").strip()
+    stake = payload.get("stake_units")
+    try:
+        stake = float(stake) if stake is not None else 1.0
+    except (TypeError, ValueError):
+        stake = 1.0
+    stake = max(0.1, min(stake, 100.0))  # sane bounds
+    if not user_id or not team:
+        return {"ok": False, "error": "missing user or team"}
+
+    # Resolve the pick against the model board (captures odds + match)
+    look = model_lookup(team=team, sport=payload.get("sport") or None)
+    if not look.get("found"):
+        return {"ok": False, "error": "not_on_board",
+                "message": f"'{team}' isn't on the model board right now, so it can't be tracked yet."}
+
+    row = CapperPick(
+        discord_user_id=user_id, discord_username=username,
+        sport=look.get("sport"), match=look.get("match"), pick=look.get("pick"),
+        market_odds=look.get("market_odds"), stake_units=stake,
+        prob=look.get("prob"), status="pending",
+        event_date=look.get("date"),
+    )
+    try:
+        with _cap_session() as db:
+            db.add(row)
+            db.commit()
+            db.refresh(row)
+            pid = row.id
+    except Exception as e:
+        print(f"[capper] track insert failed: {e}")
+        return {"ok": False, "error": "db_error"}
+
+    return {"ok": True, "id": pid, "pick": look.get("pick"), "match": look.get("match"),
+            "market_odds": look.get("market_odds"), "stake_units": stake,
+            "sport": look.get("sport"), "event_date": look.get("date")}
+
+
+@app.get("/api/capper/mine")
+def capper_mine(user_id: str):
+    """Raw list of a user's tracked picks (Stage 2 will compute stats from this)."""
+    _ensure_capper_table()
+    try:
+        with _cap_session() as db:
+            rows = (db.query(CapperPick)
+                      .filter(CapperPick.discord_user_id == str(user_id))
+                      .order_by(CapperPick.id.desc()).all())
+    except Exception as e:
+        print(f"[capper] mine query failed: {e}")
+        return {"picks": []}
+    return {"picks": [{
+        "id": r.id, "pick": r.pick, "match": r.match, "sport": r.sport,
+        "market_odds": r.market_odds, "stake_units": r.stake_units,
+        "status": r.status, "units_pl": r.units_pl, "event_date": r.event_date,
+    } for r in rows]}
