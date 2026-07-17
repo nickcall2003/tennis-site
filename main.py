@@ -6497,7 +6497,7 @@ def model_lookup(team: str, sport: str | None = None, days: int = 3):
 
 
 # ---- /api/generate : unified AI engine (Claude Haiku -> Gemini -> OpenAI) ----
-_LLM_ANTHROPIC = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+_LLM_ANTHROPIC = (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY") or "").strip()
 _LLM_GEMINI = os.environ.get("GEMINI_API_KEY", "").strip()
 _LLM_OPENAI = os.environ.get("OPENAI_API_KEY", "").strip()
 _ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
@@ -6584,6 +6584,9 @@ async def _ll_post_anthropic(system, user, max_tokens):
                      "content-type": "application/json"},
             json={"model": _ANTHROPIC_MODEL, "max_tokens": max_tokens,
                   "system": system, "messages": [{"role": "user", "content": user}]})
+        if r.status_code >= 400:
+            # Log Anthropic's actual complaint + the model we sent, so failures are diagnosable
+            print(f"[anthropic] HTTP {r.status_code} using model='{_ANTHROPIC_MODEL}': {r.text[:500]}")
         r.raise_for_status()
         blocks = r.json().get("content", [])
         return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
@@ -6694,3 +6697,19 @@ async def notify_discord(channel_key: str, title: str, description: str = "",
     except Exception as e:
         print(f"[notify_discord] failed: {e}")
         return False
+
+
+# ---- /api/slate : counts per sport only, NO odds enrichment (instant) ---------
+# /api/picks/quick enriches odds on every play; for ~60 tennis matches that makes
+# a live api-tennis call PER match and hangs. The bot's /today only needs game
+# COUNTS per sport, so this skips enrichment entirely and returns instantly.
+
+@app.get("/api/slate")
+def slate_counts(date: str | None = None):
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    _ensure_day(target)
+    plays = _gather_plays(target)
+    from collections import Counter
+    counts = Counter(str(p.get("sport", "")).lower() for p in plays if p.get("sport"))
+    return {"date": target.isoformat(), "total": sum(counts.values()),
+            "counts": dict(counts)}
