@@ -3271,9 +3271,15 @@ def parlays_rebuild(confirm: str = "", date: str | None = None):
 
 
 @app.get("/api/parlays/record")
-def parlays_record(days: int = 30):
-    """Rolling W/L and unit P&L across the locked parlays."""
-    _settle_parlays()
+def parlays_record(days: int = 30, settle: bool = True):
+    """Rolling W/L and unit P&L across the locked parlays.
+
+    settle=True (default, used by the website) runs a live settle first.
+    settle=False (used by the Discord bot's /record) skips the live provider
+    grading and just reads current DB state — instant, no hang. Grading still
+    happens on the normal schedule / when the website is opened."""
+    if settle:
+        _settle_parlays()
     _ensure_parlay_table()
     from models import ParlaySlip
     since = dt.datetime.now() - dt.timedelta(days=days)
