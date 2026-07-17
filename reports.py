@@ -86,12 +86,13 @@ def accuracy(days: int = 30):
             if r.taken_odds is not None and abs(r.taken_odds) >= 100:  # valid line -> ROI
                 prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
                 pl = prof if r.correct else -1.0
-                # ITF/futures is tracked as its own tier and is EXCLUDED from the
-                # headline Tennis units/ROI (its weak calibration would otherwise
-                # drag the number). ITF picks still appear in the per-tour breakdown
-                # and in the win/loss counts above — only the money line skips them.
-                is_itf = (r.sport == "tennis" and (r.subcat or "").upper() == "ITF")
-                if not is_itf:
+                # Headline Tennis units/ROI count ONLY the three main tours
+                # (ATP, WTA, Challenger). ITF/futures and untagged historical picks
+                # ("EARLIER") are excluded from the money line — they still appear
+                # in win/loss counts and the per-tour breakdown, just not the total.
+                skip_units = (r.sport == "tennis" and
+                              (r.subcat or "").upper() not in ("ATP", "WTA", "CHALLENGER"))
+                if not skip_units:
                     s["priced"] += 1
                     s["units"] += pl
                     tot_priced += 1
@@ -502,7 +503,7 @@ def tennis_tours():
         sub = (r.subcat or "EARLIER").upper()
         won = bool(r.correct)
         add(tours.setdefault(sub, blank()), r, won)
-        if sub != "ITF":
+        if sub in ("ATP", "WTA", "CHALLENGER"):     # headline = the three main tours only
             add(total, r, won)
 
     def finish(b):
