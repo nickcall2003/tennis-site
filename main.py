@@ -6404,3 +6404,288 @@ def ladder_settle(token: str = ""):
     if admin_tok and (token or "").strip() != admin_tok:
         return {"error": "forbidden"}
     return _settle_ladder()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# LINE LOGIC DISCORD BOT INTEGRATION
+# Added for the Discord bot (separate service). Three parts:
+#   1. /api/model        — single-team model read for the bot's /model command
+#   2. /api/generate     — unified AI analysis engine (/explain, /why, /tweet, ...)
+#   3. notify_discord()  — lets this backend push posts to the bot's webhook
+# All reuse existing helpers (_ensure_day, _gather_plays, _enrich_odds). Safe to
+# delete this whole block to remove the Discord features; nothing above depends on it.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ---- 1. /api/model : single-team read, edge or not -----------------------------
+
+@app.get("/api/model")
+def model_lookup(team: str, sport: str | None = None, days: int = 3):
+    """On-demand model read for one team/player across today..today+days.
+    Returns the first matching game's win %, market, fair odds, edge, and
+    confidence — whether or not there's an edge. Powers the bot's /model."""
+    needle = (team or "").strip().lower()
+    if not needle:
+        return {"found": False, "error": "no team provided"}
+
+    days = max(1, min(int(days or 1), 7))
+    today = dt.date.today()
+
+    for offset in range(days):
+        target = today + dt.timedelta(days=offset)
+        try:
+            _ensure_day(target)
+            plays = _gather_plays(target)
+        except Exception as e:
+            print(f"[model_lookup] gather failed for {target}: {e}")
+            continue
+
+        for p in plays:
+            if sport and p.get("sport") != sport:
+                continue
+            hay = (str(p.get("match", "")) + " " + str(p.get("pick", ""))).lower()
+            if needle not in hay:
+                continue
+
+            p = dict(p)
+            try:
+                _enrich_odds(p)
+            except Exception:
+                pass
+
+            prob = p.get("prob") or 0
+            edge = p.get("edge_pct")
+            return {
+                "found": True,
+                "date": target.isoformat(),
+                "sport": p.get("sport"),
+                "match": p.get("match"),
+                "pick": p.get("pick"),
+                "prob": prob,
+                "win_pct": round(prob * 100),
+                "confidence": p.get("confidence"),
+                "market_odds": p.get("market_odds"),
+                "fair_odds": p.get("fair_odds"),
+                "edge_pct": edge,
+                "has_edge": bool(edge is not None and edge > 0),
+                "event_time": p.get("event_time"),
+            }
+
+    return {"found": False, "team": team,
+            "note": f"No game found for '{team}' in the next {days} day(s)."}
+
+
+# ---- 2. /api/generate : unified AI analysis engine -----------------------------
+# Requires an LLM key on THIS backend. Claude Haiku default; Gemini/OpenAI fallback.
+# Set ANTHROPIC_API_KEY (and optionally GEMINI_API_KEY / OPENAI_API_KEY).
+
+_LLM_ANTHROPIC = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+_LLM_GEMINI = os.environ.get("GEMINI_API_KEY", "").strip()
+_LLM_OPENAI = os.environ.get("OPENAI_API_KEY", "").strip()
+_ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+_LL_SYSTEM_PROMPT = (
+    "You are a sports analytics writer for Line Logic. You explain WHY a "
+    "mathematical model reached its projection, in plain, professional language. "
+    "HARD RULES: Never invent stats, names, records, or reasons. Use ONLY the "
+    "facts provided; if a fact isn't provided, don't mention it. Never use hype "
+    "words (lock, guaranteed, insane, free money, max bet). Outcomes are "
+    "high-variance; no single bet is guaranteed. When useful, explain how the "
+    "model's win probability compares to the market price to create positive "
+    "expected value."
+)
+_LL_ASK_SYSTEM_PROMPT = _LL_SYSTEM_PROMPT + (
+    " You are answering a user's question about this play. Answer ONLY from the "
+    "facts provided. If the facts don't contain the answer, say: 'The current "
+    "Line Logic model doesn't include enough information to answer that "
+    "confidently.' If the user asks how much to bet, whether to parlay, or any "
+    "staking/bankroll-sizing question, DO NOT advise — reply that bet sizing is "
+    "personal and point them to /learn unit and /learn bankroll."
+)
+
+_LL_MODE_PROMPTS = {
+    "why": ("Give 3-5 short bullet reasons the model favors this side, each under "
+            "12 words. Output plain lines starting with '- '. No preamble.", 300),
+    "writeup": ("Write an 800-1200 word analysis with these sections, each a short "
+                "header: Overview, Model, Matchup, Market, Risks, Final Thoughts. "
+                "Professional, no hype.", 1800),
+    "full": ("Write a clean 3-paragraph breakdown of how the model's projection "
+             "lines up against the market price. No hype.", 600),
+    "confidence": ("Explain what the model's confidence grade means for THIS play "
+                   "in 2-3 sentences: what makes the opportunity above or below "
+                   "average. End by conveying, in your own words: confidence "
+                   "reflects the quality of the betting opportunity, not the "
+                   "certainty of the outcome — even high-confidence plays lose "
+                   "sometimes.", 400),
+    "tweet": ("Write a single X/Twitter post under 240 characters. One line on the "
+              "play, then model %, market price, and edge as short stat lines. "
+              "Calm and factual, no hashtag spam, no hype words.", 200),
+    "discord": ("Write a short Discord-friendly blurb: one sentence of context, then "
+                "model %, market, and edge as bold stat lines.", 300),
+    "newsletter": ("Write a 150-250 word newsletter blurb: a friendly lead, the "
+                   "model's read, and one line on the main risk.", 500),
+    "article": ("Write a 1200-1500 word article-style breakdown for the website. "
+                "Clear sections, informative, no hype.", 2200),
+}
+
+_LL_DISC_SHORT = "\n\nValue play, not a guaranteed outcome."
+_LL_DISC_TWEET = "\n\nValue play — not a guarantee."
+_LL_DISC_LONG = ("\n\n—\nLine Logic explanations describe the model's reasoning. "
+                 "Betting involves risk and variance; no outcome is guaranteed. "
+                 "Bet responsibly.")
+
+
+def _ll_disclaimer_for(mode: str) -> str:
+    if mode == "tweet":
+        return _LL_DISC_TWEET
+    if mode in ("writeup", "article", "newsletter"):
+        return _LL_DISC_LONG
+    return _LL_DISC_SHORT
+
+
+def _ll_facts_from_play(play: dict) -> dict:
+    facts = {}
+    for k in ("match", "pick", "win_pct", "market_odds", "fair_odds",
+              "edge_pct", "confidence", "sport"):
+        v = play.get(k)
+        if v is not None:
+            facts[k] = v
+    return facts
+
+
+def _ll_sources_from_play(play: dict) -> dict:
+    src = {"Model projection": "Line Logic model"}
+    if play.get("market_odds") is not None:
+        src["Market odds"] = "Sportsbook consensus (your odds provider)"
+    return src
+
+
+async def _ll_post_anthropic(system, user, max_tokens):
+    import httpx
+    async with httpx.AsyncClient(timeout=14.0) as c:
+        r = await c.post("https://api.anthropic.com/v1/messages",
+            headers={"x-api-key": _LLM_ANTHROPIC, "anthropic-version": "2023-06-01",
+                     "content-type": "application/json"},
+            json={"model": _ANTHROPIC_MODEL, "max_tokens": max_tokens,
+                  "system": system, "messages": [{"role": "user", "content": user}]})
+        r.raise_for_status()
+        blocks = r.json().get("content", [])
+        return "".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+
+
+async def _ll_post_gemini(system, user, max_tokens):
+    import httpx
+    async with httpx.AsyncClient(timeout=14.0) as c:
+        r = await c.post(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+            params={"key": _LLM_GEMINI},
+            json={"contents": [{"parts": [{"text": f"{system}\n\n{user}"}]}],
+                  "generationConfig": {"maxOutputTokens": max_tokens}})
+        r.raise_for_status()
+        return r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+
+async def _ll_post_openai(system, user, max_tokens):
+    import httpx
+    async with httpx.AsyncClient(timeout=14.0) as c:
+        r = await c.post("https://api.openai.com/v1/chat/completions",
+            headers={"Authorization": f"Bearer {_LLM_OPENAI}"},
+            json={"model": "gpt-4o-mini", "max_tokens": max_tokens, "temperature": 0.4,
+                  "messages": [{"role": "system", "content": system},
+                               {"role": "user", "content": user}]})
+        r.raise_for_status()
+        return r.json()["choices"][0]["message"]["content"].strip()
+
+
+async def _ll_run_llm(system, user, max_tokens):
+    for has_key, fn, name in (
+        (_LLM_ANTHROPIC, _ll_post_anthropic, "anthropic"),
+        (_LLM_GEMINI, _ll_post_gemini, "gemini"),
+        (_LLM_OPENAI, _ll_post_openai, "openai"),
+    ):
+        if not has_key:
+            continue
+        try:
+            out = await fn(system, user, max_tokens)
+            if out:
+                return out
+        except Exception as e:
+            print(f"[generate] {name} failed, falling through: {e}")
+    return None
+
+
+async def _ll_generate_impl(q: str, mode: str, question: str = ""):
+    play = model_lookup(team=q)
+    if not play or not play.get("found"):
+        return {"found": False, "q": q}
+
+    base = {"found": True, "mode": mode, "pick": play.get("pick"),
+            "match": play.get("match"), "win_pct": play.get("win_pct"),
+            "market_odds": play.get("market_odds"), "edge_pct": play.get("edge_pct"),
+            "confidence": play.get("confidence")}
+
+    if mode == "sources":
+        return {**base, "sources": _ll_sources_from_play(play)}
+
+    facts = _ll_facts_from_play(play)
+
+    if mode == "ask":
+        user = f"Facts (use only these):\n{facts}\n\nUser question: {question}"
+        text = await _ll_run_llm(_LL_ASK_SYSTEM_PROMPT, user, 500)
+        return {**base, "answer": (text or "") + (_LL_DISC_SHORT if text else "")}
+
+    instruction, max_tokens = _LL_MODE_PROMPTS.get(mode, _LL_MODE_PROMPTS["full"])
+    user = f"Facts (use only these):\n{facts}\n\nTask: {instruction}"
+    text = await _ll_run_llm(_LL_SYSTEM_PROMPT, user, max_tokens)
+    if not text:
+        return {**base, "content": None}
+    text += _ll_disclaimer_for(mode)
+
+    if mode == "why":
+        bullets = [ln.lstrip("-• ").strip() for ln in text.splitlines()
+                   if ln.strip() and not ln.strip().startswith("Value play")]
+        return {**base, "bullets": bullets[:6]}
+    return {**base, "content": text}
+
+
+@app.get("/api/generate")
+async def generate_get(q: str, mode: str = "full", question: str = ""):
+    return await _ll_generate_impl(q, mode, question)
+
+
+@app.post("/api/generate")
+async def generate_post(payload: dict):
+    return await _ll_generate_impl(
+        payload.get("q") or payload.get("team") or "",
+        payload.get("mode", "full"), payload.get("question", ""))
+
+
+# ---- 3. notify_discord() : push a post to the bot's webhook --------------------
+# Call this wherever you generate a daily card / results / edge alert to auto-post
+# to Discord. Set DISCORD_BOT_SERVICE_URL (the bot's Railway URL) and
+# WEBHOOK_SHARED_SECRET (same value on both services).
+
+_DISCORD_BOT_SERVICE_URL = os.environ.get("DISCORD_BOT_SERVICE_URL", "").strip()
+_LL_WEBHOOK_SECRET = os.environ.get("WEBHOOK_SHARED_SECRET", "").strip()
+
+
+async def notify_discord(channel_key: str, title: str, description: str = "",
+                         fields: list | None = None, notify_sport: str | None = None):
+    """channel_key: daily_model | official_results (matches bot's CHANNEL_IDS).
+    notify_sport (optional): mlb/nba/nfl/... pings that sport's Discord role."""
+    if not _DISCORD_BOT_SERVICE_URL:
+        print("[notify_discord] DISCORD_BOT_SERVICE_URL not set; skipping.")
+        return False
+    import httpx
+    url = f"{_DISCORD_BOT_SERVICE_URL}/post/{channel_key}"
+    payload = {"title": title, "description": description, "fields": fields or []}
+    if notify_sport:
+        payload["notify_sport"] = notify_sport
+    headers = {"X-Webhook-Secret": _LL_WEBHOOK_SECRET}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(url, json=payload, headers=headers)
+            resp.raise_for_status()
+            return True
+    except Exception as e:
+        print(f"[notify_discord] failed: {e}")
+        return False
