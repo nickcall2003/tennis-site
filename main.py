@@ -6529,9 +6529,9 @@ _LL_ASK_SYSTEM_PROMPT = _LL_SYSTEM_PROMPT + (
 _LL_MODE_PROMPTS = {
     "why": ("Give 3-5 short bullet reasons the model favors this side, each under "
             "12 words. Output plain lines starting with '- '. No preamble.", 300),
-    "writeup": ("Write an 800-1200 word analysis with these sections, each a short "
+    "writeup": ("Write a 500-700 word analysis with these sections, each a short "
                 "header: Overview, Model, Matchup, Market, Risks, Final Thoughts. "
-                "Professional, no hype.", 1800),
+                "Professional, no hype.", 1200),
     "full": ("Write a clean 3-paragraph breakdown of how the model's projection "
              "lines up against the market price. No hype.", 600),
     "confidence": ("Explain what the model's confidence grade means for THIS play "
@@ -6719,3 +6719,91 @@ def slate_counts(date: str | None = None):
     counts = Counter(str(p.get("sport", "")).lower() for p in plays if p.get("sport"))
     return {"date": target.isoformat(), "total": sum(counts.values()),
             "counts": dict(counts)}
+
+
+# ---- /api/track-record : overall + per-sport record/units/ROI (matches site) --
+# The bot's /record was reading ParlaySlip (parlays only). The website Track
+# Record page reads PickResult (every graded pick). This endpoint reproduces the
+# site's numbers so the bot matches: overall win%, all-time record, units, ROI,
+# and per-sport breakdown. Units/ROI count only picks that carried a captured
+# market line (recommended +EV wagers), same as the site.
+
+@app.get("/api/track-record")
+def track_record():
+    from collections import defaultdict
+    from models import PickResult
+    from clv import american_to_prob
+
+    tot_w = tot_l = 0
+    tot_units = tot_staked = 0.0
+    ps_w = defaultdict(int); ps_l = defaultdict(int)
+    ps_units = defaultdict(float); ps_staked = defaultdict(float)
+    ps_clv_n = defaultdict(int); ps_clv_beat = defaultdict(int)
+
+    def _units_for(odds, won):
+        """1-unit flat stake, American odds -> profit/loss in units."""
+        if odds is None:
+            return None
+        if won:
+            return (odds / 100.0) if odds > 0 else (100.0 / abs(odds))
+        return -1.0
+
+    try:
+        with SessionLocal() as db:
+            rows = db.query(PickResult).all()
+    except Exception as e:
+        print(f"[track-record] load failed: {e}")
+        rows = []
+
+    for r in rows:
+        # push/void skip
+        if str(r.actual).lower() in ("push", "void", "canceled", "cancelled"):
+            continue
+        won = bool(r.correct)
+        sp = r.sport
+        if won:
+            tot_w += 1; ps_w[sp] += 1
+        else:
+            tot_l += 1; ps_l[sp] += 1
+        # units/ROI only on picks with a captured market line (recommended wagers)
+        if r.taken_odds is not None and abs(r.taken_odds) >= 100:
+            u = _units_for(r.taken_odds, won)
+            if u is not None:
+                tot_units += u; tot_staked += 1.0
+                ps_units[sp] += u; ps_staked[sp] += 1.0
+            # CLV
+            if r.close_odds is not None and abs(r.close_odds) >= 100:
+                ps_clv_n[sp] += 1
+                if american_to_prob(r.taken_odds) < american_to_prob(r.close_odds):
+                    ps_clv_beat[sp] += 1
+
+    def _pct(w, l):
+        d = w + l
+        return round(100.0 * w / d, 1) if d else None
+
+    per_sport = {}
+    for sp in set(list(ps_w) + list(ps_l)):
+        w, l = ps_w[sp], ps_l[sp]
+        staked = ps_staked[sp]
+        clv_n = ps_clv_n[sp]
+        per_sport[sp] = {
+            "wins": w, "losses": l, "record": f"{w}-{l}",
+            "win_pct": _pct(w, l),
+            "units_pl": round(ps_units[sp], 2),
+            "wagers": int(staked),
+            "roi_pct": round(100.0 * ps_units[sp] / staked, 1) if staked else None,
+            "clv_pct": round(100.0 * ps_clv_beat[sp] / clv_n, 1) if clv_n else None,
+            "clv_sample": clv_n,
+        }
+
+    return {
+        "overall": {
+            "wins": tot_w, "losses": tot_l, "record": f"{tot_w}-{tot_l}",
+            "win_pct": _pct(tot_w, tot_l),
+            "units_pl": round(tot_units, 2),
+            "wagers": int(tot_staked),
+            "roi_pct": round(100.0 * tot_units / tot_staked, 1) if tot_staked else None,
+            "sports": len(per_sport),
+        },
+        "by_sport": per_sport,
+    }
