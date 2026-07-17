@@ -63,6 +63,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-sport="mlb">&#9918; MLB</div>
           <div class="menu-item" data-sport="nba">&#127936; NBA</div>
           <div class="menu-item" data-sport="wnba">&#127936; WNBA</div>
+          <div class="menu-item" data-sport="golf">&#9971; Golf</div>
           <div class="menu-item" data-sport="nfl">&#127944; NFL</div>
           <div class="menu-item" data-sport="ncaabb">&#9918; NCAA Baseball</div>
           <div class="menu-item" data-sport="nhl">&#127954; NHL</div>
@@ -71,7 +72,6 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-sport="wncaab">&#127936; Women's CBB</div>
           <div class="menu-item" data-sport="soccer">&#9917; Soccer</div>
           <div class="menu-item" data-sport="ufc">&#129354; UFC</div>
-          <div class="menu-item" data-sport="golf">&#9971; Golf</div>
           <div class="menu-sec menu-gear" id="offseason-toggle" style="display:none" onclick="var s=document.getElementById('offseason-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#128197; Off-season leagues</div>
           <div id="offseason-body" style="display:none"></div>
           <div class="menu-sec menu-gear open" onclick="var s=document.getElementById('picks-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#128081; Picks</div>
@@ -486,7 +486,6 @@ let SPORTS_META=[
   {key:"wncaab",emoji:"\u{1f3c0}",label:"Women's CBB",blurb:"D1 women \u00b7 AP-aware",color:"#c0567e",team:true},
   {key:"soccer",emoji:"\u26bd",label:"Soccer",blurb:"EPL \u00b7 UCL \u00b7 La Liga \u00b7 MLS \u2026",color:"#2f9e6f",team:true},
   {key:"ufc",emoji:"\u{1f94a}",label:"UFC",blurb:"Fight cards \u00b7 moneyline",color:"#c8412f",team:false},
-    {key:"golf",emoji:"\u26f3",label:"Golf",blurb:"Leaderboards \u00b7 tournaments",color:"#3f9b59",team:false}
 ];
 // /api/sports (registry) refreshes SPORTS_META on load; applySportsMeta keeps the
 // derived maps in sync. The defaults above mean a failed fetch = unchanged UI.
@@ -2187,6 +2186,7 @@ async function renderRecord(){
     '<div class="rec-hero-sub">'+tW+'-'+tL+' all-time across '+rows.length+' sports'+(hasU?' &middot; '+sg(tU)+' on graded wagers':'')+'</div></div>'+
     '<div class="rec-note">Verified prediction accuracy across every graded pick. <b>Betting units are tracked separately, only on recommended +EV wagers</b>, and each sport posts its ROI once it clears '+minN+' graded wagers \u2014 so the units you see are real plays, never \u201Cbet every favorite.\u201D</div>';
   rows.forEach(function(r){
+    if(r.sport==="golf")return;  // golf removed from the record
     if(r.sport==="tennis"&&tours&&tours.total_excl_itf){var te=tours.total_excl_itf;r.wins=te.wins;r.losses=te.losses;r.pct=te.win_pct;r.units=te.units;r.roi=te.roi_pct;r.wager_n=te.priced;r.mature=(te.priced>=minN);}
     const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[r.sport])||r.sport.toUpperCase();
     const showClv=(r.clv!=null&&r.wager_n>=20);

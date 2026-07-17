@@ -67,6 +67,8 @@ def accuracy(days: int = 30):
     with SessionLocal() as db:
         rows = db.query(PickResult).filter(PickResult.settled_date >= since).all()
         for r in rows:
+            if r.sport == "golf":
+                continue                       # golf is view-only: never tracked
             if _is_push(r):
                 continue                       # draw/canceled = push, off the record
             s = by_sport.setdefault(r.sport, {"picks": 0, "correct": 0, "today_picks": 0,
@@ -100,6 +102,8 @@ def accuracy(days: int = 30):
         # all-time record (no date filter), per sport and overall
         allrows = db.query(PickResult).all()
         for r in allrows:
+            if r.sport == "golf":
+                continue                       # golf is view-only: never tracked
             if _is_push(r):
                 continue                       # draw/canceled = push, off the record
             a = alltime.setdefault(r.sport, {"wins": 0, "losses": 0})
