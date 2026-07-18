@@ -7006,6 +7006,17 @@ def capper_stats(user_id: str):
             rows = (db.query(CapperPick)
                       .filter(CapperPick.discord_user_id == str(user_id)).all())
             summ = _capper_summarize(rows)
+            # per-sport breakdown so members can see where they're actually good
+            from collections import defaultdict
+            bysport = defaultdict(list)
+            for r in rows:
+                if r.sport:
+                    bysport[r.sport].append(r)
+            summ["by_sport"] = {sp: _capper_summarize(rs) for sp, rs in bysport.items()}
+            # recent form: last 10 graded picks, newest first
+            graded = [r for r in rows if (r.status or "") in ("win", "loss")]
+            graded.sort(key=lambda r: (r.graded_at or r.created_at), reverse=True)
+            summ["recent_form"] = [("W" if r.status == "win" else "L") for r in graded[:10]]
     except Exception as e:
         print(f"[capper] stats failed: {e}")
         return {"total": 0}
