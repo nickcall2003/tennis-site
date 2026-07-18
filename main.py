@@ -6704,11 +6704,25 @@ def slate_counts(date: str | None = None):
 # Uses the CapperPick model you added to models.py + your existing SessionLocal.
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _ensure_capper_table():
+    """Idempotently create capper_picks if init_db didn't (CapperPick is imported
+    lazily, so it may not be registered when create_all runs at startup)."""
+    try:
+        from models import CapperPick
+        # Get the engine from a session bind — works regardless of how db.py names it
+        with SessionLocal() as _s:
+            bind = _s.get_bind()
+        CapperPick.__table__.create(bind=bind, checkfirst=True)
+    except Exception as e:
+        print(f"[capper] ensure table failed: {e}")
+
+
 @app.post("/api/capper/track")
 async def capper_track(payload: dict):
     """Store a tracked pick. Bot posts: {user_id, username, team, sport?, stake_units?}
     The line is captured from the model board via model_lookup."""
     from models import CapperPick
+    _ensure_capper_table()
     user_id = str(payload.get("user_id") or "").strip()
     username = str(payload.get("username") or "").strip()[:64]
     team = str(payload.get("team") or "").strip()
@@ -6751,6 +6765,7 @@ async def capper_track(payload: dict):
 def capper_mine(user_id: str):
     """Raw list of a user's tracked picks."""
     from models import CapperPick
+    _ensure_capper_table()
     try:
         with SessionLocal() as db:
             rows = (db.query(CapperPick)
@@ -6803,6 +6818,7 @@ def _capper_summarize(rows):
 def capper_stats(user_id: str):
     """One user's tracked-pick record."""
     from models import CapperPick
+    _ensure_capper_table()
     try:
         with SessionLocal() as db:
             rows = (db.query(CapperPick)
@@ -6821,6 +6837,7 @@ def capper_leaderboard(sort: str = "units", min_decided: int = 1):
     min_decided filters out people with too few graded picks to rank fairly."""
     from models import CapperPick
     from collections import defaultdict
+    _ensure_capper_table()
     try:
         with SessionLocal() as db:
             rows = db.query(CapperPick).all()
