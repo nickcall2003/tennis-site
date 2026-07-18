@@ -2430,6 +2430,50 @@ def _catchup_grade_cappers():
     return graded
 
 
+@app.get("/api/capper/diag")
+def capper_diag():
+    """Diagnostic: show pending capper picks next to the settled results for the
+    same sport, so a ref-format mismatch is obvious."""
+    from models import CapperPick, PickResult
+    _ensure_capper_table()
+    out = {"pending": [], "recent_results": {}, "match_test": []}
+    try:
+        with SessionLocal() as db:
+            pend = db.query(CapperPick).filter(CapperPick.status == "pending").all()
+            for r in pend:
+                out["pending"].append({
+                    "id": r.id, "sport": r.sport, "ref": r.ref,
+                    "ref_type": type(r.ref).__name__,
+                    "pick": r.pick, "match": r.match, "event_date": r.event_date,
+                })
+            # recent settled results per sport involved
+            for sp in {p["sport"] for p in out["pending"] if p["sport"]}:
+                rows = (db.query(PickResult)
+                          .filter_by(sport=sp)
+                          .order_by(PickResult.id.desc()).limit(15).all())
+                out["recent_results"][sp] = [
+                    {"ref": r.ref, "ref_type": type(r.ref).__name__,
+                     "predicted": r.predicted, "actual": r.actual,
+                     "settled": str(r.settled_date)[:19]}
+                    for r in rows
+                ]
+            # direct lookup test for each pending pick
+            for r in pend:
+                if not r.ref:
+                    out["match_test"].append({"id": r.id, "result": "no ref stored"})
+                    continue
+                hit = (db.query(PickResult)
+                         .filter_by(sport=r.sport, ref=str(r.ref)).first())
+                out["match_test"].append({
+                    "id": r.id, "sport": r.sport, "ref": str(r.ref),
+                    "found_result": bool(hit),
+                    "actual": (hit.actual if hit else None),
+                })
+    except Exception as e:
+        out["error"] = str(e)
+    return out
+
+
 @app.get("/api/capper/regrade")
 def capper_regrade():
     """Manually run the catch-up grader (also runs automatically on stats reads)."""
