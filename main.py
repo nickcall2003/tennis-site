@@ -2381,6 +2381,57 @@ def _settle_stale_tennis(hours=None):
     return pushed
 
 
+def _capper_pick_won(pick_text, match_text, actual):
+    """Did this capper pick win? Handles BOTH result conventions in the results
+    log: actual='home'/'away' (team sports; match reads 'Away @ Home') and
+    actual=<name> (tennis and similar). Returns True/False, or None when it
+    can't be determined — callers leave those pending rather than guess."""
+    a = str(actual or "").strip().lower()
+    p = (pick_text or "").lower()
+    m = (match_text or "")
+    if not a:
+        return None
+    if a in ("home", "away"):
+        if "@" not in m:
+            return None
+        away, home = m.split("@", 1)
+        away, home = away.strip().lower(), home.strip().lower()
+        picked_home = bool(home) and home in p
+        picked_away = bool(away) and away in p
+        if picked_home and not picked_away:
+            return a == "home"
+        if picked_away and not picked_home:
+            return a == "away"
+        return None                      # ambiguous — don't guess
+    return a in p                        # name-based result
+
+
+def _capper_apply_result(r, actual):
+    """Set status/units on a CapperPick from a settled result. Returns True if
+    the pick was graded, False if it stays pending."""
+    a = str(actual or "").strip().lower()
+    stake = r.stake_units or 1.0
+    if a in ("canceled", "cancelled", "void", "draw", "push"):
+        r.status, r.units_pl = "push", 0.0
+        r.graded_at = dt.datetime.now()
+        return True
+    won = _capper_pick_won(r.pick, r.match, actual)
+    if won is None:
+        return False                     # undecidable — leave pending
+    r.status = "win" if won else "loss"
+    odds = r.market_odds
+    if not won:
+        r.units_pl = -stake
+    elif odds is None:
+        r.units_pl = stake
+    elif odds > 0:
+        r.units_pl = stake * (odds / 100.0)
+    else:
+        r.units_pl = stake * (100.0 / abs(odds))
+    r.graded_at = dt.datetime.now()
+    return True
+
+
 def _catchup_grade_cappers():
     """Grade pending capper picks whose game was ALREADY settled.
 
@@ -2403,25 +2454,8 @@ def _catchup_grade_cappers():
                         .filter_by(sport=r.sport, ref=str(r.ref)).first())
                 if not pr or pr.actual is None:
                     continue          # game not settled yet — leave pending
-                actual_s = str(pr.actual).strip()
-                stake = r.stake_units or 1.0
-                if actual_s.lower() in ("canceled", "cancelled", "void", "draw", "push", ""):
-                    r.status = "push"
-                    r.units_pl = 0.0
-                else:
-                    won = actual_s.lower() in (r.pick or "").lower()
-                    r.status = "win" if won else "loss"
-                    odds = r.market_odds
-                    if not won:
-                        r.units_pl = -stake
-                    elif odds is None:
-                        r.units_pl = stake
-                    elif odds > 0:
-                        r.units_pl = stake * (odds / 100.0)
-                    else:
-                        r.units_pl = stake * (100.0 / abs(odds))
-                r.graded_at = dt.datetime.now()
-                graded += 1
+                if _capper_apply_result(r, pr.actual):
+                    graded += 1
             if graded:
                 db.commit()
                 print(f"[capper] catch-up graded {graded} pick(s)")
@@ -2496,27 +2530,12 @@ def _grade_capper_picks(db, sport, ref, actual):
     if not rows:
         return
     # draws / cancellations void the bet (stake returned, no P&L)
-    void = actual_s.lower() in ("canceled", "cancelled", "void", "draw", "push", "")
+    n = 0
     for r in rows:
-        stake = r.stake_units or 1.0
-        if void:
-            r.status = "push"
-            r.units_pl = 0.0
-        else:
-            # the winner's name appears in the pick text ("Atlanta Braves to win")
-            won = actual_s.lower() in (r.pick or "").lower()
-            r.status = "win" if won else "loss"
-            odds = r.market_odds
-            if not won:
-                r.units_pl = -stake
-            elif odds is None:
-                r.units_pl = stake          # no line captured -> treat as even money
-            elif odds > 0:
-                r.units_pl = stake * (odds / 100.0)
-            else:
-                r.units_pl = stake * (100.0 / abs(odds))
-        r.graded_at = dt.datetime.now()
-    print(f"[capper] graded {len(rows)} pick(s) on {sport}:{ref_s} -> {actual_s}")
+        if _capper_apply_result(r, actual_s):
+            n += 1
+    if n:
+        print(f"[capper] graded {n} pick(s) on {sport}:{ref_s} -> {actual_s}")
 
 
 def _record_result(db, sport, ref, predicted, actual):
