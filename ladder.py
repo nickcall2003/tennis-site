@@ -247,3 +247,27 @@ def state_summary(db):
         } for l in legs],
         "note": "Its own record — separate from the site's pick record, units, and ROI.",
     }
+
+
+def reset_challenge(db, wipe_history=True):
+    """Start the challenge over: attempt 1, rung 1, $10 bankroll, and (by default)
+    clear the leg history so the record/units/ROI go back to 0-0. Used when a run
+    was never really live (e.g. the picker was broken and no leg was ever posted)."""
+    deleted = 0
+    if wipe_history:
+        legs = db.execute(select(LadderLeg)).scalars().all()
+        deleted = len(legs)
+        for l in legs:
+            db.delete(l)
+    s = _state(db)
+    s.rung = 1
+    s.bankroll = START
+    s.start_bankroll = START
+    s.attempt = 1
+    s.best_rung_ever = 0
+    s.best_bankroll_ever = START
+    s.completed_runs = 0
+    s.updated = dt.datetime.utcnow()
+    db.commit()
+    return {"ok": True, "legs_deleted": deleted, "attempt": 1, "rung": 1,
+            "bankroll": START}
