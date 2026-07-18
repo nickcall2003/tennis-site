@@ -7103,3 +7103,50 @@ def capper_set(id: int, result: str):
     except Exception as e:
         print(f"[capper] manual set failed: {e}")
         return {"ok": False, "error": str(e)}
+
+
+# ---- /api/ladder/status : current challenge state + today's leg + history -----
+# Powers the Discord ladder post and the /ladder command.
+
+@app.get("/api/ladder/status")
+def ladder_status(history: int = 5):
+    from models import LadderState, LadderLeg
+    out = {"state": None, "current_leg": None, "history": []}
+    try:
+        with SessionLocal() as db:
+            st = db.query(LadderState).order_by(LadderState.id.asc()).first()
+            if st:
+                out["state"] = {
+                    "rung": st.rung, "bankroll": round(st.bankroll, 2),
+                    "start_bankroll": round(st.start_bankroll, 2),
+                    "attempt": st.attempt,
+                    "best_rung_ever": st.best_rung_ever,
+                    "best_bankroll_ever": round(st.best_bankroll_ever, 2),
+                    "completed_runs": st.completed_runs,
+                    "updated": str(st.updated)[:19],
+                }
+            # the live (unsettled) leg, if one has been posted
+            leg = (db.query(LadderLeg)
+                     .filter(LadderLeg.settled == False)  # noqa: E712
+                     .order_by(LadderLeg.pick_date.asc()).first())
+            if leg:
+                out["current_leg"] = {
+                    "rung": leg.rung, "attempt": leg.attempt, "sport": leg.sport,
+                    "pick": leg.pick, "odds": leg.odds, "edge_pct": leg.edge_pct,
+                    "stake": round(leg.stake, 2), "to_return": round(leg.to_return, 2),
+                    "pick_date": str(leg.pick_date)[:10], "game_ref": leg.game_ref,
+                }
+            hist = (db.query(LadderLeg)
+                      .filter(LadderLeg.settled == True)  # noqa: E712
+                      .order_by(LadderLeg.pick_date.desc())
+                      .limit(max(1, min(history, 20))).all())
+            out["history"] = [{
+                "date": str(l.pick_date)[:10], "rung": l.rung, "attempt": l.attempt,
+                "sport": l.sport, "pick": l.pick, "odds": l.odds,
+                "stake": round(l.stake, 2), "to_return": round(l.to_return, 2),
+                "result": l.result,
+            } for l in hist]
+    except Exception as e:
+        print(f"[ladder] status failed: {e}")
+        out["error"] = str(e)[:200]
+    return out
