@@ -6705,14 +6705,26 @@ def slate_counts(date: str | None = None):
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _ensure_capper_table():
-    """Idempotently create capper_picks if init_db didn't (CapperPick is imported
-    lazily, so it may not be registered when create_all runs at startup)."""
+    """Ensure capper_picks exists AND has the current columns. create_all only
+    creates missing tables — it won't add columns to an out-of-date table. Since
+    this table holds only tracked picks (safe to rebuild while empty of real
+    data), if the schema is stale we drop and recreate it with the full columns."""
     try:
         from models import CapperPick
-        # Get the engine from a session bind — works regardless of how db.py names it
+        from sqlalchemy import inspect as _sa_inspect
         with SessionLocal() as _s:
             bind = _s.get_bind()
-        CapperPick.__table__.create(bind=bind, checkfirst=True)
+        insp = _sa_inspect(bind)
+        if insp.has_table("capper_picks"):
+            cols = {c["name"] for c in insp.get_columns("capper_picks")}
+            expected = set(CapperPick.__table__.columns.keys())
+            if not expected.issubset(cols):
+                # stale schema (missing a column like 'ref') -> rebuild clean
+                print(f"[capper] schema stale (have {cols}, need {expected}); rebuilding table")
+                CapperPick.__table__.drop(bind=bind, checkfirst=True)
+                CapperPick.__table__.create(bind=bind, checkfirst=True)
+        else:
+            CapperPick.__table__.create(bind=bind, checkfirst=True)
     except Exception as e:
         print(f"[capper] ensure table failed: {e}")
 
