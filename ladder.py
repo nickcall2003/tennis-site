@@ -19,8 +19,8 @@ from models import LadderState, LadderLeg
 
 import os
 
-BAND_LO = -110       # most negative american odds allowed
-BAND_HI = 110        # most positive
+BAND_LO = -120       # most negative american odds allowed
+BAND_HI = 120        # most positive
 RUNGS = 10
 START = 10.0
 # a ladder leg must clear a real edge, not a rounding-error edge. Your example
@@ -122,6 +122,9 @@ def best_combo(picks, max_legs=3):
             if best is None or combo_prob > best["prob"]:
                 best = cand
     return best
+
+
+def todays_pick(db, day=None, picks=None):
     """Return today's ladder leg (existing if already chosen, else pick one). Skips
     the day silently if nothing qualifies."""
     day = day or dt.date.today()
