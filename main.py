@@ -2381,12 +2381,55 @@ def _settle_stale_tennis(hours=None):
     return pushed
 
 
+def _grade_capper_picks(db, sport, ref, actual):
+    """Grade every pending capper pick on this game. Called from _record_result,
+    so cappers settle at the same moment the model's own pick does — same result
+    data, same timing. Wrapped by the caller so it can never break settling."""
+    from models import CapperPick
+    ref_s = str(ref)
+    actual_s = str(actual).strip()
+    rows = (db.query(CapperPick)
+              .filter(CapperPick.sport == sport,
+                      CapperPick.ref == ref_s,
+                      CapperPick.status == "pending").all())
+    if not rows:
+        return
+    # draws / cancellations void the bet (stake returned, no P&L)
+    void = actual_s.lower() in ("canceled", "cancelled", "void", "draw", "push", "")
+    for r in rows:
+        stake = r.stake_units or 1.0
+        if void:
+            r.status = "push"
+            r.units_pl = 0.0
+        else:
+            # the winner's name appears in the pick text ("Atlanta Braves to win")
+            won = actual_s.lower() in (r.pick or "").lower()
+            r.status = "win" if won else "loss"
+            odds = r.market_odds
+            if not won:
+                r.units_pl = -stake
+            elif odds is None:
+                r.units_pl = stake          # no line captured -> treat as even money
+            elif odds > 0:
+                r.units_pl = stake * (odds / 100.0)
+            else:
+                r.units_pl = stake * (100.0 / abs(odds))
+        r.graded_at = dt.datetime.now()
+    print(f"[capper] graded {len(rows)} pick(s) on {sport}:{ref_s} -> {actual_s}")
+
+
 def _record_result(db, sport, ref, predicted, actual):
     """Upsert a settled pick into the results log (no-op if already recorded).
     If we captured a market line for this pick, store taken (open) and close
     (last-seen) odds so the performance metrics can compute units/ROI/CLV."""
     from models import PickResult, OddsSnapshot
     ref = str(ref)
+    # Grade any member-tracked picks on this game (independent of whether the
+    # model's own result was already recorded). Never allowed to break settling.
+    try:
+        _grade_capper_picks(db, sport, ref, actual)
+    except Exception as e:
+        print(f"[capper] grading failed for {sport}:{ref}: {e}")
     memo = (sport, ref)
     if memo in _recorded_refs:
         return
@@ -6445,6 +6488,7 @@ def model_lookup(team: str, sport: str | None = None, days: int = 3):
             edge = p.get("edge_pct")
             return {
                 "found": True, "date": target.isoformat(), "sport": p.get("sport"),
+                "ref": str(p.get("id")) if p.get("id") is not None else None,
                 "match": p.get("match"), "pick": p.get("pick"), "prob": prob,
                 "win_pct": round(prob * 100), "confidence": p.get("confidence"),
                 "market_odds": p.get("market_odds"), "fair_odds": p.get("fair_odds"),
@@ -6754,7 +6798,8 @@ async def capper_track(payload: dict):
 
     row = CapperPick(
         discord_user_id=user_id, discord_username=username,
-        sport=look.get("sport"), match=look.get("match"), pick=look.get("pick"),
+        sport=look.get("sport"), ref=look.get("ref"),
+        match=look.get("match"), pick=look.get("pick"),
         market_odds=look.get("market_odds"), stake_units=stake,
         prob=look.get("prob"), status="pending", event_date=look.get("date"),
     )
