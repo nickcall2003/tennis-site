@@ -6819,24 +6819,28 @@ async def capper_track(payload: dict):
 
 
 @app.get("/api/capper/mine")
-def capper_mine(user_id: str):
-    """Raw list of a user's tracked picks."""
+def capper_mine(user_id: str = ""):
+    """Tracked picks. Pass user_id for one member, or omit it to list all picks
+    (handy for verifying tracking/grading without knowing a Discord ID)."""
     from models import CapperPick
     _ensure_capper_table()
     try:
         with SessionLocal() as db:
-            rows = (db.query(CapperPick)
-                      .filter(CapperPick.discord_user_id == str(user_id))
-                      .order_by(CapperPick.id.desc()).all())
+            q = db.query(CapperPick)
+            if user_id:
+                q = q.filter(CapperPick.discord_user_id == str(user_id))
+            rows = q.order_by(CapperPick.id.desc()).all()
             out = [{
-                "id": r.id, "pick": r.pick, "match": r.match, "sport": r.sport,
+                "id": r.id, "user": r.discord_username, "pick": r.pick,
+                "match": r.match, "sport": r.sport, "ref": r.ref,
                 "market_odds": r.market_odds, "stake_units": r.stake_units,
-                "status": r.status, "units_pl": r.units_pl, "event_date": r.event_date,
+                "status": r.status, "units_pl": r.units_pl,
+                "event_date": r.event_date,
             } for r in rows]
     except Exception as e:
         print(f"[capper] mine query failed: {e}")
         return {"picks": []}
-    return {"picks": out}
+    return {"count": len(out), "picks": out}
 
 
 # ---- Capper stats: per-user record + leaderboard (Stage 2) --------------------
