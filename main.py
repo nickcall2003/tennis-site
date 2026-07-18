@@ -7051,3 +7051,44 @@ def capper_leaderboard(sort: str = "units", min_decided: int = 1):
     # people with only pending picks (not yet rankable) shown separately as count
     building = [c for c in board if (c["wins"] + c["losses"]) < min_decided]
     return {"cappers": decided[:15], "building": len(building), "total_cappers": len(board)}
+
+
+@app.get("/api/capper/set")
+def capper_set(id: int, result: str):
+    """Manually settle a capper pick that can't auto-grade (e.g. tracked without
+    a ref), or delete it. result: win | loss | push | pending | delete"""
+    from models import CapperPick
+    _ensure_capper_table()
+    res = (result or "").strip().lower()
+    if res not in ("win", "loss", "push", "delete", "pending"):
+        return {"ok": False, "error": "result must be win|loss|push|pending|delete"}
+    try:
+        with SessionLocal() as db:
+            r = db.query(CapperPick).filter_by(id=int(id)).first()
+            if not r:
+                return {"ok": False, "error": "not found"}
+            if res == "delete":
+                db.delete(r)
+                db.commit()
+                return {"ok": True, "deleted": int(id)}
+            stake = r.stake_units or 1.0
+            if res == "pending":
+                r.status, r.units_pl, r.graded_at = "pending", None, None
+            elif res == "push":
+                r.status, r.units_pl = "push", 0.0
+                r.graded_at = dt.datetime.now()
+            elif res == "win":
+                odds = r.market_odds
+                r.units_pl = (stake if odds is None else
+                              stake * (odds / 100.0) if odds > 0 else
+                              stake * (100.0 / abs(odds)))
+                r.status = "win"
+                r.graded_at = dt.datetime.now()
+            else:
+                r.status, r.units_pl = "loss", -stake
+                r.graded_at = dt.datetime.now()
+            db.commit()
+            return {"ok": True, "id": r.id, "status": r.status, "units_pl": r.units_pl}
+    except Exception as e:
+        print(f"[capper] manual set failed: {e}")
+        return {"ok": False, "error": str(e)}
