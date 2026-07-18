@@ -2381,6 +2381,63 @@ def _settle_stale_tennis(hours=None):
     return pushed
 
 
+def _catchup_grade_cappers():
+    """Grade pending capper picks whose game was ALREADY settled.
+
+    _grade_capper_picks only fires when a game settles. If a pick was tracked
+    after its game had already been graded (or the grading code shipped later),
+    that moment has passed and the pick would sit pending forever. This sweeps
+    pending picks and grades them from the stored PickResult. Cheap — the table
+    is small and we only look at pending rows."""
+    from models import CapperPick, PickResult
+    graded = 0
+    try:
+        with SessionLocal() as db:
+            pend = (db.query(CapperPick)
+                      .filter(CapperPick.status == "pending",
+                              CapperPick.ref.isnot(None)).all())
+            if not pend:
+                return 0
+            for r in pend:
+                pr = (db.query(PickResult)
+                        .filter_by(sport=r.sport, ref=str(r.ref)).first())
+                if not pr or pr.actual is None:
+                    continue          # game not settled yet — leave pending
+                actual_s = str(pr.actual).strip()
+                stake = r.stake_units or 1.0
+                if actual_s.lower() in ("canceled", "cancelled", "void", "draw", "push", ""):
+                    r.status = "push"
+                    r.units_pl = 0.0
+                else:
+                    won = actual_s.lower() in (r.pick or "").lower()
+                    r.status = "win" if won else "loss"
+                    odds = r.market_odds
+                    if not won:
+                        r.units_pl = -stake
+                    elif odds is None:
+                        r.units_pl = stake
+                    elif odds > 0:
+                        r.units_pl = stake * (odds / 100.0)
+                    else:
+                        r.units_pl = stake * (100.0 / abs(odds))
+                r.graded_at = dt.datetime.now()
+                graded += 1
+            if graded:
+                db.commit()
+                print(f"[capper] catch-up graded {graded} pick(s)")
+    except Exception as e:
+        print(f"[capper] catch-up grading failed: {e}")
+    return graded
+
+
+@app.get("/api/capper/regrade")
+def capper_regrade():
+    """Manually run the catch-up grader (also runs automatically on stats reads)."""
+    _ensure_capper_table()
+    n = _catchup_grade_cappers()
+    return {"graded": n}
+
+
 def _grade_capper_picks(db, sport, ref, actual):
     """Grade every pending capper pick on this game. Called from _record_result,
     so cappers settle at the same moment the model's own pick does — same result
@@ -6880,6 +6937,7 @@ def capper_stats(user_id: str):
     """One user's tracked-pick record."""
     from models import CapperPick
     _ensure_capper_table()
+    _catchup_grade_cappers()   # settle anything whose game already finished
     try:
         with SessionLocal() as db:
             rows = (db.query(CapperPick)
@@ -6899,6 +6957,7 @@ def capper_leaderboard(sort: str = "units", min_decided: int = 1):
     from models import CapperPick
     from collections import defaultdict
     _ensure_capper_table()
+    _catchup_grade_cappers()   # settle anything whose game already finished
     try:
         with SessionLocal() as db:
             rows = db.query(CapperPick).all()
