@@ -2944,6 +2944,17 @@ async function renderLadder(){
       '</div>';
   }else{
     html+='<div class="lp-today lp-hold">No qualifying pick yet today \u2014 the run holds at rung '+(st.current_rung||1)+'. We never force a leg. Check back as lines post.</div>';
+    var dg=d&&d.debug;
+    if(dg){
+      html+='<div class="lp-diag"><b>Why:</b> '+(dg.src||0)+' picks scanned \u00b7 '+(dg.with_market||0)+' had a market line \u00b7 '+(dg.in_band||0)+' in band ('+((dg.band&&dg.band[0])||-110)+' to +'+((dg.band&&dg.band[1])||110)+') \u00b7 '+(dg.qualifying||0)+' cleared '+(dg.min_edge||3)+'% edge';
+      if(dg.enrich_fail)html+=' \u00b7 '+dg.enrich_fail+' odds lookups failed';
+      if(dg.best_in_band&&dg.best_in_band.length){
+        html+='<br><b>Closest:</b> '+dg.best_in_band.slice(0,3).map(function(b){
+          return b.pick+' ('+(b.odds>0?'+':'')+b.odds+', '+(b.edge_pct!=null?b.edge_pct+'%':'no edge')+')';}).join(' \u00b7 ');
+      }
+      if(dg.errors&&dg.errors.length)html+='<br><b>Errors:</b> '+dg.errors.join(' | ');
+      html+='</div>';
+    }
   }
   if(st.best_rung_ever)html+='<div class="lp-best">Best run: reached rung '+st.best_rung_ever+(st.completed_runs?' \u00b7 '+st.completed_runs+' full ladders completed':'')+'</div>';
   if(st.history&&st.history.length){
