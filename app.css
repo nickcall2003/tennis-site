@@ -1320,3 +1320,4 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .pm-sc b{color:var(--ink);}
 .pm-foot{font-size:10px;color:var(--muted-2);margin-top:16px;text-align:center;}
 .pc-link{cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;}
+.pc-why{font-size:12px;color:var(--muted);text-align:center;margin:4px 0 8px;line-height:1.5;font-style:italic;}
