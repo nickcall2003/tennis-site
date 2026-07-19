@@ -1940,9 +1940,26 @@ function propsPanelHTML(data){
     : "Projected = model \u00b7 Line = model line \u00b7 Actual fills in live/final. Tap a row for the last-10 log. High variance \u2014 not betting advice.";
   setTimeout(()=>fillProjections(all),30);
   return '<div class="panel"><div class="stat-sec">'+hdr+'</div><div class="pf-bar">'+chips+'</div>'+rows+'<div class="note">'+note+'</div></div>';}
+function _poissonOver(lam,line){
+  // P(X > line) for a counting stat (Ks, hits, HRs). Used so the displayed lean
+  // is always measured against the SAME line the card shows — book lines differ
+  // from the model's own line, and a stale probability made leans look inverted.
+  if(!(lam>0)||line==null)return null;
+  const k=Math.floor(line);
+  let term=Math.exp(-lam),cdf=term;
+  for(let n=1;n<=k;n++){term*=lam/n;cdf+=term;}
+  const pOver=1-cdf;
+  return (pOver>=0&&pOver<=1)?pOver:null;
+}
 function propRowHTML(p,i){
-  const hasOP=(p.over_prob!=null&&!isNaN(p.over_prob));
-  const op=hasOP?Math.round(p.over_prob*100):null,up=op==null?null:100-op,lean=p.lean;
+  const _ln=(p.line==null||p.line==="")?null:p.line;
+  const _pj=(p.projection==null||p.projection==="")?null:p.projection;
+  // recompute against the displayed line whenever we have both numbers
+  let _op=(_pj!=null&&_ln!=null)?_poissonOver(Number(_pj),Number(_ln)):null;
+  if(_op==null&&p.over_prob!=null&&!isNaN(p.over_prob))_op=Number(p.over_prob);
+  const hasOP=(_op!=null&&!isNaN(_op));
+  const op=hasOP?Math.round(_op*100):null,up=op==null?null:100-op;
+  const lean=hasOP?(_op>=0.5?"over":"under"):p.lean;
   const fmtO=o=>o==null?"\u2014":(o>0?"+"+o:""+o);
   const num=v=>(v==null||v===""||v!==v)?null:v;
   const line=num(p.line);
