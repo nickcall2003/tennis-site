@@ -120,6 +120,20 @@ def _fetch_csv(key, path, params, timeout=20.0, nocache=False):
         return None
 
 
+def _norm_name(v):
+    """Normalize a player name for matching: strip accents, punctuation and
+    suffixes so 'Jose Ramirez Jr.' and 'Jos\u00e9 Ram\u00edrez' land on the same key."""
+    import re
+    import unicodedata
+    if not v:
+        return ""
+    v = unicodedata.normalize("NFKD", str(v))
+    v = "".join(c for c in v if not unicodedata.combining(c))
+    v = v.lower().replace(".", " ").replace("'", "").replace("-", " ")
+    v = re.sub(r"\b(jr|sr|ii|iii|iv)\b", " ", v)
+    return re.sub(r"\s+", " ", v).strip()
+
+
 def _name_of(row):
     """Savant puts the player in a single \"last_name, first_name\" column
     (e.g. 'Skenes, Paul'). Normalize to 'paul skenes'."""
@@ -130,8 +144,8 @@ def _name_of(row):
             v = str(v).strip().strip('"')
             if "," in v:
                 last, _, first = v.partition(",")
-                return f"{first.strip()} {last.strip()}".strip().lower()
-            return v.lower()
+                return _norm_name(f"{first.strip()} {last.strip()}")
+            return _norm_name(v)
     return ""
 
 
@@ -247,7 +261,7 @@ def hitter_vs_pitch(batter, pitch_type, yr=None):
     a = batter_arsenal(yr)
     if not a or not batter:
         return None
-    row = a.get(str(batter).strip().lower())
+    row = a.get(_norm_name(batter))
     if not row:
         return None
     return row.get(str(pitch_type).strip().upper())
@@ -258,7 +272,7 @@ def pitcher_profile(name, yr=None):
     whiff rates, and fastball movement/spin. Only real values are included."""
     if not name:
         return None
-    key = str(name).strip().lower()
+    key = _norm_name(name)
     out = {}
     aa = arm_angles(yr)
     if aa and key in aa:
@@ -364,7 +378,7 @@ def lineup_whiff_vs_pitch(names, pitch_type, yr=None):
     tot = n = 0.0
     matched = []
     for nm in names:
-        row = a.get(str(nm).strip().lower())
+        row = a.get(_norm_name(nm))
         if not row:
             continue
         v = row.get(pt)
