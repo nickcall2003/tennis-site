@@ -187,6 +187,7 @@ def pitcher_arsenal(yr=None, nocache=False):
             "ba": _num(r.get("ba")),
             "woba": _num(r.get("woba")),
             "pa": _num(r.get("pa")),
+            "usage": _num(r.get("pitch_usage")),
         }
     return out or None
 
@@ -272,6 +273,13 @@ def pitcher_profile(name, yr=None):
                 best = (pt, w)
         if best:
             out["best_whiff_pitch"] = {"pitch": best[0], "whiff_pct": best[1]}
+        prim = None
+        for pt, v in pa[key].items():
+            u = v.get("usage")
+            if u is not None and (prim is None or u > prim[1]):
+                prim = (pt, u)
+        if prim:
+            out["primary_pitch"] = {"pitch": prim[0], "usage": prim[1]}
     mv = pitch_movement(yr, "FF")
     if mv and key in mv:
         out["fastball"] = mv[key]
@@ -302,3 +310,74 @@ def status(yr=None, fresh=False):
             "endpoint_health": _health,
             "note": ("If everything is 0 players, Savant is unreachable from this "
                      "server (same as stats.nba.com) and we'd need a PC-side fetch.")}
+
+
+def league_stat_by_pitch(stat="whiff_pct", yr=None):
+    """League-average value of any batter stat for each pitch type, PA-weighted and
+    computed from Savant's own rows — so every baseline we compare against is real,
+    never a guessed constant."""
+    a = batter_arsenal(yr)
+    if not a:
+        return None
+    agg = {}
+    for _nm, pitches in a.items():
+        for pt, v in pitches.items():
+            x, pa = v.get(stat), v.get("pa")
+            if x is None or not pa:
+                continue
+            s = agg.setdefault(pt, [0.0, 0.0])
+            s[0] += x * pa
+            s[1] += pa
+    return {pt: round(tot / n, 4) for pt, (tot, n) in agg.items() if n} or None
+
+
+def league_whiff_by_pitch(yr=None):
+    """League-average whiff% by pitch type."""
+    return league_stat_by_pitch("whiff_pct", yr)
+
+
+def batter_vs_pitch(batter, pitch_type, yr=None, min_pa=15):
+    """One hitter vs one pitch type, WITH the league baselines for context.
+    None unless the hitter has a real sample against that pitch."""
+    v = hitter_vs_pitch(batter, pitch_type, yr)
+    if not v or not v.get("pa") or v["pa"] < min_pa:
+        return None
+    pt = str(pitch_type).strip().upper()
+    out = dict(v)
+    out["pitch"] = pt
+    for stat, key in (("ba", "league_ba"), ("whiff_pct", "league_whiff_pct"),
+                      ("woba", "league_woba")):
+        lg = (league_stat_by_pitch(stat, yr) or {}).get(pt)
+        if lg is not None:
+            out[key] = lg
+    return out
+
+
+def lineup_whiff_vs_pitch(names, pitch_type, yr=None):
+    """How a LINEUP actually fares against one pitch type: PA-weighted whiff% of
+    the listed hitters, plus the league baseline for that pitch.
+    Returns None unless we matched at least 3 hitters — no thin-sample claims."""
+    a = batter_arsenal(yr)
+    if not a or not names or not pitch_type:
+        return None
+    pt = str(pitch_type).strip().upper()
+    tot = n = 0.0
+    matched = []
+    for nm in names:
+        row = a.get(str(nm).strip().lower())
+        if not row:
+            continue
+        v = row.get(pt)
+        if not v:
+            continue
+        w, pa = v.get("whiff_pct"), v.get("pa")
+        if w is None or not pa:
+            continue
+        tot += w * pa
+        n += pa
+        matched.append(nm)
+    if len(matched) < 3 or not n:
+        return None
+    lg = (league_whiff_by_pitch(yr) or {}).get(pt)
+    return {"whiff_pct": round(tot / n, 1), "hitters": len(matched),
+            "pitch": pt, "league_whiff_pct": lg}
