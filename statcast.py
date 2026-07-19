@@ -33,6 +33,7 @@ _STORE = os.environ.get("STATCAST_PATH", "/data/statcast.json")
 _TTL = int(os.environ.get("STATCAST_TTL", str(24 * 3600)))   # refresh daily
 
 BASE = "https://baseballsavant.mlb.com/leaderboard"
+_V = "v2"        # bump to invalidate cached rows after a parsing fix
 
 _HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -69,18 +70,23 @@ def _disk_save(blob):
         pass
 
 
-def _fetch_csv(key, path, params, timeout=20.0):
+def _fetch_csv(key, path, params, timeout=20.0, nocache=False):
     """GET a Savant leaderboard as CSV -> list[dict]. None on ANY failure."""
     if not _ENABLED:
         return None
     now = time.time()
     hit = _mem.get(key)
-    if hit and now - hit[0] < _TTL:
+    if hit and now - hit[0] < _TTL and not nocache:
+        _health[key] = {"ok": True, "rows": len(hit[1]), "source": "memory",
+                        "cols": list(hit[1][0].keys()) if hit[1] else [], "error": None}
         return hit[1]
     disk = _disk_load()
     d = disk.get(key)
-    if isinstance(d, dict) and now - (d.get("t") or 0) < _TTL and d.get("rows"):
+    if isinstance(d, dict) and now - (d.get("t") or 0) < _TTL and d.get("rows") and not nocache:
         _mem[key] = (d["t"], d["rows"])
+        _health[key] = {"ok": True, "rows": len(d["rows"]), "source": "disk",
+                        "cols": list(d["rows"][0].keys()) if d["rows"] else [],
+                        "error": None}
         return d["rows"]
     try:
         import httpx
@@ -91,7 +97,10 @@ def _fetch_csv(key, path, params, timeout=20.0):
         if r.status_code != 200:
             _health[key] = {"ok": False, "error": f"HTTP {r.status_code}", "rows": 0}
             return None
-        text = r.text or ""
+        try:
+            text = r.content.decode("utf-8-sig")     # Savant CSVs carry a BOM
+        except Exception:
+            text = r.text or ""
         if not text.strip() or "<html" in text[:200].lower():
             _health[key] = {"ok": False, "error": "not CSV (blocked or bad params)",
                             "rows": 0}
@@ -100,8 +109,8 @@ def _fetch_csv(key, path, params, timeout=20.0):
         if not rows:
             _health[key] = {"ok": False, "error": "0 rows", "rows": 0}
             return None
-        _health[key] = {"ok": True, "rows": len(rows),
-                        "cols": list(rows[0].keys())[:14], "error": None}
+        _health[key] = {"ok": True, "rows": len(rows), "source": "network",
+                        "cols": list(rows[0].keys()), "error": None}
         _mem[key] = (now, rows)
         disk[key] = {"t": now, "rows": rows}
         _disk_save(disk)
@@ -109,6 +118,21 @@ def _fetch_csv(key, path, params, timeout=20.0):
     except Exception as e:
         _health[key] = {"ok": False, "error": str(e)[:120], "rows": 0}
         return None
+
+
+def _name_of(row):
+    """Savant puts the player in a single \"last_name, first_name\" column
+    (e.g. 'Skenes, Paul'). Normalize to 'paul skenes'."""
+    for k in ("last_name, first_name", "player_name", "pitcher_name", "name",
+              "last_name,first_name"):
+        v = row.get(k)
+        if v:
+            v = str(v).strip().strip('"')
+            if "," in v:
+                last, _, first = v.partition(",")
+                return f"{first.strip()} {last.strip()}".strip().lower()
+            return v.lower()
+    return ""
 
 
 def _num(v):
@@ -119,17 +143,17 @@ def _num(v):
 
 
 # ----------------------------- leaderboards -----------------------------
-def batter_arsenal(yr=None):
+def batter_arsenal(yr=None, nocache=False):
     """How each HITTER performs against each pitch type.
     -> {player_lower: {pitch_type: {whiff_pct, ba, slg, woba, pa}}}"""
     yr = yr or season()
-    rows = _fetch_csv(f"batter_arsenal_{yr}", "pitch-arsenal-stats",
-                      {"type": "batter", "year": yr, "minPA": 25})
+    rows = _fetch_csv(f"batter_arsenal_{yr}_{_V}", "pitch-arsenal-stats",
+                      {"type": "batter", "year": yr, "minPA": 25}, nocache=nocache)
     if not rows:
         return None
     out = {}
     for r in rows:
-        nm = (r.get("name") or r.get("player_name") or "").strip().lower()
+        nm = _name_of(r)
         pt = (r.get("pitch_type") or r.get("pitch_name") or "").strip().upper()
         if not nm or not pt:
             continue
@@ -144,16 +168,16 @@ def batter_arsenal(yr=None):
     return out or None
 
 
-def pitcher_arsenal(yr=None):
+def pitcher_arsenal(yr=None, nocache=False):
     """How each PITCHER's pitch types perform (whiff%, xwOBA against, usage)."""
     yr = yr or season()
-    rows = _fetch_csv(f"pitcher_arsenal_{yr}", "pitch-arsenal-stats",
-                      {"type": "pitcher", "year": yr, "minPA": 25})
+    rows = _fetch_csv(f"pitcher_arsenal_{yr}_{_V}", "pitch-arsenal-stats",
+                      {"type": "pitcher", "year": yr, "minPA": 25}, nocache=nocache)
     if not rows:
         return None
     out = {}
     for r in rows:
-        nm = (r.get("name") or r.get("player_name") or "").strip().lower()
+        nm = _name_of(r)
         pt = (r.get("pitch_type") or r.get("pitch_name") or "").strip().upper()
         if not nm or not pt:
             continue
@@ -167,44 +191,49 @@ def pitcher_arsenal(yr=None):
     return out or None
 
 
-def arm_angles(yr=None):
+def arm_angles(yr=None, nocache=False):
     """Pitcher arm slot at release, in degrees. -> {player_lower: {arm_angle, ...}}"""
     yr = yr or season()
-    rows = (_fetch_csv(f"arm_angle_{yr}", "pitcher-arm-angles", {"year": yr})
-            or _fetch_csv(f"arm_angle_alt_{yr}", "arm-angles", {"year": yr}))
+    rows = (_fetch_csv(f"arm_angle_{yr}_{_V}", "pitcher-arm-angles", {"year": yr}, nocache=nocache)
+            or _fetch_csv(f"arm_angle_alt_{yr}_{_V}", "arm-angles", {"year": yr}, nocache=nocache))
     if not rows:
         return None
     out = {}
     for r in rows:
-        nm = (r.get("player_name") or r.get("name") or "").strip().lower()
+        nm = _name_of(r)
         if not nm:
             continue
         ang = _num(r.get("ball_angle") or r.get("arm_angle"))
         if ang is None:
             continue
         out[nm] = {"arm_angle": ang,
-                   "release_height": _num(r.get("relative_release_ball_height")
-                                          or r.get("release_pos_z"))}
+                   "hand": (r.get("pitch_hand") or "").strip(),
+                   "release_height": _num(r.get("release_ball_z")
+                                          or r.get("relative_release_ball_height")),
+                   "n_pitches": _num(r.get("n_pitches"))}
     return out or None
 
 
-def pitch_movement(yr=None, pitch="FF"):
+def pitch_movement(yr=None, pitch="FF", nocache=False):
     """Movement vs. comparable pitches for one pitch type.
     -> {player_lower: {pitch, break_z_vs_avg, break_x_vs_avg, velo, spin}}"""
     yr = yr or season()
-    rows = _fetch_csv(f"movement_{pitch}_{yr}", "pitch-movement",
-                      {"year": yr, "pitch_type": pitch, "min": "q"})
+    rows = _fetch_csv(f"movement_{pitch}_{yr}_{_V}", "pitch-movement",
+                      {"year": yr, "pitch_type": pitch, "min": "q"}, nocache=nocache)
     if not rows:
         return None
     out = {}
     for r in rows:
-        nm = (r.get("name") or r.get("player_name") or "").strip().lower()
+        nm = _name_of(r)
         if not nm:
             continue
         out[nm] = {
             "pitch": pitch,
-            "break_z_vs_avg": _num(r.get("diff_z") or r.get("rise_diff")),
-            "break_x_vs_avg": _num(r.get("diff_x") or r.get("break_x_diff")),
+            "break_z_vs_avg": _num(r.get("diff_z") or r.get("rise_diff")
+                                   or r.get("pitcher_break_z_induced")),
+            "break_x_vs_avg": _num(r.get("diff_x") or r.get("break_x_diff")
+                                   or r.get("pitcher_break_x")),
+            "break_z": _num(r.get("pitcher_break_z")),
             "velo": _num(r.get("avg_speed") or r.get("velocity")),
             "spin": _num(r.get("avg_spin") or r.get("spin_rate")),
         }
@@ -249,15 +278,15 @@ def pitcher_profile(name, yr=None):
     return out or None
 
 
-def status(yr=None):
+def status(yr=None, fresh=False):
     """Which Savant endpoints actually work from THIS server, with row counts and
     the columns they returned. Run this before trusting any of the above."""
     yr = yr or season()
     probes = {
-        "batter_arsenal": lambda: batter_arsenal(yr),
-        "pitcher_arsenal": lambda: pitcher_arsenal(yr),
-        "arm_angles": lambda: arm_angles(yr),
-        "pitch_movement_FF": lambda: pitch_movement(yr, "FF"),
+        "batter_arsenal": lambda: batter_arsenal(yr, nocache=fresh),
+        "pitcher_arsenal": lambda: pitcher_arsenal(yr, nocache=fresh),
+        "arm_angles": lambda: arm_angles(yr, nocache=fresh),
+        "pitch_movement_FF": lambda: pitch_movement(yr, "FF", nocache=fresh),
     }
     res = {}
     for k, fn in probes.items():
