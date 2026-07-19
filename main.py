@@ -7150,3 +7150,43 @@ def ladder_status(history: int = 5):
         print(f"[ladder] status failed: {e}")
         out["error"] = str(e)[:200]
     return out
+
+
+# ---- /api/capper/community : the room's combined record ----------------------
+# Treats every tracked pick in the server as one collective capper, so the
+# community has its own W/L, units and ROI alongside individual records.
+
+@app.get("/api/capper/community")
+def capper_community(days: int = 0):
+    """days=0 -> all time. Otherwise limit to picks created in the last N days."""
+    from models import CapperPick
+    from collections import defaultdict
+    _ensure_capper_table()
+    _catchup_grade_cappers()
+    try:
+        with SessionLocal() as db:
+            q = db.query(CapperPick)
+            if days and days > 0:
+                since = dt.datetime.now() - dt.timedelta(days=int(days))
+                q = q.filter(CapperPick.created_at >= since)
+            rows = q.all()
+            summ = _capper_summarize(rows)
+            bysport = defaultdict(list)
+            for r in rows:
+                if r.sport:
+                    bysport[r.sport].append(r)
+            summ["by_sport"] = {sp: _capper_summarize(rs) for sp, rs in bysport.items()}
+            summ["cappers"] = len({r.discord_user_id for r in rows})
+            # most-tracked picks (where the room is piling in)
+            counts = defaultdict(int)
+            for r in rows:
+                if r.status == "pending" and r.pick:
+                    counts[r.pick] += 1
+            summ["hot_picks"] = sorted(
+                [{"pick": k, "count": v} for k, v in counts.items() if v > 1],
+                key=lambda x: x["count"], reverse=True)[:5]
+    except Exception as e:
+        print(f"[capper] community failed: {e}")
+        return {"total": 0}
+    summ["days"] = days or None
+    return summ
