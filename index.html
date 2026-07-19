@@ -2953,14 +2953,20 @@ function espnCardHTML(d){
     '<div><div class="pm-name">'+(d.name||"")+'</div><div class="pm-meta">'+
     [d.position,d.team,(d.jersey?("#"+d.jersey):""),(d.age?d.age+" yrs":""),d.height,d.weight]
       .filter(Boolean).join(" \u00b7 ")+'</div></div></div>';
+  function nice(k){
+    return String(k).replace(/([a-z])([A-Z])/g,"$1 $2")
+      .replace(/\b(Avg|Pct)\b/g,function(m){return m==="Pct"?"%":"";})
+      .replace(/\s+/g," ").trim();
+  }
   function tbl(t){
     const ks=Object.keys(t.stats||{});
     if(!ks.length)return "";
     return '<h4 class="pm-h">'+(t.label||"Stats")+'</h4><div class="pm-stats">'+
       ks.slice(0,14).map(function(k){
-        return '<span class="pm-stat"><b>'+t.stats[k]+'</b><i>'+k+'</i></span>';}).join("")+'</div>';
+        return '<span class="pm-stat"><b>'+t.stats[k]+'</b><i>'+nice(k)+'</i></span>';}).join("")+'</div>';
   }
-  (d.stats||[]).slice(0,4).forEach(function(t){h+=tbl(t);});
+  if(d.season&&d.season.stats)h+=tbl({label:"Season averages",stats:d.season.stats});
+  (d.stats||[]).slice(0,3).forEach(function(t){h+=tbl(t);});
   if(d.splits&&d.splits.length){
     h+='<h4 class="pm-h">Splits</h4>';
     d.splits.slice(0,6).forEach(function(s){
@@ -2970,7 +2976,7 @@ function espnCardHTML(d){
            return '<span class="pm-stat"><b>'+s.stats[k]+'</b><i>'+k+'</i></span>';}).join("")+'</div></div>';
     });
   }
-  if(!(d.stats&&d.stats.length)&&!(d.splits&&d.splits.length)){
+  if(!d.season&&!(d.stats&&d.stats.length)&&!(d.splits&&d.splits.length)){
     h+='<div class="pm-none">No detailed stats available for this player yet.</div>';
   }
   h+='<p class="pm-foot">Stats via ESPN.</p>';
