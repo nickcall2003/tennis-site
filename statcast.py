@@ -228,7 +228,7 @@ def pitch_movement(yr=None, pitch="FF", nocache=False):
         nm = _name_of(r)
         if not nm:
             continue
-        out[nm] = {
+        out[nm] = {k: v for k, v in {
             "pitch": pitch,
             "break_z_vs_avg": _num(r.get("diff_z") or r.get("rise_diff")
                                    or r.get("pitcher_break_z_induced")),
@@ -237,7 +237,7 @@ def pitch_movement(yr=None, pitch="FF", nocache=False):
             "break_z": _num(r.get("pitcher_break_z")),
             "velo": _num(r.get("avg_speed") or r.get("velocity")),
             "spin": _num(r.get("avg_spin") or r.get("spin_rate")),
-        }
+        }.items() if v is not None}
     return out or None
 
 
