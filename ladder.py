@@ -134,6 +134,27 @@ def todays_pick(db, day=None, picks=None):
         select(LadderLeg).where(LadderLeg.pick_date >= lo, LadderLeg.pick_date <= hi)
     ).scalars().first()
     if existing:
+        # A pending leg must always reflect the CURRENT state. Today's leg is
+        # chosen at post time, but yesterday's leg often settles afterwards — so
+        # a leg created at rung 1 with a $10 stake needs to roll forward once the
+        # win lands and the bankroll becomes $19.09. Only unsettled legs move.
+        if not existing.settled and existing.result is None:
+            s = _state(db)
+            changed = False
+            if existing.rung != s.rung or existing.attempt != s.attempt:
+                existing.rung, existing.attempt = s.rung, s.attempt
+                changed = True
+            stake = round(s.bankroll, 2)
+            if existing.stake != stake:
+                existing.stake = stake
+                changed = True
+            if existing.odds is not None:
+                exp = round(stake * _dec(existing.odds), 2)
+                if existing.to_return != exp:
+                    existing.to_return = exp
+                    changed = True
+            if changed:
+                db.commit()
         return existing
     if picks is None:
         return None
