@@ -6822,10 +6822,32 @@ async def notify_discord(channel_key: str, title: str, description: str = "",
 
 
 # ---- /api/picks/quick : board with odds, NO LLM narration (fast) -------------
+# Enriched-board cache. _enrich_odds hits the odds providers per play (tennis
+# calls its API once per match), so building the full board is slow enough to
+# time out callers. We cache the enriched result briefly — the daily card, the
+# bot, and the site all read the same warm copy instead of each rebuilding it.
+_quick_cache: dict = {}
+_QUICK_TTL = int(os.environ.get("PICKS_QUICK_TTL", "600"))   # seconds
+
+
 @app.get("/api/picks/quick")
 def picks_quick(date: str | None = None, sport: str | None = None,
                 min_prob: float = 0.0, min_edge: float = 0.0):
     target = dt.date.fromisoformat(date) if date else dt.date.today()
+    ck = target.isoformat()
+    hit = _quick_cache.get(ck)
+    if hit and (time.time() - hit[0]) < _QUICK_TTL:
+        cached = hit[1]
+    else:
+        cached = None
+    if cached is not None:
+        out = [p for p in cached
+               if (not sport or p.get("sport") == sport)
+               and (p.get("prob") or 0) >= min_prob
+               and (min_edge <= 0 or (isinstance(p.get("edge_pct"), (int, float))
+                                      and p["edge_pct"] >= min_edge))]
+        return {"date": ck, "count": len(out), "picks": out, "cached": True}
+
     _ensure_day(target)
     plays = _gather_plays(target)
     out = []
@@ -6850,6 +6872,12 @@ def picks_quick(date: str | None = None, sport: str | None = None,
             # out low-tier events where lines are thin and edges are often noise
             "tier": p.get("tier"), "tournament": p.get("tournament"),
         })
+    # cache the unfiltered board so later calls (any filter) are instant
+    if not sport and min_prob <= 0 and min_edge <= 0:
+        _quick_cache[ck] = (time.time(), out)
+        for k in list(_quick_cache.keys()):
+            if k != ck:
+                _quick_cache.pop(k, None)
     return {"date": target.isoformat(), "count": len(out), "picks": out}
 
 
