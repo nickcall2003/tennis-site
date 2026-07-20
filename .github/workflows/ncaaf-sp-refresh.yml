@@ -1,0 +1,29 @@
+name: Refresh NCAAF SP+ ratings
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit the refresh endpoint
+        run: |
+          RESPONSE=$(curl -sS -w "\n%{http_code}" \
+            "https://www.thelinelogic.com/api/ncaaf/refresh-sp?token=${{ secrets.PROMO_CRON_TOKEN }}")
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          CODE=$(echo "$RESPONSE" | tail -n 1)
+          echo "HTTP $CODE"
+          echo "$BODY"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::Refresh failed with HTTP $CODE"
+            exit 1
+          fi
+          if echo "$BODY" | grep -q '"ok":true'; then
+            echo "SP+ ratings refreshed successfully."
+          else
+            echo "::error::Endpoint returned ok:false — check CFBD_KEY in Railway"
+            exit 1
+          fi
