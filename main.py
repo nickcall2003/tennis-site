@@ -2233,15 +2233,22 @@ def _attach_odds_one(sport, g):
     return g
 
 
-def _snapshot_odds(sport, ref, side, odds, prob=None, subcat=None):
+def _snapshot_odds(sport, ref, side, odds, prob=None, subcat=None, gate=None):
     """Record/refresh the market line for a pick (open = first seen, last = now).
     Also captures the model's probability and sub-league tag (tennis tour) for the
-    picked side so every settled game carries them for edge/wager/tour tracking."""
+    picked side so every settled game carries them for edge/wager/tour tracking.
+
+    `gate`: a skip-reason string means "do not OPEN a wager on this pick". An
+    EXISTING snapshot is still refreshed, because a wager already taken must keep
+    capturing its closing line or its CLV is lost. Blocking only the create is
+    what makes the gate safe to toggle mid-day."""
     from models import OddsSnapshot
     now = dt.datetime.utcnow()
     try:
         with SessionLocal() as db:
             row = db.query(OddsSnapshot).filter_by(sport=sport, ref=ref).first()
+            if row is None and gate:
+                return                        # gated: never becomes a tracked wager
             if row is None:
                 db.add(OddsSnapshot(sport=sport, ref=ref, side=side,
                                     open_odds=odds, last_odds=odds, prob=prob,
@@ -2730,7 +2737,37 @@ def _attach_tennis_market(p, book=None):
     except Exception:
         pass
     bside = "a" if _same(pick, names[0]) else "b"   # settlement stays in board order
-    _snapshot_odds("tennis", str(p["id"]), bside, am, prob=p.get("prob"), subcat=p.get("tier"))
+
+    # WAGER GATE (not a model change). The pick, its price and its edge stay on
+    # the board exactly as computed above; this only decides whether the pick is
+    # allowed to become a TRACKED WAGER. See tennis_gate.py for the audit numbers
+    # behind each rule. Skips are labelled, never silent.
+    gate_reason = None
+    try:
+        import tennis_gate
+        allowed, gate_reason = tennis_gate.check(
+            edge_pct=p.get("edge_pct"), market_odds=am,
+            ref=p.get("id"), pick=p.get("pick"))
+        if not allowed:
+            p["wager_skipped"] = gate_reason
+            p["wager_skip_text"] = tennis_gate.REASON_TEXT.get(gate_reason, gate_reason)
+    except Exception as _ge:
+        print(f"[tennis_gate] not applied: {_ge}")   # fail open, never lose the board
+        gate_reason = None
+
+    _snapshot_odds("tennis", str(p["id"]), bside, am, prob=p.get("prob"),
+                   subcat=p.get("tier"), gate=gate_reason)
+
+
+@app.get("/api/tennis/gate-diag")
+def tennis_gate_diag():
+    """What the wager gate is doing right now: live env config, allow/skip counts
+    since the last restart, and a sample of recent skips with their reason."""
+    try:
+        import tennis_gate
+        return tennis_gate.stats()
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
 
 
 @app.get("/api/mlb/games")
