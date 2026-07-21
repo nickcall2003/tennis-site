@@ -2007,11 +2007,17 @@ function _restFactor(games,gameDateStr){
   // Back-to-backs sap production (esp. scoring); long rest is roughly neutral.
   try{
     if(!gameDateStr)return {f:1,days:null};
-    const o=(games||[]).filter(g=>g.date).map(g=>g.date).sort();
+    // only trust real YYYY-MM-DD strings; anything else produced nonsense like
+    // "737414d rest" when a stray date format slipped into the game log
+    const ok=/^\d{4}-\d{2}-\d{2}$/;
+    if(!ok.test(gameDateStr))return {f:1,days:null};
+    const o=(games||[]).map(g=>g&&g.date).filter(d=>typeof d==="string"&&ok.test(d)).sort();
     if(!o.length)return {f:1,days:null};
     const last=new Date(o[o.length-1]+"T00:00:00"),now=new Date(gameDateStr+"T00:00:00");
+    if(isNaN(last.getTime())||isNaN(now.getTime()))return {f:1,days:null};
     const days=Math.round((now-last)/86400000);
-    if(!isFinite(days)||days<0)return {f:1,days:null};
+    // a plausible gap only; anything wilder means the log dates are bad
+    if(!isFinite(days)||days<0||days>60)return {f:1,days:null};
     let f=1;
     if(days<=1)f=0.96;           // back-to-back
     else if(days===2)f=1.0;
