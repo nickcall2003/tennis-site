@@ -156,6 +156,21 @@ def todays_pick(db, day=None, picks=None):
             if changed:
                 db.commit()
         return existing
+
+    # Never open a new rung while an EARLIER leg is still ungraded. Without this
+    # a second leg appears while the first is pending, the pending one stops
+    # being "current", and the rung freezes — a won rung can sit unsettled
+    # forever while the bankroll never advances. Return the outstanding leg so
+    # the post shows what is actually still live.
+    prior = db.execute(
+        select(LadderLeg)
+        .where(LadderLeg.settled == False,          # noqa: E712
+               LadderLeg.pick_date < lo)
+        .order_by(LadderLeg.pick_date.asc())
+    ).scalars().first()
+    if prior:
+        return prior
+
     if picks is None:
         return None
     leg = best_leg(picks)
