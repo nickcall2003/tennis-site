@@ -6602,26 +6602,36 @@ def index():
 
 
 def _settle_ladder():
-    """Grade the current ladder leg once its game is final, using the SAME win/loss
-    the pick record uses (PickResult). Rolls or resets the challenge. Best-effort."""
+    """Grade finished ladder legs into the challenge state, using the SAME win/loss
+    the pick record uses (PickResult).
+
+    Walks EVERY unsettled leg oldest-first. The previous version looked only at
+    the NEWEST unsettled leg and returned early when it wasn't graded yet — so the
+    moment a new day's leg was created, the prior day's leg dropped to second place
+    and could never be reached again. A won rung would sit unsettled forever while
+    the bankroll and rung silently froze. An ungraded leg is now skipped, not
+    treated as a stop sign, so older legs always catch up."""
+    settled = []
     try:
         import ladder as L
         from models import LadderLeg, PickResult
         with SessionLocal() as db:
-            # newest unsettled leg — an older stale one would otherwise show a
-            # rung that no longer matches the current state
-            leg = (db.query(LadderLeg)
-                     .filter(LadderLeg.settled == False)  # noqa: E712
-                     .order_by(LadderLeg.pick_date.desc(), LadderLeg.id.desc()).first())
-            if not leg or not leg.game_ref:
-                return {"settled": 0}
-            pr = (db.query(PickResult)
-                    .filter(PickResult.sport == leg.sport,
-                            PickResult.ref == leg.game_ref).first())
-            if not pr or pr.correct is None:
-                return {"settled": 0}          # game not graded yet
-            L.settle_leg(db, leg, bool(pr.correct))
-            return {"settled": 1, "result": leg.result}
+            legs = (db.query(LadderLeg)
+                      .filter(LadderLeg.settled == False)  # noqa: E712
+                      .order_by(LadderLeg.pick_date.asc(), LadderLeg.id.asc()).all())
+            for leg in legs:
+                if not leg.game_ref:
+                    continue                       # nothing to grade against
+                pr = (db.query(PickResult)
+                        .filter(PickResult.sport == leg.sport,
+                                PickResult.ref == leg.game_ref).first())
+                if not pr or pr.correct is None:
+                    continue                       # game not graded yet — keep going
+                L.settle_leg(db, leg, bool(pr.correct))
+                settled.append({"date": str(leg.pick_date)[:10], "rung": leg.rung,
+                                "pick": leg.pick, "result": leg.result})
+            pending = sum(1 for l in legs if not l.settled)
+        return {"settled": len(settled), "legs": settled, "still_pending": pending}
     except Exception as e:
         print(f"[ladder] settle failed: {e}")
         return {"settled": 0, "error": str(e)[:150]}
@@ -7222,12 +7232,15 @@ def ladder_status(history: int = 5):
                     "completed_runs": st.completed_runs,
                     "updated": str(st.updated)[:19],
                 }
-            # the live (unsettled) leg, if one has been posted
-            # newest unsettled leg — an older stale one would otherwise show a
-            # rung that no longer matches the current state
-            leg = (db.query(LadderLeg)
-                     .filter(LadderLeg.settled == False)  # noqa: E712
-                     .order_by(LadderLeg.pick_date.desc(), LadderLeg.id.desc()).first())
+            # the live (unsettled) leg — OLDEST first, so a leg still awaiting its
+            # result is shown rather than skipped over by a newer one. If more than
+            # one is pending, that means settlement is behind; surface the count
+            # instead of hiding it.
+            pending = (db.query(LadderLeg)
+                         .filter(LadderLeg.settled == False)  # noqa: E712
+                         .order_by(LadderLeg.pick_date.asc(), LadderLeg.id.asc()).all())
+            leg = pending[0] if pending else None
+            out["pending_legs"] = len(pending)
             if leg:
                 out["current_leg"] = {
                     "rung": leg.rung, "attempt": leg.attempt, "sport": leg.sport,
