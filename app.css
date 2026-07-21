@@ -1323,3 +1323,22 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .pc-why{font-size:12px;color:var(--muted);text-align:center;margin:4px 0 8px;line-height:1.5;font-style:italic;}
 .pm-head{display:flex;gap:12px;align-items:center;}
 .pm-shot{width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--card);}
+/* ===== pm- namespace collision fix =====
+   Two unrelated features use .pm-wrap / .pm-card / .pm-h: the Promote
+   panel and the player-profile modal. The modal block is declared last,
+   so it wins and forces the Promote panel to display:none;position:fixed.
+   Scoping the modal to its own host id gives it ID-level specificity, so
+   both features style correctly regardless of source order. */
+
+#player-modal.pm-wrap{display:none;position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,.75);align-items:flex-start;justify-content:center;
+  overflow-y:auto;padding:24px 12px;max-width:none;margin:0;}
+#player-modal.pm-wrap.show{display:flex;}
+#player-modal .pm-card{background:var(--bg);border:1px solid var(--line);
+  border-radius:18px;max-width:600px;width:100%;padding:20px;position:relative;margin:0;}
+#player-modal .pm-h{font-size:11px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.6px;color:var(--muted);margin:18px 0 6px;}
+
+.pm-wrap{max-width:640px;margin:0 auto;padding:6px 4px 40px;}
+.pm-card{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px;}
+.pm-h{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:9px;}
