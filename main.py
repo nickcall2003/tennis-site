@@ -3095,23 +3095,43 @@ def _enrich_odds(p):
                     import sgo_api
                     m = (p.get("match") or "")
                     parts = re.split(r"\s+@\s+|\s+vs\.?\s+", m)
-                    if sgo_api.available() and len(parts) == 2:
+                    if len(parts) == 2:
                         away_nm, home_nm = parts[0].strip(), parts[1].strip()
-                        so = sgo_api.get_game_odds(p["sport"], home_nm, away_nm)
-                        if so:
+                        # which side did the model actually pick? (pick is a team
+                        # name here, not "X to win", so last-token match is safe)
+                        pk = (p.get("pick") or "").strip().lower()
+                        side = "home"
+                        if pk and away_nm.lower().find(pk.split()[-1]) >= 0 \
+                                and home_nm.lower().find(pk.split()[-1]) < 0:
+                            side = "away"
+                        elif pk and home_nm.lower().find(pk.split()[-1]) >= 0:
+                            side = "home"
+                        else:
                             side = "home" if (p.get("prob") or 0) >= 0.5 else "away"
-                            # pick label decides which side's price we attach
-                            pk = (p.get("pick") or "").strip().lower()
-                            if pk and home_nm.lower().find(pk.split()[-1]) >= 0:
-                                side = "home"
-                            elif pk and away_nm.lower().find(pk.split()[-1]) >= 0:
-                                side = "away"
-                            mo = so.get("ml_home") if side == "home" else so.get("ml_away")
-                            if mo is not None:
-                                p["market_odds"] = mo
-                                mp = american_to_prob(mo)
-                                if cprob is not None and mp is not None:
-                                    p["edge_pct"] = round((cprob - mp) * 100, 1)
+
+                        mo = None
+                        # (a) free SGO read
+                        if sgo_api.available():
+                            so = sgo_api.get_game_odds(p["sport"], home_nm, away_nm)
+                            if so:
+                                mo = so.get("ml_home") if side == "home" else so.get("ml_away")
+                        # (b) The Odds API, if SGO missed and this league is covered
+                        if mo is None:
+                            try:
+                                import odds_api
+                                if odds_api.enabled() and p["sport"] in getattr(odds_api, "SPORT_KEY", {}):
+                                    book = odds_api.get_odds(p["sport"]) or {}
+                                    key = odds_api._norm(home_nm) + "|" + odds_api._norm(away_nm)
+                                    o = book.get(key)
+                                    if o:
+                                        mo = o.get("ml_home") if side == "home" else o.get("ml_away")
+                            except Exception:
+                                pass
+                        if mo is not None:
+                            p["market_odds"] = mo
+                            mp = american_to_prob(mo)
+                            if cprob is not None and mp is not None:
+                                p["edge_pct"] = round((cprob - mp) * 100, 1)
                 except Exception:
                     pass
     except Exception:
