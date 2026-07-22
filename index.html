@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=3">
+<link rel="stylesheet" href="/app.css?v=4">
 </head>
 <body>
 <div class="shell">
@@ -402,7 +402,7 @@ function renderDetail(m){const sc=m.score||{},live=m.status==="live",fin=m.statu
     body='<div class="panel">'+tennisReportHTML(m)+'<div class="analysis">'+paras+'</div>'+meta+'</div>';
   }else if(detailTab==="surface"){body='<div class="panel">'+surfaceHTML(m)+'</div>';
   }else{body='<div class="panel">'+statsHTML(m)+'</div>';}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+(live?'<div id="twp-host" class="twp-host"></div>':"")+tabs+body;
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+mvMount("tennis",m.id,m.best_of||3)+(live?'<div id="twp-host" class="twp-host"></div>':"")+tabs+body;
   if(live){try{loadTennisWinProb(m.id);}catch(e){}}}
 function setDetailTab(t){detailTab=t;refreshDetail(true);}
 function preMatchFormHTML(m){
@@ -1126,7 +1126,7 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
     mlbLinesHTML(g)+
     officialsHostHTML("mlb",g.id)+
     '<div class="note">Starter is each team\u2019s announced probable; bullpen is the team staff ERA. Park &amp; weather scale the run environment for both sides. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+mvMount("mlb",g.id)+tabs+body;
   if(mlbDetailTab==="prediction")setTimeout(function(){loadOfficials("mlb",g.id,(g.exp_runs_home||0)+(g.exp_runs_away||0));},30);}
 // ===== NBA / NFL DETAIL =====
 async function openTeamDetail(id){detailId=sport+id;teamDetailTab="prediction";teamProps=null;teamBox=null;showView(true);
@@ -1205,7 +1205,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     teamLinesHTML(g)+
     officialsHostHTML(sp,g.id)+
     '<div class="note">Predictions use an Elo model seeded from season records with home-court/field advantage. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+tabs+body;
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to games</button>'+head+mvMount(sp,g.id)+tabs+body;
   if(teamDetailTab!=="box"&&teamDetailTab!=="props")setTimeout(function(){loadOfficials(sp,g.id);},30);}
 // ===================== SOCCER (multi-league) =====================
 async function loadUFC(){
@@ -1659,7 +1659,7 @@ function renderUFCDetail(g){
       '<div class="tale-head"><span class="th-a">'+(F[0].name||"")+'</span><span></span><span class="th-h">'+(F[1].name||"")+'</span></div>'+body+bars+why+'</div>';
   }
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to card</button>'+
-    '<div class="detail-wrap">'+head+fighters+ufcBarHTML(g)+edge+reason+tale+rest+'</div>';
+    '<div class="detail-wrap">'+head+mvMount("ufc",g.id)+fighters+ufcBarHTML(g)+edge+reason+tale+rest+'</div>';
 }
 async function loadSoccer(){
   let d;try{d=await getJSON("/api/soccer/games?league="+soccerLeague+"&date="+ymd(selected));}catch(e){d={games:[],leagues:[]};}
@@ -1865,7 +1865,7 @@ function renderSoccerDetail(g){
   else if(soccerDetailTab==="events"){body='<div class="panel"><div class="stat-sec">Match events</div>'+soccerEventsHTML(g)+'<div class="note">Goals, cards and substitutions as ESPN posts them, newest feeds may lag a minute or two.</div></div>';}
   else{body='<div class="panel">'+soccerProbExplain(g)+soccerProjDetailHTML(g)+
     '<div class="note">Three-way result probability (home / draw / away) from a Poisson goals model with home advantage, updated live from the score and minute. Not betting advice.</div></div>'+depthHTML(g);}
-  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+tabs+body;
+  document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to matches</button>'+head+mvMount("soccer",g.id)+tabs+body;
 }
 
 function mlbLinesHTML(g){const L=g.lines;if(!L)return "";
@@ -3635,8 +3635,179 @@ setInterval(loadAccuracy,300000);
   if(document.readyState!=="loading")start(); else document.addEventListener("DOMContentLoaded",start);
   try{updateAccountMenu();}catch(e){}
 })();
+
+/* ===== Model-vs-Market panel (injected) ===== */
+/* ============================================================================
+   Line Logic — Model-vs-Market panel (Moneyline / Spread / Total)
+   ----------------------------------------------------------------------------
+   Self-contained. Drop this whole block inside the app's <script> (anywhere
+   after getJSON is defined), and paste the CSS block at the bottom into the
+   stylesheet. Then mount it under any matchup with ONE line:
+
+       mvMount(sport, ref)          // returns the HTML string for the mount slot
+
+   e.g. inside a detail renderer, after `head`:
+       ... + mvMount(m.sport||'tennis', m.id) + tabs + body ...
+
+   It renders a collapsed "Markets" strip with three buttons. Tapping one
+   fetches /api/markets/game?sport=..&ref=.. once (cached), then shows the
+   market-vs-model comparison for that market. No dependency on the specific
+   detail renderer, so all sports share it.
+   ========================================================================== */
+(function () {
+  var _mvData = {};   // ref -> view (or 'loading' / 'error')
+  var _mvOpen = {};   // ref -> 'ml' | 'spread' | 'total'
+
+  function fmtOddsMV(o) {
+    if (o == null || o === "") return "\u2014";
+    o = Math.round(o);
+    return (o > 0 ? "+" : "") + o;
+  }
+  function fmtLine(v, signed) {
+    if (v == null) return "\u2014";
+    return (signed && v > 0 ? "+" : "") + v;
+  }
+  function pct(p) { return p == null ? "\u2014" : Math.round(p * 100) + "%"; }
+
+  // expose the mount slot; the actual body fills in after fetch
+  window.mvMount = function (sport, ref, bestOf) {
+    if (!sport || ref == null) return "";
+    var key = String(ref);
+    return '<div class="mv" id="mv-' + key + '" data-sport="' + sport +
+      '" data-ref="' + key + '" data-bo="' + (bestOf || 3) + '">' +
+      mvInner(sport, key) + '</div>';
+  };
+
+  function mvInner(sport, ref) {
+    var open = _mvOpen[ref] || null;
+    var btns = '<div class="mv-h">Markets <span class="mv-sub">model vs. market</span></div>' +
+      '<div class="mv-btns">' +
+      mvBtn(ref, "ml", "Moneyline", open) +
+      mvBtn(ref, "spread", sport === "tennis" ? "Games" : (sport === "ufc" ? "Method" : "Spread"), open) +
+      mvBtn(ref, "total", sport === "tennis" ? "Total Games" : "Over / Under", open) +
+      '</div>';
+    var body = "";
+    if (open) {
+      var d = _mvData[ref];
+      if (d === "loading" || d == null) body = '<div class="mv-load">Loading market\u2026</div>';
+      else if (d === "error") body = '<div class="mv-load">Market unavailable right now.</div>';
+      else body = mvMarket(d, open);
+    }
+    return btns + body;
+  }
+
+  function mvBtn(ref, mkt, label, open) {
+    return '<button class="mv-b' + (open === mkt ? " on" : "") +
+      '" onclick="mvTap(\'' + ref + '\',\'' + mkt + '\')">' + label + '</button>';
+  }
+
+  // one row: label + market cell + model cell
+  function mvRow(label, mkt, mdl) {
+    return '<div class="mv-row"><span class="mv-lab">' + label + '</span>' +
+      '<span class="mv-mkt">' + mkt + '</span>' +
+      '<span class="mv-mdl">' + mdl + '</span></div>';
+  }
+
+  function mvMarket(v, mkt) {
+    var home = v.home || "Home", away = v.away || "Away";
+    var h = '<div class="mv-body">' +
+      '<div class="mv-head"><span></span><span class="mv-col">Market</span>' +
+      '<span class="mv-col">Model</span></div>';
+
+    if (mkt === "ml") {
+      var m = v.ml.market, md = v.ml.model;
+      h += mvRow(shortNm(home),
+        fmtOddsMV(m.home) + (m.home_est ? " ~" : ""),
+        md.home == null ? "\u2014" : fmtOddsMV(md.home));
+      h += mvRow(shortNm(away),
+        fmtOddsMV(m.away) + (m.away_est ? " ~" : ""),
+        md.away == null ? "\u2014" : fmtOddsMV(md.away));
+      if (md.prob_home != null)
+        h += '<div class="mv-note">Model win prob: ' + shortNm(home) + " " +
+          pct(md.prob_home) + " \u00b7 " + shortNm(away) + " " + pct(1 - md.prob_home) + "</div>";
+    } else if (mkt === "spread") {
+      var sm = v.spread.market, sd = v.spread.model;
+      if (sm.line_home == null && !sd) {
+        h += '<div class="mv-empty">No spread posted, and no model spread for this sport.</div>';
+      } else {
+        var lh = sm.line_home, la = sm.line_away;
+        h += mvRow(shortNm(home) + " " + fmtLine(lh, true),
+          fmtOddsMV(sm.price_home) + (sm.est ? " ~" : ""),
+          sd ? fmtOddsMV(sd.fair_home) : "\u2014");
+        h += mvRow(shortNm(away) + " " + fmtLine(la, true),
+          fmtOddsMV(sm.price_away) + (sm.est ? " ~" : ""),
+          sd ? fmtOddsMV(sd.fair_away) : "\u2014");
+        if (sd) {
+          h += '<div class="mv-note">Model line: ' + shortNm(home) + " " +
+            fmtLine(sd.line_home, true) + " (proj margin " + fmtLine(sd.exp_margin, true) + "). " +
+            (sd.at_market_line ? "Model prices shown at the market line." :
+              "No market spread \u2014 model\u2019s own line priced.") + '</div>';
+        }
+      }
+    } else {  // total
+      var tm = v.total.market, tdl = v.total.model;
+      if (tm.line == null && !tdl) {
+        h += '<div class="mv-empty">No total posted, and no model total for this sport.</div>';
+      } else {
+        var ln = tm.line != null ? tm.line : (tdl ? tdl.line : null);
+        h += mvRow("Over " + fmtLine(ln),
+          fmtOddsMV(tm.over) + (tm.est ? " ~" : ""),
+          tdl ? fmtOddsMV(tdl.fair_over) : "\u2014");
+        h += mvRow("Under " + fmtLine(ln),
+          fmtOddsMV(tm.under) + (tm.est ? " ~" : ""),
+          tdl ? fmtOddsMV(tdl.fair_under) : "\u2014");
+        if (tdl) {
+          h += '<div class="mv-note">Model projects ' + tdl.proj +
+            (tdl.at_market_line ? " \u2014 model prices at the market line." :
+              " \u2014 model\u2019s own line " + tdl.line + " priced.") + '</div>';
+        } else if (tm.line != null) {
+          h += '<div class="mv-note">Market total only \u2014 the model doesn\u2019t project a total for this sport.</div>';
+        }
+      }
+    }
+
+    if (v.notes && v.notes.length)
+      h += '<div class="mv-foot">' + v.notes[0] + '</div>';
+    return h + '</div>';
+  }
+
+  function shortNm(n) {
+    n = String(n || "");
+    // team names: keep last word; player "First Last": keep last name
+    var parts = n.split(" ");
+    return parts.length > 1 && parts.length <= 3 ? parts[parts.length - 1] : n;
+  }
+
+  window.mvTap = function (ref, mkt) {
+    if (_mvOpen[ref] === mkt) { _mvOpen[ref] = null; mvRepaint(ref); return; }
+    _mvOpen[ref] = mkt;
+    mvRepaint(ref);
+    if (_mvData[ref] == null || _mvData[ref] === "error") mvFetch(ref);
+  };
+
+  function mvRepaint(ref) {
+    var el = document.getElementById("mv-" + ref);
+    if (!el) return;
+    el.innerHTML = mvInner(el.getAttribute("data-sport"), ref);
+  }
+
+  function mvFetch(ref) {
+    var el = document.getElementById("mv-" + ref);
+    if (!el) return;
+    var sport = el.getAttribute("data-sport"), bo = el.getAttribute("data-bo") || 3;
+    _mvData[ref] = "loading"; mvRepaint(ref);
+    getJSON("/api/markets/game?sport=" + encodeURIComponent(sport) +
+      "&ref=" + encodeURIComponent(ref) + "&best_of=" + bo)
+      .then(function (v) {
+        _mvData[ref] = (v && !v.error) ? v : "error"; mvRepaint(ref);
+      })
+      .catch(function () { _mvData[ref] = "error"; mvRepaint(ref); });
+  }
+})();
+
+
 </script>
-<script src="/ll-enhance.js?v=3"></script>
+<script src="/ll-enhance.js?v=4"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

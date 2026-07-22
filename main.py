@@ -3072,8 +3072,12 @@ def _enrich_odds(p):
                 p["edge_pct"] = round((cprob - side_imp / tot) * 100, 1)
         # market odds: team sports via snapshot, tennis via per-tournament feed
     try:
-        import odds_api
-        if odds_api.enabled() and p["sport"] in ("mlb", "nba", "nfl", "wnba"):
+        # The board snapshots whichever source priced the game — The Odds API OR
+        # the free SGO fallback. Reading was previously gated on
+        # odds_api.enabled(), so when only SGO was configured the snapshot
+        # existed but was never read back and /track showed "— ". Read the
+        # snapshot for any snapshotted team sport, whatever wrote it.
+        if p["sport"] in ("mlb", "nba", "nfl", "wnba", "nhl", "ncaabb", "ncaab", "ncaaf"):
             from models import OddsSnapshot
             with SessionLocal() as db:
                 snap = db.query(OddsSnapshot).filter_by(sport=p["sport"], ref=str(p["id"])).first()
@@ -3082,6 +3086,34 @@ def _enrich_odds(p):
                 mp = american_to_prob(snap.last_odds)
                 if cprob is not None and mp is not None:
                     p["edge_pct"] = round((cprob - mp) * 100, 1)
+            elif p.get("market_odds") is None:
+                # No snapshot yet — the board hasn't been rendered for this game,
+                # which is the common case for a /track lookup. Do a live, free,
+                # cached SGO read so the tracked price isn't blank. Picks the
+                # price for the MODEL's side (matching how the snapshot behaves).
+                try:
+                    import sgo_api
+                    m = (p.get("match") or "")
+                    parts = re.split(r"\s+@\s+|\s+vs\.?\s+", m)
+                    if sgo_api.available() and len(parts) == 2:
+                        away_nm, home_nm = parts[0].strip(), parts[1].strip()
+                        so = sgo_api.get_game_odds(p["sport"], home_nm, away_nm)
+                        if so:
+                            side = "home" if (p.get("prob") or 0) >= 0.5 else "away"
+                            # pick label decides which side's price we attach
+                            pk = (p.get("pick") or "").strip().lower()
+                            if pk and home_nm.lower().find(pk.split()[-1]) >= 0:
+                                side = "home"
+                            elif pk and away_nm.lower().find(pk.split()[-1]) >= 0:
+                                side = "away"
+                            mo = so.get("ml_home") if side == "home" else so.get("ml_away")
+                            if mo is not None:
+                                p["market_odds"] = mo
+                                mp = american_to_prob(mo)
+                                if cprob is not None and mp is not None:
+                                    p["edge_pct"] = round((cprob - mp) * 100, 1)
+                except Exception:
+                    pass
     except Exception:
         pass
     # tennis market odds come from api-tennis (included in the plan), not the

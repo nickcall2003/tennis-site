@@ -1342,3 +1342,25 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .pm-wrap{max-width:640px;margin:0 auto;padding:6px 4px 40px;}
 .pm-card{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:14px;}
 .pm-h{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);margin-bottom:9px;}
+
+/* ===== Model-vs-Market panel (Moneyline / Spread / Total) ===== */
+.mv{margin:10px 0 4px;border:1px solid var(--line);border-radius:13px;background:var(--panel-2);overflow:hidden}
+.mv-h{font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:11px 13px 0}
+.mv-h .mv-sub{color:var(--muted-2);text-transform:none;letter-spacing:0;font-size:10.5px;margin-left:6px}
+.mv-btns{display:flex;gap:6px;padding:9px 11px 11px}
+.mv-b{flex:1;background:var(--panel-3);border:1px solid var(--line);color:var(--muted);border-radius:9px;padding:9px 4px;font-size:12.5px;font-weight:700;cursor:pointer;transition:border-color .12s,color .12s}
+.mv-b:hover{color:var(--ink)}
+.mv-b.on{background:var(--clay);border-color:var(--clay);color:#0e1014}
+.mv-body{padding:2px 11px 12px}
+.mv-head{display:grid;grid-template-columns:1fr 84px 84px;gap:6px;align-items:end;padding:2px 2px 6px;border-bottom:1px solid var(--line);margin-bottom:4px}
+.mv-col{text-align:right;font-family:"Space Mono",monospace;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2)}
+.mv-row{display:grid;grid-template-columns:1fr 84px 84px;gap:6px;align-items:center;padding:8px 2px;border-bottom:1px solid rgba(255,255,255,.04)}
+.mv-row:last-of-type{border-bottom:0}
+.mv-lab{font-size:13px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mv-mkt,.mv-mdl{text-align:right;font-family:"Space Mono",monospace;font-size:13.5px;font-weight:700;font-variant-numeric:tabular-nums}
+.mv-mkt{color:var(--muted)}
+.mv-mdl{color:var(--clay-bright)}
+.mv-note{font-size:11px;color:var(--muted-2);line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.mv-foot{font-size:10.5px;color:var(--muted-2);line-height:1.5;margin-top:7px;font-style:italic}
+.mv-load,.mv-empty{padding:16px 12px;color:var(--muted);font-size:12.5px;text-align:center}
+.mv-empty{font-style:italic}
