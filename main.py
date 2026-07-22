@@ -3097,15 +3097,22 @@ def _enrich_odds(p):
                     parts = re.split(r"\s+@\s+|\s+vs\.?\s+", m)
                     if len(parts) == 2:
                         away_nm, home_nm = parts[0].strip(), parts[1].strip()
-                        # which side did the model actually pick? (pick is a team
-                        # name here, not "X to win", so last-token match is safe)
-                        pk = (p.get("pick") or "").strip().lower()
-                        side = "home"
-                        if pk and away_nm.lower().find(pk.split()[-1]) >= 0 \
-                                and home_nm.lower().find(pk.split()[-1]) < 0:
-                            side = "away"
-                        elif pk and home_nm.lower().find(pk.split()[-1]) >= 0:
+                        # Which side did the model pick? The pick label may be a
+                        # bare team name OR "<Team> to win", so strip the suffix
+                        # and match on team-name tokens (the last word is often
+                        # "win", which matches neither side — the old bug).
+                        pk = re.sub(r"\s+to\s+win\s*$", "", (p.get("pick") or ""),
+                                    flags=re.I).strip().lower()
+
+                        def _toks(s):
+                            return set(w for w in re.sub(r"[^a-z ]", " ", (s or "").lower()).split()
+                                       if len(w) > 2)
+                        pset, hset, aset = _toks(pk), _toks(home_nm), _toks(away_nm)
+                        hh, ah = len(pset & hset), len(pset & aset)
+                        if hh > ah:
                             side = "home"
+                        elif ah > hh:
+                            side = "away"
                         else:
                             side = "home" if (p.get("prob") or 0) >= 0.5 else "away"
 
