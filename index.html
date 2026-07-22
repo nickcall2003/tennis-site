@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=4">
+<link rel="stylesheet" href="/app.css?v=6">
 </head>
 <body>
 <div class="shell">
@@ -3150,6 +3150,7 @@ function renderHome(){
     accLine+'</div>'+
     '<div id="ladder-card"></div>'+
     '<div id="hotpick"></div>'+
+    discordCtaHTML()+
     '<div class="sport-grid">'+tileHTML+'</div>'+
     '<div class="home-picks">'+
       '<div class="home-pick-btn free" onclick="openPicks(\'free\')"><div class="nm">\u2b50 Free Picks</div><div class="sub">Today\u2019s highest-confidence plays, across every sport.</div></div>'+
@@ -3166,6 +3167,18 @@ function renderHome(){
     installHintHTML()+
     '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';
   loadHotPick();}
+// ==== Discord invite — REPLACE this with your real server invite link ====
+var DISCORD_INVITE="https://discord.gg/WmpF9GdWGE";
+function discordCtaHTML(){
+  if(!DISCORD_INVITE||DISCORD_INVITE.indexOf("your-invite-code")>=0){
+    // If the invite hasn't been set yet, don't render a dead link.
+    return "";
+  }
+  return '<a class="dc-cta" href="'+DISCORD_INVITE+'" target="_blank" rel="noopener">'+
+    '<div class="dc-ic">\u{1F916}</div>'+
+    '<div class="dc-body"><div class="dc-h">Want live edge alerts in Discord?</div>'+
+    '<div class="dc-sub">Instant notifications, custom LineBot commands, and whale alerts \u2014 straight to your phone.</div></div>'+
+    '<div class="dc-go">Join \u2192</div></a>';}
 function isStandalone(){return (window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches)||window.navigator.standalone===true;}
 function installHintHTML(){
   if(isStandalone())return "";
@@ -3201,14 +3214,19 @@ async function loadHotPick(){
   let d;try{d=await getJSON("/api/picks/hot?date="+ymd(new Date()));}catch(e){return;}
   if(!d||!d.pick||!host.isConnected)return;
   const p=d.pick;
+  // If today's locked hot pick already LOST, don't spotlight a red X to new
+  // visitors. Swap in a positive record-summary card (last-7-day model record)
+  // instead. A winning pick still gets the full highlight; a pending/pregame
+  // pick shows as normal.
+  if(p.result==="loss"){try{await renderHotRecord(host);return;}catch(e){host.innerHTML="";return;}}
   const meta=SPORTS_META.find(function(s){return s.key===p.sport;});
   const emoji=meta?meta.emoji:"\u{1F525}",lbl=meta?meta.label:(p.sport||"").toUpperCase();
   const mktStr=(p.market_odds!=null)?fmtOdds(p.market_odds):null;
   const modelLine=probToAmerican(p.prob);
   const modelStr=(modelLine!=null)?fmtOdds(modelLine):null;
   const k=p.kelly_units?'<span class="hp-kelly" title="Suggested stake at quarter-Kelly">'+p.kelly_units+'u</span>':"";
-  const resCls=p.result==="win"?" won":(p.result==="loss"?" lost":"");
-  const resBadge=p.result==="win"?'<div class="hp-result win">\u2713 Winner</div>':(p.result==="loss"?'<div class="hp-result loss">\u2717 Lost</div>':"");
+  const resCls=p.result==="win"?" won":"";
+  const resBadge=p.result==="win"?'<div class="hp-result win">\u2713 Winner</div>':"";
   host.innerHTML='<div class="hot-pick'+resCls+'" onclick="setSport(\''+p.sport+'\')">'+
     '<div class="hp-flag"><span class="hp-flame">\u{1F525}</span> Hot Pick of the Day'+(p.locked?' \u00b7 locked':'')+'</div>'+
     '<div class="hp-sport">'+emoji+' '+lbl+'</div>'+
@@ -3223,6 +3241,26 @@ async function loadHotPick(){
     lineMoveHTML(p)+
     '</div>';
   if(p.result==="win"){var hk="hot"+(d.date||"");if(!_confettiSeen[hk]){_confettiSeen[hk]=1;try{confettiBurst();}catch(e){}}}}
+// Record-summary card shown in place of a lost hot pick: rolls up the model's
+// win/loss (and units when priced) across the last 7 days from /api/accuracy.
+async function renderHotRecord(host){
+  let a;try{a=await getJSON("/api/accuracy?days=7");}catch(e){host.innerHTML="";return;}
+  const s=(a&&a.overall)?a.overall:a;
+  if(!s){host.innerHTML="";return;}
+  const w=(s.wins_7d!=null?s.wins_7d:(s.wins!=null?s.wins:s.correct));
+  const l=(s.losses_7d!=null?s.losses_7d:(s.losses!=null?s.losses:((s.picks||0)-(s.correct||0))));
+  if(w==null||l==null||(w+l)===0){host.innerHTML="";return;}
+  const acc=Math.round(w/(w+l)*100);
+  const u=(s.units_7d!=null?s.units_7d:s.units_pl);
+  const roi=(s.roi_7d!=null?s.roi_7d:s.roi_pct);
+  const uStr=(u!=null)?'<span class="hp-stat '+(u>=0?"":"neg")+'" title="Net units at a flat 1u stake, last 7 days">'+(u>=0?"+":"")+u+'u'+(roi!=null?' \u00b7 '+(roi>=0?"+":"")+roi+'% ROI':'')+'</span>':"";
+  host.innerHTML='<div class="hot-pick rec" onclick="openPicks(\'best\')">'+
+    '<div class="hp-flag"><span class="hp-flame">\u{1F4C8}</span> Model Report \u00b7 Last 7 Days</div>'+
+    '<div class="hp-pick">'+w+"\u2013"+l+' <span style="font-size:16px;color:var(--muted);font-weight:400">('+acc+'% win rate)</span></div>'+
+    '<div class="hp-stats">'+uStr+
+      '<span class="hp-stat">'+(w+l)+' graded plays</span></div>'+
+    '<div class="hp-cta">See today\u2019s full model board \u2192</div>'+
+    '</div>';}
 async function renderPicks(){
   const list=document.getElementById("list");list.innerHTML='<div class="empty">Loading picks&hellip; <span style="opacity:.6">(first load after idle can take ~30s)</span></div>';
   let rec=null;try{rec=await getJSON("/api/picks/record?view="+(view==="free"?"free":"best")+"&date="+ymd(selected));}catch(e){}
@@ -3722,6 +3760,14 @@ setInterval(loadAccuracy,300000);
       h += mvRow(shortNm(away),
         fmtOddsMV(m.away) + (m.away_est ? " ~" : ""),
         md.away == null ? "\u2014" : fmtOddsMV(md.away));
+      // best available price + which book, when the odds source carries it
+      var bestBits = [];
+      if (m.home_best != null && m.home_book)
+        bestBits.push(shortNm(home) + " " + fmtOddsMV(m.home_best) + " @ " + m.home_book);
+      if (m.away_best != null && m.away_book)
+        bestBits.push(shortNm(away) + " " + fmtOddsMV(m.away_best) + " @ " + m.away_book);
+      if (bestBits.length)
+        h += '<div class="mv-best">\uD83D\uDCB0 Best price: ' + bestBits.join(" \u00b7 ") + '</div>';
       if (md.prob_home != null)
         h += '<div class="mv-note">Model win prob: ' + shortNm(home) + " " +
           pct(md.prob_home) + " \u00b7 " + shortNm(away) + " " + pct(1 - md.prob_home) + "</div>";
@@ -3806,8 +3852,9 @@ setInterval(loadAccuracy,300000);
 })();
 
 
+
 </script>
-<script src="/ll-enhance.js?v=4"></script>
+<script src="/ll-enhance.js?v=6"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

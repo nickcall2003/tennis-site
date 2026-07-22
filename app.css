@@ -1364,3 +1364,19 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .mv-foot{font-size:10.5px;color:var(--muted-2);line-height:1.5;margin-top:7px;font-style:italic}
 .mv-load,.mv-empty{padding:16px 12px;color:var(--muted);font-size:12.5px;text-align:center}
 .mv-empty{font-style:italic}
+.mv-best{font-family:"Space Mono",monospace;font-size:11px;color:#3a9e5a;background:rgba(58,158,90,.08);border:1px solid rgba(58,158,90,.32);border-radius:8px;padding:7px 9px;margin-top:8px;line-height:1.5}
+/* ===== Discord CTA banner (home) ===== */
+.dc-cta{display:flex;align-items:center;gap:13px;text-decoration:none;margin:14px 0;padding:15px 17px;border-radius:16px;
+  background:linear-gradient(135deg,rgba(88,101,242,.18),rgba(88,101,242,.05));border:1px solid rgba(88,101,242,.42);
+  transition:border-color .15s,transform .1s}
+.dc-cta:hover{border-color:rgba(88,101,242,.8);transform:translateY(-2px)}
+.dc-cta:active{transform:scale(.99)}
+.dc-ic{font-size:28px;line-height:1;flex:0 0 auto}
+.dc-body{flex:1;min-width:0}
+.dc-h{font-family:"Fraunces",serif;font-weight:800;font-size:17px;color:var(--ink);line-height:1.2}
+.dc-sub{color:var(--muted);font-size:12.5px;margin-top:3px;line-height:1.45}
+.dc-go{flex:0 0 auto;font-weight:800;font-size:13.5px;color:#8b9bff;background:rgba(88,101,242,.16);
+  border:1px solid rgba(88,101,242,.5);border-radius:999px;padding:8px 14px;white-space:nowrap}
+/* record-summary variant of the hero card (shown when the hot pick lost) */
+.hot-pick.rec{background:linear-gradient(135deg,rgba(58,158,90,.14),rgba(58,158,90,.03));border-color:rgba(58,158,90,.4)}
+.hp-stat.neg{color:var(--loss)}
