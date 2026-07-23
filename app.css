@@ -1531,3 +1531,40 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .rs-note{font-size:10.5px;color:var(--muted-2);line-height:1.5;margin-top:7px;
   padding-top:7px;border-top:1px dashed var(--line)}
 .rs-note b{color:var(--muted)}
+
+/* ===== Performance charts (Track Record) =====
+   Pure SVG/CSS, no chart library — keeps the page light and the styling
+   consistent with the rest of the terminal aesthetic. */
+.chart-card{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;
+  padding:14px 15px;margin:0 0 14px}
+.chart-h{font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.chart-h span{color:var(--muted-2);text-transform:none;letter-spacing:0;margin-left:6px;font-size:10.5px}
+.chart-foot{font-size:10.5px;color:var(--muted-2);line-height:1.5;margin-top:11px;
+  padding-top:9px;border-top:1px dashed var(--line)}
+
+/* profit by sport — zero on a shared centre line */
+.pb-wrap{display:flex;flex-direction:column;gap:7px}
+.pb-row{display:grid;grid-template-columns:74px 1fr 68px;gap:9px;align-items:center}
+.pb-lab{font-size:11.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pb-track{position:relative;height:16px;background:var(--panel-3);border-radius:4px;overflow:hidden}
+.pb-zero{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--muted-2);opacity:.55}
+.pb-bar{position:absolute;top:3px;bottom:3px;border-radius:3px}
+.pb-bar.pos{background:var(--win)} .pb-bar.neg{background:var(--loss)}
+.pb-val{font-family:"Space Mono",monospace;font-size:12px;font-weight:700;
+  text-align:right;font-variant-numeric:tabular-nums}
+.pb-val.pos{color:var(--win)} .pb-val.neg{color:var(--loss)}
+
+/* win-rate trend */
+.wr-svg{width:100%;height:80px;display:block;overflow:visible}
+.wr-line{fill:none;stroke:var(--accent);stroke-width:1.6;vector-effect:non-scaling-stroke;
+  stroke-linejoin:round;stroke-linecap:round}
+.wr-ref{stroke:var(--muted-2);stroke-width:1;stroke-dasharray:3 3;opacity:.5;vector-effect:non-scaling-stroke}
+.wr-meta{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  font-family:"Space Mono",monospace;font-size:11px;color:var(--ink);margin-top:9px}
+.wr-key{color:var(--muted-2);font-size:10px}
+.wr-line.up{stroke:var(--win)} .wr-line.down{stroke:var(--loss)}
+.clv-card{text-align:center}
+.clv-big{font-family:"Fraunces",serif;font-weight:900;font-size:42px;line-height:1;margin:4px 0 6px}
+.clv-big.pos{color:var(--win)} .clv-big.neg{color:var(--loss)}
+.clv-sub{font-size:12.5px;color:var(--muted)}

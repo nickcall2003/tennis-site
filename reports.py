@@ -159,7 +159,33 @@ def recent_results(days: int = 5):
                 LockedPickSet.view == "free", LockedPickSet.pick_date >= cutoff).all()
         except Exception:
             rows = []
-        outcomes = {(r.sport, str(r.ref)): r.correct for r in db.query(PickResult).all()}
+        outcomes = {(r.sport, str(r.ref)): r for r in db.query(PickResult).all()}
+
+    def _pick_units(r):
+        """Profit in units for one settled pick, using the SAME rule as
+        /api/accuracy: a valid taken line only, flat 1u risk, and tennis counted
+        only on the three main tours. Keeping the rule identical is the point —
+        a chart drawn from a different rule would quietly contradict the
+        headline record on the same page."""
+        if r.taken_odds is None or abs(r.taken_odds) < 100:
+            return None
+        if r.sport == "tennis" and (r.subcat or "").upper() not in ("ATP", "WTA", "CHALLENGER"):
+            return None
+        prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
+        return round(prof if r.correct else -1.0, 4)
+
+    def _pick_beat_close(r):
+        """True/False if we can compare the taken line to the close, else None.
+        Mirrors the CLV test in /api/edges/diag."""
+        if r.taken_odds is None or r.close_odds is None:
+            return None
+        if abs(r.taken_odds) < 100 or abs(r.close_odds) < 100:
+            return None
+        def _imp(o):
+            o = float(o)
+            return (-o) / ((-o) + 100.0) if o < 0 else 100.0 / (o + 100.0)
+        return _imp(float(r.taken_odds)) < _imp(float(r.close_odds))
+
     for row in rows:
         try:
             plist = json.loads(row.payload)
@@ -167,19 +193,31 @@ def recent_results(days: int = 5):
             continue
         day = str(row.pick_date)[:10]
         for p in plist:
-            c = outcomes.get((p.get("sport"), str(p.get("id"))))
-            if c is None:
+            r = outcomes.get((p.get("sport"), str(p.get("id"))))
+            if r is None or r.correct is None:
                 continue
             by_day.setdefault(day, []).append({
                 "pick": (p.get("pick") or "").replace(" to win", ""),
                 "prob": round(float(p.get("prob", 0)) * 100),
-                "sport": p.get("sport"), "won": bool(c), "match": p.get("match")})
+                "sport": p.get("sport"), "won": bool(r.correct), "match": p.get("match"),
+                # new: lets the site chart units and CLV over time without
+                # inventing numbers from aggregates
+                "odds": r.taken_odds,
+                "units": _pick_units(r),
+                "beat_close": _pick_beat_close(r)})
     out = []
     for day in sorted(by_day.keys(), reverse=True)[:days]:
         picks = sorted(by_day[day], key=lambda x: x["prob"], reverse=True)
         w = sum(1 for x in picks if x["won"])
+        priced = [x for x in picks if x["units"] is not None]
+        day_u = round(sum(x["units"] for x in priced), 2) if priced else None
+        clv_rows = [x for x in picks if x["beat_close"] is not None]
+        day_clv = (round(100.0 * sum(1 for x in clv_rows if x["beat_close"]) / len(clv_rows), 1)
+                   if clv_rows else None)
         out.append({"date": day, "w": w, "l": len(picks) - w,
-                    "record": f"{w}-{len(picks)-w}", "picks": picks})
+                    "record": f"{w}-{len(picks)-w}", "picks": picks,
+                    "units": day_u, "priced": len(priced),
+                    "clv_beat_pct": day_clv, "clv_n": len(clv_rows)})
     tw = sum(d["w"] for d in out)
     tl = sum(d["l"] for d in out)
     return {"days": out, "summary": {"w": tw, "l": tl, "record": f"{tw}-{tl}"}}

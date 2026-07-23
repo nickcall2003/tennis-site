@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=17">
+<link rel="stylesheet" href="/app.css?v=19">
 </head>
 <body>
 <div class="shell">
@@ -2324,6 +2324,124 @@ function openPicks(which){view=which;if(detailId)closeDetail();
   renderPicksDatebar();
   renderPicks();}
 function _picksRefresh(){if(view==="parlays")renderParlays();else renderPicks();}
+// ===== Performance charts (Track Record page) =====
+// Static numbers don't tell a story — every review asked for this. Both charts
+// are fed by data the page ALREADY has or already fetches; nothing here is
+// estimated or smoothed. Two charts the reviews also asked for (CLV trend,
+// units-over-time) are deliberately absent: the API returns no per-day units
+// or per-day CLV, and a trend line invented from aggregates would be fiction.
+
+// Horizontal profit bars, one per sport. Zero sits on a shared centre line so
+// losing sports read as losing at a glance instead of just "smaller".
+function profitBySportHTML(rows,minN){
+  var pts=(rows||[]).filter(function(r){
+    return r.sport!=="golf" && r.mature && r.units!=null && !isNaN(r.units);});
+  if(pts.length<2)return "";           // one bar isn't a chart
+  pts.sort(function(a,b){return b.units-a.units;});
+  var mx=Math.max.apply(null,pts.map(function(r){return Math.abs(r.units);}))||1;
+  var bars=pts.map(function(r){
+    var lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[r.sport])||r.sport.toUpperCase();
+    var pos=r.units>=0, w=Math.abs(r.units)/mx*50;   // 50% = half-width each side
+    return '<div class="pb-row">'+
+      '<span class="pb-lab">'+lbl+'</span>'+
+      '<span class="pb-track">'+
+        '<span class="pb-zero"></span>'+
+        '<span class="pb-bar '+(pos?"pos":"neg")+'" style="'+
+          (pos?('left:50%;width:'+w+'%'):('right:50%;width:'+w+'%'))+'"></span>'+
+      '</span>'+
+      '<span class="pb-val '+(pos?"pos":"neg")+'">'+(pos?"+":"")+r.units.toFixed(2)+'u</span>'+
+      '</div>';}).join("");
+  return '<div class="chart-card">'+
+    '<div class="chart-h">Profit by sport <span>net units, graded wagers only</span></div>'+
+    '<div class="pb-wrap">'+bars+'</div>'+
+    '<div class="chart-foot">Only sports past '+minN+' graded wagers appear \u2014 small samples aren\u2019t a track record.</div>'+
+    '</div>';
+}
+
+// Cumulative win-rate line built from individually graded picks. Uses the same
+// /api/results/recent feed the Discord graded channel reads, so the chart and
+// the feed can never disagree.
+function winRateTrendHTML(res){
+  var days=(res&&res.days)||[];
+  if(days.length<3)return "";
+  var ordered=days.slice().reverse();        // API returns newest-first
+  var cw=0,cl=0,pts=[];
+  ordered.forEach(function(d){
+    (d.picks||[]).forEach(function(p){ p.won?cw++:cl++; });
+    if(cw+cl>0)pts.push({date:d.date,pct:cw/(cw+cl)*100,n:cw+cl});
+  });
+  if(pts.length<3)return "";
+  var W=100,H=42,lo=Math.min(40,Math.min.apply(null,pts.map(function(p){return p.pct;}))-4);
+  var hi=Math.max(70,Math.max.apply(null,pts.map(function(p){return p.pct;}))+4);
+  var xy=pts.map(function(p,i){
+    var x=pts.length===1?0:(i/(pts.length-1))*W;
+    var y=H-((p.pct-lo)/(hi-lo))*H;
+    return x.toFixed(1)+","+y.toFixed(1);});
+  var last=pts[pts.length-1];
+  // 50% reference line — above it the model is beating a coin flip
+  var y50=H-((50-lo)/(hi-lo))*H;
+  var showRef=(y50>=0&&y50<=H);
+  return '<div class="chart-card">'+
+    '<div class="chart-h">Win rate trend <span>cumulative, last '+pts.length+' days</span></div>'+
+    '<svg class="wr-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" aria-hidden="true">'+
+      (showRef?'<line class="wr-ref" x1="0" y1="'+y50.toFixed(1)+'" x2="'+W+'" y2="'+y50.toFixed(1)+'"/>':'')+
+      '<polyline class="wr-line" points="'+xy.join(" ")+'"/>'+
+    '</svg>'+
+    '<div class="wr-meta"><span>'+Math.round(last.pct)+'% over '+last.n+' graded picks</span>'+
+      (showRef?'<span class="wr-key">\u2014 50% coin flip</span>':'')+'</div>'+
+    '<div class="chart-foot">Cumulative across the window, so late swings move it less than early ones \u2014 that\u2019s intentional.</div>'+
+    '</div>';
+}
+// Cumulative units — the chart bettors actually care about. Only renders once
+// the API supplies per-pick units (added to /api/results/recent); older
+// deployments simply won't show it rather than drawing a guessed line.
+function unitsTrendHTML(res){
+  var days=(res&&res.days)||[];
+  var ordered=days.slice().reverse();                // API is newest-first
+  var run=0,pts=[],any=false;
+  ordered.forEach(function(d){
+    if(d.units==null)return;                         // unpriced day — skip, don't zero
+    any=true; run+=d.units; pts.push({date:d.date,u:run});
+  });
+  if(!any||pts.length<3)return "";
+  var W=100,H=42;
+  var vals=pts.map(function(p){return p.u;});
+  var lo=Math.min(0,Math.min.apply(null,vals)),hi=Math.max(0,Math.max.apply(null,vals));
+  if(hi-lo<0.001)return "";
+  var xy=pts.map(function(p,i){
+    var x=(i/(pts.length-1))*W, y=H-((p.u-lo)/(hi-lo))*H;
+    return x.toFixed(1)+","+y.toFixed(1);});
+  var yZero=H-((0-lo)/(hi-lo))*H;                    // break-even line
+  var end=pts[pts.length-1].u, up=end>=0;
+  return '<div class="chart-card">'+
+    '<div class="chart-h">Units over time <span>cumulative, flat 1u risk</span></div>'+
+    '<svg class="wr-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="none" aria-hidden="true">'+
+      '<line class="wr-ref" x1="0" y1="'+yZero.toFixed(1)+'" x2="'+W+'" y2="'+yZero.toFixed(1)+'"/>'+
+      '<polyline class="wr-line '+(up?"up":"down")+'" points="'+xy.join(" ")+'"/>'+
+    '</svg>'+
+    '<div class="wr-meta"><span class="'+(up?"u-pos":"u-neg")+'">'+(up?"+":"")+end.toFixed(2)+'u over '+pts.length+' days</span>'+
+      '<span class="wr-key">\u2014 break even</span></div>'+
+    '<div class="chart-foot">Counts only picks with a real taken line, one unit risked each. Tennis counts ATP/WTA/Challenger only \u2014 the same rule as the headline record.</div>'+
+    '</div>';
+}
+// CLV as a single honest number, not a daily line. Day-level CLV on a handful
+// of picks is mostly noise; the cumulative beat-the-close rate is the signal.
+function clvSummaryHTML(res){
+  var days=(res&&res.days)||[];
+  var beat=0,tot=0;
+  days.forEach(function(d){
+    if(d.clv_n)  {tot+=d.clv_n; beat+=Math.round(d.clv_beat_pct/100*d.clv_n);}
+  });
+  if(tot<20)return "";                    // too thin to publish
+  var pct=Math.round(1000*beat/tot)/10;
+  var good=pct>=50;
+  return '<div class="chart-card clv-card">'+
+    '<div class="chart-h">Closing line value <span>did we get a better number than the close?</span></div>'+
+    '<div class="clv-big '+(good?"pos":"neg")+'">'+pct+'%</div>'+
+    '<div class="clv-sub">beat the closing line on '+beat+' of '+tot+' priced picks</div>'+
+    '<div class="chart-foot">CLV is the strongest evidence a model has real signal \u2014 it shows up in dozens of bets, where win/loss takes hundreds. Above 50% means we\u2019re consistently getting the better side of the number.</div>'+
+    '</div>';
+}
 function openRecord(){view="record";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
   document.getElementById("main").style.display="";
@@ -2343,6 +2461,8 @@ async function renderRecord(){
   try{wag=await getJSON("/api/edges/wagers?days=3650&min_edge=0.03&min_sample=25");}catch(e){}
   try{acc=await getJSON("/api/accuracy?days=30");}catch(e){}
   let tours=null;try{tours=await getJSON("/api/tennis/tours");}catch(e){}
+  // same feed the Discord graded channel reads, so chart and feed agree
+  let _res=null;try{_res=await getJSON("/api/results/recent?days=30");}catch(e){}
   const ws=wag.by_sport||{},accs=acc.by_sport||{},ov=acc.overall||{},wov=wag.overall||{};
   const minN=wag.min_sample||25;
   const keys={};Object.keys(accs).forEach(k=>keys[k]=1);Object.keys(ws).forEach(k=>keys[k]=1);
@@ -2368,7 +2488,8 @@ async function renderRecord(){
   const sg=u=>(u>0?"+":"")+u.toFixed(2)+"u";
   let h='<div class="rec-hero"><div class="rec-hero-u">'+tPct+'%</div>'+
     '<div class="rec-hero-sub">'+tW+'-'+tL+' all-time across '+rows.length+' sports'+(hasU?' &middot; '+sg(tU)+' on graded wagers':'')+'</div></div>'+
-    '<div class="rec-note">Verified prediction accuracy across every graded pick. <b>Betting units are tracked separately, only on recommended +EV wagers</b>, and each sport posts its ROI once it clears '+minN+' graded wagers \u2014 so the units you see are real plays, never \u201Cbet every favorite.\u201D</div>';
+    '<div class="rec-note">Verified prediction accuracy across every graded pick. <b>Betting units are tracked separately, only on recommended +EV wagers</b>, and each sport posts its ROI once it clears '+minN+' graded wagers \u2014 so the units you see are real plays, never \u201Cbet every favorite.\u201D</div>'+
+    unitsTrendHTML(_res)+clvSummaryHTML(_res)+winRateTrendHTML(_res)+profitBySportHTML(rows,minN);
   rows.forEach(function(r){
     if(r.sport==="golf")return;  // golf removed from the record
     if(r.sport==="tennis"&&tours&&tours.total_excl_itf){var te=tours.total_excl_itf;r.wins=te.wins;r.losses=te.losses;r.pct=te.win_pct;r.units=te.units;r.roi=te.roi_pct;r.wager_n=te.priced;r.mature=(te.priced>=minN);}
@@ -4097,7 +4218,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=17"></script>
+<script src="/ll-enhance.js?v=19"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
