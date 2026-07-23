@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=8">
+<link rel="stylesheet" href="/app.css?v=9">
 </head>
 <body>
 <div class="shell">
@@ -199,8 +199,43 @@ let selected=startOfDay(new Date());
 let tabMode="all",tFilter=null,current=[];let sortMode="featured";
 const byId={};
 let detailId=null,detailTab="analysis",detailTimer=null;
+// Tracks whether the last data fetch failed, so the UI can tell the difference
+// between "the slate is genuinely empty" and "we couldn't reach the server".
+// Without this, a dropped connection renders as "No matches here for this day",
+// which makes a working site look empty.
+var _netFail = false;
+function netOffline(){ return (typeof navigator!=="undefined" && navigator.onLine===false); }
+// Standard failure block with a retry button, used by every list renderer.
+function netFailHTML(what, retryFn){
+  var off = netOffline();
+  return '<div class="neterr">'+
+    '<div class="neterr-ic">'+(off?"\uD83D\uDCF6":"\u26A0\uFE0F")+'</div>'+
+    '<div class="neterr-h">'+(off?"You\u2019re offline":"Couldn\u2019t load "+(what||"this"))+'</div>'+
+    '<div class="neterr-p">'+(off
+      ? "Check your connection \u2014 your picks are still here when you\u2019re back."
+      : "The server didn\u2019t respond. This is usually temporary.")+'</div>'+
+    '<button class="neterr-btn" onclick="'+(retryFn||"location.reload()")+'">Try again</button>'+
+    '</div>';
+}
+// Retry entry point used by the failure card's button.
+function refreshDay(){ try{ _netFail=false; reload(); }catch(e){ location.reload(); } }
+// Auto-recover: the moment the device regains connectivity, quietly refetch.
+// Also surfaces a small banner while offline so the state is never a mystery.
+if (typeof window !== "undefined") {
+  window.addEventListener("online", function(){
+    var b=document.getElementById("offline-bar"); if(b) b.remove();
+    if(_netFail) refreshDay();
+  });
+  window.addEventListener("offline", function(){
+    if(document.getElementById("offline-bar")) return;
+    var b=document.createElement("div");
+    b.id="offline-bar"; b.className="offline-bar";
+    b.textContent="\uD83D\uDCF6 You\u2019re offline \u2014 showing the last loaded data";
+    document.body.appendChild(b);
+  });
+}
 async function getJSON(u){const sep=u.indexOf("?")>=0?"&":"?";const r=await fetch(u+sep+"_t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;return r.json();}
-async function loadDay(){try{current=await getJSON("/api/matches?date="+ymd(selected));}catch(e){current=[];}for(const k in byId)delete byId[k];current.forEach(m=>byId[m.id]=m);}
+async function loadDay(){try{current=await getJSON("/api/matches?date="+ymd(selected));_netFail=false;}catch(e){current=[];_netFail=true;}for(const k in byId)delete byId[k];current.forEach(m=>byId[m.id]=m);}
 async function loadTournaments(){
   const _sh=document.getElementById("side-h");if(_sh)_sh.textContent="Tournaments";
   let ts=[];try{ts=await getJSON("/api/tournaments?date="+ymd(selected));}catch(e){}
@@ -333,7 +368,13 @@ function appendSortToggle(el){var wrap=document.createElement("span");wrap.class
   el.appendChild(wrap);}
 function render(){renderTabs();renderBubbles();loadTournaments();
   const list=document.getElementById("list");const shown=filteredMatches();
-  if(!shown.length){list.innerHTML='<div class="empty">No matches here for this day.</div>';return;}
+  if(!shown.length){
+    // Distinguish a real empty slate from a failed fetch — otherwise a network
+    // blip reads as "we have no games", which is the wrong story.
+    list.innerHTML = _netFail
+      ? netFailHTML("today\u2019s matches","refreshDay()")
+      : '<div class="empty">No matches here for this day.</div>';
+    return;}
   list.innerHTML="";
   let ordered=shown;
   if(sortMode==="confidence")ordered=shown.slice().sort(_byConfidence);
@@ -652,7 +693,7 @@ document.addEventListener("click",()=>toggleMenu(false));
   });
 })();
 async function loadTeam(sp){
-  try{teamGames=await getJSON("/api/"+sp+"/games?date="+ymd(selected));}catch(e){teamGames=[];}
+  try{teamGames=await getJSON("/api/"+sp+"/games?date="+ymd(selected));_netFail=false;}catch(e){teamGames=[];_netFail=true;}
   // Only auto-scan forward for sparse college baseball, and keep it cheap:
   // plain requests (not debug), and stop at the first day with games.
   if(sp==="ncaabb"&&(!teamGames||!teamGames.length)){
@@ -1029,7 +1070,10 @@ function renderTeam(){renderDatebar();renderTabsTeam();
       if(d.stale_backend)diag="\u26a0 BACKEND IS STALE \u2014 main.py did not redeploy (got array, not debug obj). Check Render deploy/logs.";
       else diag="source="+d.source+" · HL("+(d.hl_enabled?"on":"off")+")="+d.hl_count+(d.hl_error?" err:"+d.hl_error:"")+" · ESPN="+d.espn_count+(d.espn_error?" err:"+d.espn_error:"");}
     else if(window._lastTeamLoad){diag="loaded "+window._lastTeamLoad.count+" for "+window._lastTeamLoad.date;}
-    list.innerHTML='<div class="empty">No '+SPORT_LABEL[sport]+' games for '+ymd(selected)+'. Use the date arrows to find the next slate.<br><span style="opacity:.6;font-size:11px">'+diag+'</span></div>';return;}
+    list.innerHTML = _netFail
+      ? netFailHTML(SPORT_LABEL[sport]+" games","refreshDay()")
+      : '<div class="empty">No '+SPORT_LABEL[sport]+' games for '+ymd(selected)+'. Use the date arrows to find the next slate.<br><span style="opacity:.6;font-size:11px">'+diag+'</span></div>';
+    return;}
   list.innerHTML="";
   const openFn=(sport==="mlb")?openMLBDetail:openTeamDetail;
   let ordered=shown;
@@ -2558,6 +2602,9 @@ async function doForgot(){
   }catch(e){if(err)err.textContent=(typeof e==="string"?e:"Could not reset.");}}
 function copyRecovery(){if(!_recoveryShown)return;try{navigator.clipboard.writeText(_recoveryShown);alert("Recovery code copied.");}catch(e){alert("Copy failed \u2014 please write it down.");}}
 async function doLogout(){
+  // Easy to fat-finger on mobile, and signing back in is a real chore on a
+  // phone keyboard. Cheap guard.
+  if(!confirm("Log out of Line Logic?"))return;
   try{await apiSend("POST","/api/auth/logout");}catch(e){}
   authLogoutLocal();openAuth("login");}
 async function doChangePw(){
@@ -3890,7 +3937,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=8"></script>
+<script src="/ll-enhance.js?v=9"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

@@ -1425,3 +1425,19 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 /* hot pick restyled as a betting-slip stub */
 .hot-pick{position:relative}
 .hot-pick .hp-flag{font-family:"Space Mono",monospace}
+
+/* ===== Network failure / offline states =====
+   A failed fetch used to render as "no games today", which made a working site
+   look empty. These give the real story plus a way out. */
+.neterr{text-align:center;padding:38px 22px;background:var(--panel-2);border:1px solid var(--line);
+  border-radius:14px;margin:8px 0}
+.neterr-ic{font-size:34px;line-height:1;margin-bottom:10px}
+.neterr-h{font-family:"Fraunces",serif;font-weight:800;font-size:18px;color:var(--ink);margin-bottom:6px}
+.neterr-p{color:var(--muted);font-size:13px;line-height:1.55;max-width:340px;margin:0 auto 16px}
+.neterr-btn{background:var(--accent);color:#0b0d10;border:none;border-radius:10px;
+  padding:11px 22px;font-weight:800;font-size:14px;cursor:pointer;transition:filter .12s}
+.neterr-btn:hover{filter:brightness(1.08)}
+.neterr-btn:active{transform:scale(.98)}
+.offline-bar{position:fixed;left:0;right:0;bottom:0;z-index:1200;background:#3a2a12;
+  color:#f0d6a0;border-top:1px solid rgba(232,178,58,.4);padding:10px 14px;
+  font-size:12.5px;text-align:center;font-family:"Space Mono",monospace}
