@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=9">
+<link rel="stylesheet" href="/app.css?v=11">
 </head>
 <body>
 <div class="shell">
@@ -109,6 +109,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
             <button class="th-opt" data-th="slate">Slate</button>
             <button class="th-opt" data-th="cyber">Deep Cyber</button>
             <button class="th-opt" data-th="obsidian">Obsidian</button>
+            <button class="th-opt" data-th="oled">OLED</button>
             <button class="th-opt" data-th="midnight">Midnight</button>
           </div>
           <div class="menu-sec">Accent</div>
@@ -3194,6 +3195,23 @@ function renderHome(){
   const ov=_accData&&_accData.overall;
   document.getElementById("home").innerHTML=
     heroProofHTML(ov)+
+    // Three gateways, right under the hero. A first-time visitor shouldn't have
+    // to parse a 15-sport directory to find what they came for — segment them
+    // by intent in one tap.
+    '<div class="gateways">'+
+      '<button class="gw gw-1" onclick="openPicks(\'free\')">'+
+        '<span class="gw-ic">\uD83C\uDFAF</span>'+
+        '<span class="gw-t">Just give me today\u2019s best bet</span>'+
+        '<span class="gw-s">One play, highest confidence</span></button>'+
+      '<button class="gw gw-2" onclick="openPicks(\'best\')">'+
+        '<span class="gw-ic">\uD83D\uDCCA</span>'+
+        '<span class="gw-t">Show me the full model board</span>'+
+        '<span class="gw-s">Every edge, every sport</span></button>'+
+      '<button class="gw gw-3" onclick="gotoDiscord()">'+
+        '<span class="gw-ic">\uD83D\uDCAC</span>'+
+        '<span class="gw-t">Join the community</span>'+
+        '<span class="gw-s">Live alerts in Discord</span></button>'+
+    '</div>'+
     '<div id="ladder-card"></div>'+
     '<div id="hotpick"></div>'+
     discordCtaHTML()+
@@ -3248,10 +3266,17 @@ function heroProofHTML(ov){
     '<div class="rcpt-perf"></div>'+
     '<div class="rcpt-foot"><span>graded &amp; timestamped \u2014 nothing deleted</span>'+
       '<span class="rcpt-stamp">TRACKED</span></div>'+
+    // The transparency claim is the whole moat — make it PROVABLE, not just
+    // stated. One tap opens the full graded log, losses included.
+    '<button class="rcpt-log" onclick="openRecord()">'+
+      '\uD83E\uDDFE Full public transparency log \u2014 every loss included \u2192</button>'+
     '<button class="rcpt-cta" onclick="openPicks(\'best\')">Unlock the full board \u2192</button>'+
     '</div>';}
 // ==== Discord invite — REPLACE this with your real server invite link ====
 var DISCORD_INVITE="https://discord.gg/WmpF9GdWGE";
+function gotoDiscord(){
+  if(!DISCORD_INVITE||DISCORD_INVITE.indexOf("your-invite-code")>=0)return;
+  window.open(DISCORD_INVITE,"_blank","noopener");}
 function discordCtaHTML(){
   if(!DISCORD_INVITE||DISCORD_INVITE.indexOf("your-invite-code")>=0){
     // If the invite hasn't been set yet, don't render a dead link.
@@ -3937,7 +3962,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=9"></script>
+<script src="/ll-enhance.js?v=11"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

@@ -81,6 +81,12 @@
     slate:{"--bg":"#0e1014","--panel":"#171a20","--panel-2":"#1e222a","--panel-3":"#262b35","--line":"#2f3540","--ink":"#eef1f5","--muted":"#9aa3b0","--muted-2":"#6b7382","--glow":"#1c160f"},
     cyber:{"--bg":"#05060a","--panel":"#0b0f16","--panel-2":"#0f1520","--panel-3":"#16202e","--line":"#1b2838","--ink":"#e8fbff","--muted":"#7f97a8","--muted-2":"#4f6474","--glow":"#08222b"},
     obsidian:{"--bg":"#000000","--panel":"#0c0c0e","--panel-2":"#141417","--panel-3":"#1c1c21","--line":"#26262d","--ink":"#f4f4f6","--muted":"#9a9aa6","--muted-2":"#6a6a76","--glow":"#111111"},
+    /* True OLED: Obsidian gets a black backdrop but its CARDS are still grey,
+       so on an OLED panel the surfaces glow and the accent loses contrast.
+       Here the panels sit a hair off black and separation comes from the
+       borders instead — pixels stay literally off, the accent pops hardest,
+       and it draws the least battery. */
+    oled:{"--bg":"#000000","--panel":"#040405","--panel-2":"#08080a","--panel-3":"#101013","--line":"#22222a","--ink":"#ffffff","--muted":"#8d8d99","--muted-2":"#5e5e6b","--glow":"#000000"},
     midnight:{"--bg":"#080b1a","--panel":"#0f1428","--panel-2":"#151b34","--panel-3":"#1e2645","--line":"#2a3358","--ink":"#eaefff","--muted":"#94a0c8","--muted-2":"#616d94","--glow":"#101a3a"}
   };
   function applyTheme(k){
@@ -124,6 +130,21 @@
       list.innerHTML='<div class="cal-wrap"><div class="cal-empty">Couldn\u2019t load calibration data right now.</div></div>';return;}
     renderCalibration(d);
   };
+  function calCurve(b){
+    var W=320,H=300,pl=42,pr=14,pt=12,pb=34,x0=pl,x1=W-pr,y0=H-pb,y1=pt;
+    function X(p){return x0+(x1-x0)*(Math.max(0,Math.min(100,p))/100);}
+    function Y(p){return y0+(y1-y0)*(Math.max(0,Math.min(100,p))/100);}
+    var g='';[0,25,50,75,100].forEach(function(t){
+      g+='<line x1="'+X(t)+'" y1="'+Y(0)+'" x2="'+X(t)+'" y2="'+Y(100)+'" stroke="var(--line)" stroke-width="0.5" opacity="0.35"/>';
+      g+='<line x1="'+X(0)+'" y1="'+Y(t)+'" x2="'+X(100)+'" y2="'+Y(t)+'" stroke="var(--line)" stroke-width="0.5" opacity="0.35"/>';
+      g+='<text x="'+X(t)+'" y="'+(y0+15)+'" fill="var(--muted-2)" font-size="9" text-anchor="middle">'+t+'</text>';
+      g+='<text x="'+(x0-6)+'" y="'+(Y(t)+3)+'" fill="var(--muted-2)" font-size="9" text-anchor="end">'+t+'</text>';
+    });
+    var diag='<line x1="'+X(0)+'" y1="'+Y(0)+'" x2="'+X(100)+'" y2="'+Y(100)+'" stroke="var(--muted-2)" stroke-width="1" stroke-dasharray="4 4"/>';
+    var line=b.length>1?'<polyline points="'+b.map(function(x){return X(x.predicted)+","+Y(x.actual);}).join(" ")+'" fill="none" stroke="var(--accent)" stroke-width="2"/>':'';
+    var dots=b.map(function(x){var ad=Math.abs(x.actual-x.predicted),col=ad<=6?"var(--win)":(ad<=12?"#e2a53a":"var(--loss)"),r=Math.max(3.2,Math.min(8,Math.sqrt(x.n||1)));return '<circle cx="'+X(x.predicted)+'" cy="'+Y(x.actual)+'" r="'+r+'" fill="'+col+'"/>';}).join("");
+    return '<div class="cal-curve"><div class="cal-yax">actual win %</div><svg viewBox="0 0 '+W+' '+H+'">'+g+diag+line+dots+'<text x="'+((x0+x1)/2)+'" y="'+(H-3)+'" fill="var(--muted)" font-size="10" text-anchor="middle">what the model claimed %</text></svg><div class="cal-curve-cap">Dots on the dashed line = perfectly calibrated. Above = model too cautious; below = too confident.</div></div>';
+  }
   function renderCalibration(d){
     var list=document.getElementById("list");
     var b=(d&&d.buckets)||[];
@@ -143,6 +164,7 @@
     var samp='<div class="cal-stat"><div class="cal-stat-v">'+(d.n||0)+'</div><div class="cal-stat-k">settled picks scored</div></div>';
     list.innerHTML='<div class="cal-wrap">'+intro+
       '<div class="cal-stats">'+brier+samp+'</div>'+
+      calCurve(b)+
       '<div class="cal-legend"><span class="cal-key-fill"></span> actual win rate <span class="cal-key-mark"></span> what the model claimed</div>'+
       '<div class="cal-chart">'+rows+'</div>'+
       '<div class="cal-foot">Green rows = claim and reality agree within 6 points. Same honest results the model is graded on \u2014 nothing hand-picked.</div></div>';
