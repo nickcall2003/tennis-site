@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=15">
+<link rel="stylesheet" href="/app.css?v=17">
 </head>
 <body>
 <div class="shell">
@@ -1200,6 +1200,27 @@ function writeupHTML(txt){
     return '<p style="margin:0 0 12px">'+mdInline(b)+'</p>';
   }).join("");
 }
+// Compact replacement for the old seven-row factor table. Everything that table
+// showed is now in the drivers panel EXCEPT the starters' raw season ERA — worth
+// keeping visible because the model runs on FIP, and a reader who looks up the
+// ERA should see both numbers here rather than think we got it wrong.
+function rawStatsHTML(g,sA,sH){
+  if(!g||!g.away||!g.home)return "";
+  function pit(s){
+    if(!s||s.era==null&&s.fip==null)return "\u2014";
+    var era=(s.era!=null?s.era.toFixed(2)+" ERA":"");
+    var fip=(s.fip!=null?s.fip.toFixed(2)+" FIP":"");
+    var both=[fip,era].filter(Boolean).join(" \u00b7 ");
+    return (s.name?s.name+" ":"")+"("+both+")";
+  }
+  return '<div class="rs-strip">'+
+    '<div class="rs-row"><span class="rs-k">'+g.away.abbr+'</span>'+
+      '<span class="rs-v">'+pit(sA)+'</span></div>'+
+    '<div class="rs-row"><span class="rs-k">'+g.home.abbr+'</span>'+
+      '<span class="rs-v">'+pit(sH)+'</span></div>'+
+    '<div class="rs-note">The model projects from <b>FIP</b> (fielding-independent) rather than ERA \u2014 it predicts future runs better. Season ERA shown for reference.</div>'+
+  '</div>';
+}
 function injuriesHTML(){
   if(mlbInjuries==="loading")return '<div class="panel"><div class="empty">Loading injuries&hellip;</div></div>';
   if(!mlbInjuries||mlbInjuries.error)return '<div class="panel"><div class="empty">Injury data isn\u2019t available right now.</div></div>';
@@ -1245,17 +1266,16 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
   else if(mlbDetailTab==="injuries"){body=injuriesHTML();}
   else if(mlbDetailTab==="props"){body=propsPanelHTML(mlbProps);}
   else{const mp=writeupHTML(g.analysis);
-    body='<div class="panel">'+predictionReportHTML(g,"mlb")+'<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
+    // Order matters: the decomposition IS the differentiator, so it sits directly
+    // under the prediction card instead of below a few hundred words of prose.
+    // The old "Why - the factors" table was cut: six of its seven rows now
+    // duplicate the drivers panel, which shows the same values AND what the
+    // model did with them. Raw season ERA is kept below, since the model runs on
+    // FIP and the two are worth seeing side by side.
+    body='<div class="panel">'+predictionReportHTML(g,"mlb")+
     driversHTML(g)+
-    '<div class="stat-sec">Why \u2014 the factors</div>'+
-    '<div class="fac"><span class="va">'+g.away.abbr+'</span><span class="lab"></span><span class="vb">'+g.home.abbr+'</span></div>'+
-    facRow("Projected runs",g.exp_runs_away,g.exp_runs_home)+
-    facRow("Offense (x lg avg)",(f.away_offense_x!=null?f.away_offense_x:"\u2014"),(f.home_offense_x!=null?f.home_offense_x:"\u2014"))+
-    facRow("Staff runs allowed (x)",(f.away_staff_x!=null?f.away_staff_x:"\u2014"),(f.home_staff_x!=null?f.home_staff_x:"\u2014"))+
-    facRow("Starter ERA",(sA.era!=null?sA.era.toFixed(2):"\u2014"),(sH.era!=null?sH.era.toFixed(2):"\u2014"))+
-    facRow("Bullpen ERA",(g.away.bullpen_era!=null?g.away.bullpen_era.toFixed(2):"\u2014"),(g.home.bullpen_era!=null?g.home.bullpen_era.toFixed(2):"\u2014"))+
-    facRow("Runs / game",(g.away.runs_per_game!=null?g.away.runs_per_game:"\u2014"),(g.home.runs_per_game!=null?g.home.runs_per_game:"\u2014"))+
-    '<div class="fac" style="border:none"><span class="va"></span><span class="lab">Park '+(g.park_factor||1).toFixed(2)+(g.weather?" \u00b7 "+g.weather:"")+'</span><span class="vb"></span></div>'+
+    rawStatsHTML(g,sA,sH)+
+    '<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin:18px 0 0">'+mp+'</div>'+
     mlbLinesHTML(g)+
     officialsHostHTML("mlb",g.id)+
     '<div class="note">Starter is each team\u2019s announced probable; bullpen is the team staff ERA. Park &amp; weather scale the run environment for both sides. Lines are the model\u2019s own fair probabilities, not sportsbook numbers. Not betting advice.</div></div>'+depthHTML(g);}
@@ -2219,6 +2239,13 @@ function pumpProj(){
     const key=projQueue.shift();const p=projMap[key];projBusy++;
     if(!p){projBusy--;continue;}
     projInflight[key]=1;
+    // Bound the wait. A request that never settles used to leave the cell
+    // showing "..." forever, which reads as a broken spinner rather than
+    // "we don't have this". After the timeout we mark it missing so the cell
+    // resolves to a definite state.
+    var _projTimer=setTimeout(function(){
+      if(propProjCache[key]==null){propProjCache[key]="miss";propHitCache[key]="miss";updateProjCells();updateHitCells();}
+    },12000);
     const url="/api/"+propsSport+"/prop-history/"+propsGameId+"?player="+encodeURIComponent(p.player)+"&stat="+encodeURIComponent(p.stat||p.label)+"&line="+(p.line!=null?p.line:0.5)+"&date="+ymd(selected)+propLeagueParam();
     getJSON(url).then(h=>{
       if(h&&h.games&&h.games.length){
@@ -2228,7 +2255,7 @@ function pumpProj(){
         propHistCache[propsSport+"|"+propsGameId+"|"+p.player+"|"+(p.stat||p.label)+"|"+p.line]=h;
         propHitCache[key]=(h.total&&p.line!=null)?{pct:Math.round(100*h.hits/h.total),hits:h.hits,total:h.total}:"miss";
       }else{if(propProjCache[key]==null)propProjCache[key]="miss";propHitCache[key]="miss";}
-    }).catch(()=>{if(propProjCache[key]==null)propProjCache[key]="miss";propHitCache[key]="miss";}).finally(()=>{delete projInflight[key];projBusy--;updateProjCells();updateHitCells();pumpProj();});
+    }).catch(()=>{if(propProjCache[key]==null)propProjCache[key]="miss";propHitCache[key]="miss";}).finally(()=>{clearTimeout(_projTimer);delete projInflight[key];projBusy--;updateProjCells();updateHitCells();pumpProj();});
   }}
 function hitChip(v){
   if(v==null)return '<span class="pf-load">\u2026</span>';
@@ -4070,7 +4097,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=15"></script>
+<script src="/ll-enhance.js?v=17"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

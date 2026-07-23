@@ -1520,3 +1520,14 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .wu-h1{font-size:19px} .wu-h2{font-size:17px} .wu-h3{font-size:15.5px} .wu-h4{font-size:14.5px}
 .wu-ul{margin:0 0 12px;padding-left:20px}
 .wu-ul li{margin:4px 0;line-height:1.55}
+
+/* compact raw-stat strip (replaces the old 7-row factor table) */
+.rs-strip{background:var(--panel-2);border:1px solid var(--line);border-radius:11px;
+  padding:11px 13px;margin:12px 0 0}
+.rs-row{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding:4px 0;font-size:12.5px}
+.rs-k{font-family:"Space Mono",monospace;font-size:11px;color:var(--muted);font-weight:700;letter-spacing:.05em}
+.rs-v{color:var(--ink);text-align:right}
+.rs-note{font-size:10.5px;color:var(--muted-2);line-height:1.5;margin-top:7px;
+  padding-top:7px;border-top:1px dashed var(--line)}
+.rs-note b{color:var(--muted)}
