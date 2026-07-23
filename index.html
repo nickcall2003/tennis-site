@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=14">
+<link rel="stylesheet" href="/app.css?v=15">
 </head>
 <body>
 <div class="shell">
@@ -1170,6 +1170,36 @@ function driversHTML(g){
     (m!=null?'<div class="dv-margin">Projected margin: <b>'+(m>0?d.home.team:d.away.team)+
       ' by '+Math.abs(m).toFixed(2)+' runs</b></div>':"");
 }
+// The AI write-up prompt asks for plain prose, but models return markdown
+// anyway ("# Braves vs. Padres Preview"), and it was rendering literally with
+// the hash visible. Convert the small subset they actually emit rather than
+// trusting the prompt. Escapes first so a stray "<" can't inject markup.
+function mdEscape(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+function mdInline(s){
+  return mdEscape(s)
+    .replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>")
+    .replace(/(^|[^*])\*([^*]+)\*/g,"$1<i>$2</i>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>");
+}
+function writeupHTML(txt){
+  var blocks=String(txt||"").split("\n\n").filter(Boolean);
+  return blocks.map(function(b){
+    b=b.trim();
+    var m=b.match(/^(#{1,4})\s+(.*)$/);
+    if(m){
+      // headings become real headings, sized down a notch so they sit under
+      // the page's own hierarchy instead of competing with it
+      var lvl=Math.min(4,m[1].length);
+      return '<div class="wu-h wu-h'+lvl+'">'+mdInline(m[2])+'</div>';
+    }
+    if(/^[-*]\s+/.test(b)){
+      var items=b.split("\n").filter(function(l){return /^[-*]\s+/.test(l.trim());})
+        .map(function(l){return '<li>'+mdInline(l.trim().replace(/^[-*]\s+/,""))+'</li>';}).join("");
+      return '<ul class="wu-ul">'+items+'</ul>';
+    }
+    return '<p style="margin:0 0 12px">'+mdInline(b)+'</p>';
+  }).join("");
+}
 function injuriesHTML(){
   if(mlbInjuries==="loading")return '<div class="panel"><div class="empty">Loading injuries&hellip;</div></div>';
   if(!mlbInjuries||mlbInjuries.error)return '<div class="panel"><div class="empty">Injury data isn\u2019t available right now.</div></div>';
@@ -1214,7 +1244,7 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
   else if(mlbDetailTab==="matchups"){body=matchupsHTML();}
   else if(mlbDetailTab==="injuries"){body=injuriesHTML();}
   else if(mlbDetailTab==="props"){body=propsPanelHTML(mlbProps);}
-  else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
+  else{const mp=writeupHTML(g.analysis);
     body='<div class="panel">'+predictionReportHTML(g,"mlb")+'<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
     driversHTML(g)+
     '<div class="stat-sec">Why \u2014 the factors</div>'+
@@ -1301,7 +1331,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
   let body;
   if(teamDetailTab==="box"){body=boxscoreHTML(teamBox);}
   else if(teamDetailTab==="props"){body=propsPanelHTML(teamProps);}
-  else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
+  else{const mp=writeupHTML(g.analysis);
     body='<div class="panel">'+predictionReportHTML(g,sp)+whyChipsHTML(g)+'<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin:14px 0 18px">'+mp+'</div>'+
     teamFactorsHTML(g,sp)+
     injuryPanelHTML(g)+
@@ -4040,7 +4070,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=14"></script>
+<script src="/ll-enhance.js?v=15"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
