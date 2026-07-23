@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=12">
+<link rel="stylesheet" href="/app.css?v=14">
 </head>
 <body>
 <div class="shell">
@@ -234,7 +234,22 @@ if (typeof window !== "undefined") {
     document.body.appendChild(b);
   });
 }
-async function getJSON(u){const sep=u.indexOf("?")>=0?"&":"?";const r=await fetch(u+sep+"_t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;return r.json();}
+// Model identity + data freshness. Four of the reviews independently asked the
+// same question a skeptical visitor asks: "is this thing actually alive and
+// maintained, or a dashboard someone abandoned?" A version string and a live
+// "updated N ago" answers it without a word of marketing copy.
+var MODEL_VERSION = "v3.1";
+var _lastFetch = 0;
+function freshnessText(){
+  if(!_lastFetch) return "";
+  var s = Math.max(0, Math.round((Date.now()-_lastFetch)/1000));
+  if(s < 60)  return "updated just now";
+  var m = Math.round(s/60);
+  if(m < 60)  return "updated " + m + "m ago";
+  var h = Math.round(m/60);
+  return "updated " + h + "h ago";
+}
+async function getJSON(u){const sep=u.indexOf("?")>=0?"&":"?";const r=await fetch(u+sep+"_t="+Date.now(),{cache:"no-store"});if(!r.ok)throw 0;_lastFetch=Date.now();return r.json();}
 async function loadDay(){try{current=await getJSON("/api/matches?date="+ymd(selected));_netFail=false;}catch(e){current=[];_netFail=true;}for(const k in byId)delete byId[k];current.forEach(m=>byId[m.id]=m);}
 async function loadTournaments(){
   const _sh=document.getElementById("side-h");if(_sh)_sh.textContent="Tournaments";
@@ -1111,6 +1126,50 @@ function injSide(team,list){
   const rows=list.map(p=>'<div class="inj-row"><span class="inj-name">'+p.name+'<span class="inj-pos">'+(p.position||"")+'</span></span>'+
     '<span class="inj-stat">'+p.status+(p.note?' &middot; '+p.note:"")+'</span></div>').join("");
   return '<div class="mu-side"><div class="mu-h">'+team+' <span>'+list.length+' out</span></div>'+rows+'</div>';}
+// ===== Prediction drivers =====
+// The MLB run projection is a pure product of multipliers, so it decomposes
+// EXACTLY. We show the chain with its running total so a reader can multiply it
+// out and land on the model's own number. If the backend ever reports a chain
+// that doesn't reconcile, we say so rather than drawing bars that lie.
+function driverSide(d,accentPos){
+  if(!d||!d.steps)return "";
+  var rows=d.steps.map(function(s){
+    if(s.key==="baseline"){
+      return '<div class="dv-row dv-base"><span class="dv-lab">'+s.label+'</span>'+
+             '<span class="dv-mult"></span><span class="dv-delta"></span>'+
+             '<span class="dv-run">'+s.runs_after.toFixed(2)+'</span></div>'+
+             '<div class="dv-detail">'+s.detail+'</div>';
+    }
+    var up=s.runs_delta>0, flat=Math.abs(s.runs_delta)<0.005;
+    // bar width scales with impact; 1.0 run of movement fills it
+    var w=Math.min(100,Math.abs(s.runs_delta)/1.0*100);
+    return '<div class="dv-row">'+
+      '<span class="dv-lab">'+s.label+'</span>'+
+      '<span class="dv-mult">\u00d7'+s.mult.toFixed(3)+'</span>'+
+      '<span class="dv-delta '+(flat?"flat":(up?"up":"down"))+'">'+
+        (flat?"\u2014":(up?"+":"")+s.runs_delta.toFixed(2))+'</span>'+
+      '<span class="dv-run">'+s.runs_after.toFixed(2)+'</span></div>'+
+      '<div class="dv-bar-wrap"><span class="dv-bar '+(up?"up":"down")+'" style="width:'+w+'%"></span></div>'+
+      '<div class="dv-detail">'+s.detail+'</div>';
+  }).join("");
+  return '<div class="dv-side">'+
+    '<div class="dv-team">'+d.team+'<span class="dv-total">'+d.total.toFixed(2)+' runs</span></div>'+
+    rows+
+    (d.reconciles===false
+      ? '<div class="dv-warn">\u26a0\ufe0f This breakdown doesn\u2019t reconcile to the model\u2019s number \u2014 treat it as indicative only.</div>'
+      : '<div class="dv-ok">\u2713 multiplies out to '+d.total.toFixed(2)+'</div>')+
+    '</div>';
+}
+function driversHTML(g){
+  var d=g&&g.drivers; if(!d||!d.home||!d.away)return "";
+  var m=d.margin;
+  return '<div class="stat-sec">How the projection was built</div>'+
+    '<div class="dv-intro">Every number below is a multiplier the model actually applied, in order. '+
+    'Multiply the chain and you get the projection \u2014 nothing hidden, nothing rounded away.</div>'+
+    '<div class="dv-wrap">'+driverSide(d.away)+driverSide(d.home)+'</div>'+
+    (m!=null?'<div class="dv-margin">Projected margin: <b>'+(m>0?d.home.team:d.away.team)+
+      ' by '+Math.abs(m).toFixed(2)+' runs</b></div>':"");
+}
 function injuriesHTML(){
   if(mlbInjuries==="loading")return '<div class="panel"><div class="empty">Loading injuries&hellip;</div></div>';
   if(!mlbInjuries||mlbInjuries.error)return '<div class="panel"><div class="empty">Injury data isn\u2019t available right now.</div></div>';
@@ -1157,6 +1216,7 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
   else if(mlbDetailTab==="props"){body=propsPanelHTML(mlbProps);}
   else{const mp=(g.analysis||"").split("\n\n").filter(Boolean).map(p=>'<p style="margin:0 0 12px">'+p+'</p>').join("");
     body='<div class="panel">'+predictionReportHTML(g,"mlb")+'<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin-bottom:18px">'+mp+'</div>'+
+    driversHTML(g)+
     '<div class="stat-sec">Why \u2014 the factors</div>'+
     '<div class="fac"><span class="va">'+g.away.abbr+'</span><span class="lab"></span><span class="vb">'+g.home.abbr+'</span></div>'+
     facRow("Projected runs",g.exp_runs_away,g.exp_runs_home)+
@@ -3264,6 +3324,8 @@ function heroProofHTML(ov){
     '<div class="rcpt-perf"></div>'+
     '<div class="rcpt-foot"><span>graded &amp; timestamped \u2014 nothing deleted</span>'+
       '<span class="rcpt-stamp">TRACKED</span></div>'+
+    '<div class="rcpt-meta">Model '+MODEL_VERSION+
+      (freshnessText()?' \u00b7 '+freshnessText():'')+'</div>'+
     // The transparency claim is the whole moat — make it PROVABLE, not just
     // stated. One tap opens the full graded log, losses included.
     '<button class="rcpt-log" onclick="openRecord()">'+
@@ -3637,13 +3699,31 @@ function soccerEdgeLineHTML(g){
       parts+='<span class="el-edge '+ec+'">'+(edge>=0?"+":"")+edge+'% edge</span>';}
   }else{parts+='<span class="el-none">Awaiting market</span>';}
   return '<div class="edge-line">'+parts+'</div>';}
+// Edge tiers. Humans read a label faster than a number — but the labels have to
+// tell the truth. Naive versions of this call a huge edge "Elite", which is
+// backwards: our own settled data shows the very large edges UNDER-perform
+// (usually a stale line or a model miss), while the small, steady edges are
+// where the profit actually came from. So the top tier is a caution, not a
+// trophy. Returns null when there's no edge worth labelling.
+function edgeTier(e){
+  if(e==null||isNaN(e))return null;
+  if(e<0)   return {k:"neg",  t:"No edge"};
+  if(e<2)   return {k:"slim", t:"Slim edge"};
+  if(e<5)   return {k:"solid",t:"Solid edge"};
+  if(e<10)  return {k:"strong",t:"Strong edge"};
+  return    {k:"outlier",t:"Outlier \u2014 verify the line"};
+}
+function edgeTierHTML(e){
+  var t=edgeTier(e); if(!t)return "";
+  return '<span class="etier etier-'+t.k+'" title="Label reflects how each edge band has actually performed, not just its size">'+t.t+'</span>';
+}
 function pickCardHTML(p,isFree){const pct=Math.round(p.prob*100);const slabel=(SPORT_LABEL[p.sport]||p.sport).toUpperCase();
   // Odds (fair + market when available) show on EVERY pick; edge% is Best-Bets only.
   let oddsLine="";
   if(p.fair_odds!=null){
     oddsLine='<div class="pick-odds"><span class="odd-fair">Fair '+fmtOdds(p.fair_odds)+'</span>';
     if(p.market_odds!=null)oddsLine+='<span class="odd-mkt">Market '+fmtOdds(p.market_odds)+'</span>';
-    if(p.edge_pct!=null){const ec=p.edge_pct>=0?"pos":"neg";oddsLine+='<span class="odd-edge '+ec+'">'+(p.edge_pct>=0?"+":"")+p.edge_pct+'% edge</span>';}
+    if(p.edge_pct!=null){const ec=p.edge_pct>=0?"pos":"neg";oddsLine+='<span class="odd-edge '+ec+'">'+(p.edge_pct>=0?"+":"")+p.edge_pct+'% edge</span>'+edgeTierHTML(p.edge_pct);}
     oddsLine+='</div>';
   }
   // result badge (free picks show settled win/loss for transparency)
@@ -3960,7 +4040,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=12"></script>
+<script src="/ll-enhance.js?v=14"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

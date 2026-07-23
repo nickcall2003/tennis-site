@@ -1466,3 +1466,51 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
   transition:background .14s,border-color .14s}
 .rcpt-log:hover{background:rgba(58,209,122,.08);border-color:var(--accent)}
 .rcpt-log:active{transform:scale(.99)}
+
+/* ===== Edge tier labels =====
+   A number tells you the size; the label tells you what that size has actually
+   been worth. Deliberately NOT "bigger = better": the outlier tier is a warning
+   because very large edges have historically under-performed. */
+.etier{font-family:"Space Mono",monospace;font-size:9.5px;font-weight:700;
+  letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:5px;
+  border:1px solid transparent;white-space:nowrap}
+.etier-neg{color:var(--muted-2);border-color:var(--line)}
+.etier-slim{color:var(--muted);border-color:var(--line)}
+.etier-solid{color:var(--win);border-color:rgba(95,200,138,.4);background:rgba(95,200,138,.10)}
+.etier-strong{color:var(--win);border-color:rgba(95,200,138,.65);background:rgba(95,200,138,.18)}
+.etier-outlier{color:#e8b23a;border-color:rgba(232,178,58,.5);background:rgba(232,178,58,.12)}
+
+/* model version + data freshness under the receipt */
+.rcpt-meta{font-family:"Space Mono",monospace;font-size:10px;color:var(--muted-2);
+  letter-spacing:.04em;text-align:right;margin-top:8px}
+
+/* ===== Prediction drivers — the auditable decomposition =====
+   The model is a product of multipliers, so the chain reconciles exactly.
+   Layout is built around that: multiplier, run impact, running total. */
+.dv-intro{font-size:12.5px;color:var(--muted);line-height:1.55;margin:0 2px 14px}
+.dv-wrap{display:flex;flex-direction:column;gap:14px}
+@media(min-width:760px){.dv-wrap{flex-direction:row}.dv-side{flex:1;min-width:0}}
+.dv-side{background:var(--panel-2);border:1px solid var(--line);border-radius:13px;padding:13px 14px}
+.dv-team{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font-family:"Fraunces",serif;font-weight:800;font-size:16px;color:var(--ink);
+  padding-bottom:9px;margin-bottom:6px;border-bottom:1px solid var(--line)}
+.dv-total{font-family:"Space Mono",monospace;font-size:14px;color:var(--clay-bright);font-weight:700}
+.dv-row{display:grid;grid-template-columns:1fr auto auto auto;gap:9px;align-items:baseline;
+  font-size:12.5px;padding:7px 0 2px}
+.dv-row.dv-base{color:var(--muted)}
+.dv-lab{color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dv-mult,.dv-delta,.dv-run{font-family:"Space Mono",monospace;font-variant-numeric:tabular-nums;font-size:12px}
+.dv-mult{color:var(--muted-2);min-width:52px;text-align:right}
+.dv-delta{min-width:46px;text-align:right;font-weight:700}
+.dv-delta.up{color:var(--win)} .dv-delta.down{color:var(--loss)} .dv-delta.flat{color:var(--muted-2)}
+.dv-run{min-width:42px;text-align:right;color:var(--ink);font-weight:700}
+.dv-bar-wrap{height:3px;background:var(--panel-3);border-radius:2px;overflow:hidden;margin:2px 0 0}
+.dv-bar{display:block;height:100%;border-radius:2px}
+.dv-bar.up{background:var(--win)} .dv-bar.down{background:var(--loss)}
+.dv-detail{font-size:10.5px;color:var(--muted-2);line-height:1.45;margin:3px 0 4px}
+.dv-ok{font-family:"Space Mono",monospace;font-size:10px;color:var(--win);
+  margin-top:9px;padding-top:8px;border-top:1px dashed var(--line);letter-spacing:.03em}
+.dv-warn{font-family:"Space Mono",monospace;font-size:10.5px;color:#e8b23a;
+  margin-top:9px;padding-top:8px;border-top:1px dashed rgba(232,178,58,.4);line-height:1.5}
+.dv-margin{text-align:center;font-size:13.5px;color:var(--muted);margin:14px 0 4px}
+.dv-margin b{color:var(--clay-bright);font-family:"Fraunces",serif;font-size:15px}
