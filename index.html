@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=19">
+<link rel="stylesheet" href="/app.css?v=21">
 </head>
 <body>
 <div class="shell">
@@ -196,7 +196,21 @@ function wxIcon(txt){const t=(txt||"").toLowerCase();
   return "\u{1f324}\ufe0f";}
 function timeStr(m){if(m.event_time)return m.event_time;const d=new Date(m.scheduled);return String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");}
 let selected=startOfDay(new Date());
-let tabMode="all",tFilter=null,current=[];let sortMode="featured";
+// ===== User preferences =====
+// The app already remembered theme, accent, text size and favourites, but
+// forgot the things people change most often: which sport, how the board is
+// sorted, and which prop type they were looking at. Re-setting the same filter
+// on every visit is exactly the small friction that stops something feeling
+// like "your" tool. One helper so future prefs don't scatter localStorage
+// calls across the file, and so a browser with storage disabled degrades to
+// defaults instead of throwing.
+function prefGet(k,dflt){
+  try{var v=localStorage.getItem("ll_"+k);return v===null?dflt:v;}catch(e){return dflt;}
+}
+function prefSet(k,v){
+  try{localStorage.setItem("ll_"+k,v);}catch(e){}
+}
+let tabMode="all",tFilter=null,current=[];let sortMode=prefGet("sort","featured");
 const byId={};
 let detailId=null,detailTab="analysis",detailTimer=null;
 // Tracks whether the last data fetch failed, so the UI can tell the difference
@@ -379,7 +393,7 @@ function _byEdge(a,b){
 function appendSortToggle(el){var wrap=document.createElement("span");wrap.className="sortwrap";
   [["featured","\u2605 Top"],["confidence","Model %"],["edge","Edge %"]].forEach(function(pr){
     var b=document.createElement("button");b.className="tab sortbtn"+(sortMode===pr[0]?" active":"");
-    b.innerHTML=pr[1];b.onclick=function(){sortMode=pr[0];renderCurrent();};wrap.appendChild(b);});
+    b.innerHTML=pr[1];b.onclick=function(){sortMode=pr[0];prefSet("sort",sortMode);renderCurrent();};wrap.appendChild(b);});
   el.appendChild(wrap);}
 function render(){renderTabs();renderBubbles();loadTournaments();
   const list=document.getElementById("list");const shown=filteredMatches();
@@ -551,6 +565,13 @@ function applySportsMeta(){
     var teams=SPORTS_META.filter(function(s){return s.team;}).map(function(s){return s.key;});
     if(teams.length){TEAM_SPORTS.length=0;teams.forEach(function(k){TEAM_SPORTS.push(k);});}
     var act={};SPORTS_META.forEach(function(s){act[s.key]=(s.active!==false);});
+    // A remembered sport can go out of season between visits — someone who last
+    // used NFL in January shouldn't return in July to an empty board. If the
+    // saved sport is inactive, quietly fall back to the flagship.
+    if(Object.prototype.hasOwnProperty.call(act,sport)&&!act[sport]){
+      var fallback=(act.mlb!==false)?"mlb":(SPORTS_META.find(function(s){return s.active!==false;})||{}).key;
+      if(fallback&&fallback!==sport){sport=fallback;prefSet("sport",fallback);}
+    }
     var offBody=document.getElementById("offseason-body"),offTog=document.getElementById("offseason-toggle"),anyOff=false;
     document.querySelectorAll(".menu-item[data-sport]").forEach(function(it){
       var k=it.dataset.sport;it.style.display="";
@@ -634,7 +655,7 @@ function connectWS(){const proto=location.protocol==="https:"?"wss":"ws";let ws;
     if(msg.score.status==="finished"&&m.predicted_winner&&(msg.score.winner==="a"||msg.score.winner==="b"))m.correct=(m.predicted_winner===msg.score.winner);
     if(!detailId&&sport==="tennis"&&view==="sport")render();};}
 // ===== SPORTS STATE =====
-let sport="mlb",teamGames=[],mlbDetailTab="prediction",mlbMatchups=null,mlbInjuries=null,mlbProps=null,mlbBox=null,mlbGame=null;
+let sport=prefGet("sport","mlb"),teamGames=[],mlbDetailTab="prediction",mlbMatchups=null,mlbInjuries=null,mlbProps=null,mlbBox=null,mlbGame=null;
 let soccerGames=[],soccerLeague="all",soccerLeagues=[],soccerGame=null,soccerDetailTab="prediction",soccerBox=null,soccerProps=null,soccerDetailLeague="all";
 let ufcGames=[],ufcEvent="UFC",ufcGame=null;
 let golfBoard=null,golfTour="pga",golfById={},golfView="board",golfProj=null,golfEdge=null,golfProjModel="baseline";
@@ -665,7 +686,7 @@ function selectMenu(el){
 }
 let loadToken=0;
 function setSport(s){view="sport";if(s===sport&&document.getElementById("main").style.display!=="none"){toggleMenu(false);return;}
-  sport=s;tFilter=null;tabMode="all";if(detailId)closeDetail();
+  sport=s;prefSet("sport",s);tFilter=null;tabMode="all";if(detailId)closeDetail();
   selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
   document.getElementById("main").style.display="";
@@ -1131,6 +1152,21 @@ function injSide(team,list){
 // EXACTLY. We show the chain with its running total so a reader can multiply it
 // out and land on the model's own number. If the backend ever reports a chain
 // that doesn't reconcile, we say so rather than drawing bars that lie.
+// Model notes — the model saying what it doesn't know.
+// Counter-intuitive but true: naming the gap ("starter has 14 innings") makes
+// the number MORE credible than presenting every game as equally knowable.
+// Only renders when there's something real to flag.
+function modelNotesHTML(g){
+  var n=(g&&g.model_notes)||[];
+  if(!n.length)return "";
+  var conf=(g.confidence||"").toLowerCase();
+  return '<div class="mn-card mn-'+(conf==="low"?"low":"med")+'">'+
+    '<div class="mn-h">\u26a0\ufe0f What the model is unsure about</div>'+
+    '<ul class="mn-list">'+n.map(function(x){return '<li>'+x+'</li>';}).join("")+'</ul>'+
+    '<div class="mn-foot">Shown because confidence is <b>'+(conf||"reduced")+'</b>. '+
+    'We\u2019d rather tell you the number is soft than pretend every game reads the same.</div>'+
+    '</div>';
+}
 function driverSide(d,accentPos){
   if(!d||!d.steps)return "";
   var rows=d.steps.map(function(s){
@@ -1273,6 +1309,7 @@ function renderMLBDetail(g){const fin=g.status==="finished",live=g.status==="liv
     // model did with them. Raw season ERA is kept below, since the model runs on
     // FIP and the two are worth seeing side by side.
     body='<div class="panel">'+predictionReportHTML(g,"mlb")+
+    modelNotesHTML(g)+
     driversHTML(g)+
     rawStatsHTML(g,sA,sH)+
     '<div style="font-family:Fraunces,serif;font-size:16px;line-height:1.6;color:#eef1f5;margin:18px 0 0">'+mp+'</div>'+
@@ -2040,7 +2077,7 @@ function mlbLinesHTML(g){const L=g.lines;if(!L)return "";
 
 // shared props panel (all sports)
 let propHistCache={},propsCurrent=null,propsSport=null,propsGameId=null;
-let propStatFilter="all",propProjCache={},propHitCache={},projQueue=[],projMap={},projInflight={},projBusy=0;
+let propStatFilter=prefGet("propfilter","all"),propProjCache={},propHitCache={},projQueue=[],projMap={},projInflight={},projBusy=0;
 function boxscoreHTML(box){
   if(box==="loading"||box==null) return '<div class="panel"><div class="empty">Loading box score&hellip;</div></div>';
   var teams=(box&&box.teams)||[];
@@ -2067,7 +2104,7 @@ function propStatList(props){
   (props||[]).forEach(p=>{const k=(p.label||p.stat||"").trim();
     if(k&&seen.indexOf(k.toLowerCase())<0){seen.push(k.toLowerCase());out.push(k);}});
   return out;}
-function setPropFilter(s){propStatFilter=s;
+function setPropFilter(s){propStatFilter=s;prefSet("propfilter",s);
   if(propsSport==="mlb")renderMLBDetail(mlbGame);else renderTeamDetail(teamGame,propsSport);}
 function propsPanelHTML(data){
   if(data==="loading"||data===null)return '<div class="panel"><div class="empty">Loading props&hellip;</div></div>';
@@ -3448,6 +3485,7 @@ function renderHome(){
         '<span class="gw-t">Join the community</span>'+
         '<span class="gw-s">Live alerts in Discord</span></button>'+
     '</div>'+
+    '<div id="yesterday"></div>'+
     '<div id="ladder-card"></div>'+
     '<div id="hotpick"></div>'+
     discordCtaHTML()+
@@ -3466,7 +3504,7 @@ function renderHome(){
     '<div class="home-picks" style="margin-top:13px"><div class="home-pick-btn" style="grid-column:1/-1;background:var(--panel-2)" onclick="openHelp()"><div class="nm">\u2753 How to use Line Logic</div><div class="sub">New here? A quick tour of every feature and what the numbers mean.</div></div></div>'+
     installHintHTML()+
     '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';
-  loadHotPick();}
+  loadHotPick();loadYesterday();}
 // Receipt-style proof card: the record IS the hero. Leads with the tagline,
 // then the numbers a bettor actually cares about (win %, net units, ROI,
 // all-time), laid out like a stamped, un-editable betting slip. Falls back to
@@ -3512,6 +3550,44 @@ function heroProofHTML(ov){
     '</div>';}
 // ==== Discord invite — REPLACE this with your real server invite link ====
 var DISCORD_INVITE="https://discord.gg/WmpF9GdWGE";
+// ===== "How did yesterday go?" =====
+// The reason-to-return module. Someone who checked a pick yesterday has a
+// reason to open the app today, and seeing the result — good or bad — right on
+// the homepage is the habit loop. Uses the same graded feed as the Track
+// Record charts and the Discord channel, so all three always agree.
+async function loadYesterday(){
+  var host=document.getElementById("yesterday");if(!host)return;
+  var d;try{d=await getJSON("/api/results/recent?days=3");}catch(e){return;}
+  var days=(d&&d.days)||[];
+  if(!days.length||!host.isConnected)return;
+  // newest day that actually has graded picks (yesterday, or the last slate)
+  var day=null;
+  for(var i=0;i<days.length;i++){ if((days[i].picks||[]).length){day=days[i];break;} }
+  if(!day)return;
+  var w=day.w||0,l=day.l||0,n=w+l;
+  if(!n)return;
+  var pct=Math.round(w/n*100);
+  var good=w>=l;
+  var u=day.units;
+  var best=(day.picks||[]).filter(function(p){return p.won;})
+    .sort(function(a,b){return (b.prob||0)-(a.prob||0)})[0];
+  var miss=(day.picks||[]).filter(function(p){return !p.won;})
+    .sort(function(a,b){return (b.prob||0)-(a.prob||0)})[0];
+  host.innerHTML='<div class="yd" onclick="openResults()">'+
+    '<div class="yd-top"><span class="yd-lab">How yesterday went</span>'+
+      '<span class="yd-rec '+(good?"pos":"neg")+'">'+w+'\u2013'+l+
+      (u!=null?' <span class="yd-u '+(u>=0?"pos":"neg")+'">'+(u>=0?"+":"")+u.toFixed(2)+'u</span>':'')+
+      '</span></div>'+
+    '<div class="yd-bar"><span class="yd-fill" style="width:'+pct+'%"></span></div>'+
+    '<div class="yd-rows">'+
+      (best?'<div class="yd-row"><span class="yd-ic w">W</span>'+best.pick+'</div>':'')+
+      // showing a loss here is deliberate: a recap that only ever surfaces
+      // winners is the thing this whole product is positioned against
+      (miss?'<div class="yd-row"><span class="yd-ic l">L</span>'+miss.pick+'</div>':'')+
+    '</div>'+
+    '<div class="yd-cta">See every graded pick \u2192</div>'+
+    '</div>';
+}
 function gotoDiscord(){
   if(!DISCORD_INVITE||DISCORD_INVITE.indexOf("your-invite-code")>=0)return;
   window.open(DISCORD_INVITE,"_blank","noopener");}
@@ -4218,7 +4294,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=19"></script>
+<script src="/ll-enhance.js?v=21"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

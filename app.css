@@ -1568,3 +1568,37 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .clv-big{font-family:"Fraunces",serif;font-weight:900;font-size:42px;line-height:1;margin:4px 0 6px}
 .clv-big.pos{color:var(--win)} .clv-big.neg{color:var(--loss)}
 .clv-sub{font-size:12.5px;color:var(--muted)}
+
+/* ===== "How yesterday went" — the return-visit hook ===== */
+.yd{background:var(--panel-2);border:1px solid var(--line);border-radius:14px;
+  padding:14px 16px;margin:0 0 14px;cursor:pointer;transition:border-color .14s,transform .1s}
+.yd:hover{border-color:var(--accent);transform:translateY(-2px)}
+.yd:active{transform:scale(.99)}
+.yd-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.yd-lab{font-family:"Space Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--muted)}
+.yd-rec{font-family:"Fraunces",serif;font-weight:900;font-size:19px}
+.yd-rec.pos{color:var(--win)} .yd-rec.neg{color:var(--loss)}
+.yd-u{font-family:"Space Mono",monospace;font-size:12.5px;font-weight:700;margin-left:5px}
+.yd-u.pos{color:var(--win)} .yd-u.neg{color:var(--loss)}
+.yd-bar{height:4px;background:var(--panel-3);border-radius:2px;overflow:hidden;margin:9px 0 11px}
+.yd-fill{display:block;height:100%;background:var(--win);border-radius:2px}
+.yd-rows{display:flex;flex-direction:column;gap:5px}
+.yd-row{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink)}
+.yd-ic{width:17px;height:17px;flex:none;border-radius:4px;display:flex;align-items:center;
+  justify-content:center;font-size:10px;font-weight:800;color:#0b0d10}
+.yd-ic.w{background:var(--win)} .yd-ic.l{background:var(--loss)}
+.yd-cta{font-size:11px;color:var(--muted-2);margin-top:11px;font-style:italic}
+
+/* ===== Model notes — stated uncertainty ===== */
+.mn-card{border-radius:13px;padding:13px 15px;margin:12px 0 0;
+  background:rgba(232,178,58,.07);border:1px solid rgba(232,178,58,.35)}
+.mn-card.mn-low{background:rgba(226,104,95,.07);border-color:rgba(226,104,95,.4)}
+.mn-h{font-family:"Space Mono",monospace;font-size:11px;letter-spacing:.05em;
+  text-transform:uppercase;color:#e8b23a;margin-bottom:9px}
+.mn-card.mn-low .mn-h{color:var(--loss)}
+.mn-list{margin:0;padding-left:18px}
+.mn-list li{font-size:12.5px;line-height:1.55;color:var(--ink);margin:4px 0}
+.mn-foot{font-size:10.5px;color:var(--muted-2);line-height:1.5;margin-top:10px;
+  padding-top:9px;border-top:1px dashed var(--line)}
+.mn-foot b{color:var(--muted)}
