@@ -18,6 +18,16 @@ from calibrate import calibrate as _calibrate
 
 router = APIRouter()
 
+# Which tennis tours count toward headline UNITS and ROI.
+# Challenger and ITF/UTR results are still shown on the site — they just
+# don't move the tracked bankroll. The pricing on those tours is thin and
+# the lines move hard, so including them made the tracked figure describe
+# a market you can't reliably bet. Defined once and imported by every
+# endpoint below: when this rule lived in three places it drifted, and the
+# chart on the record page disagreed with the rows underneath it.
+TENNIS_UNIT_TOURS = ("ATP", "WTA")
+
+
 
 def _is_push(r):
     """Delegate to the canonical implementation in main (imported lazily to
@@ -93,7 +103,7 @@ def accuracy(days: int = 30):
                 # ("EARLIER") are excluded from the money line — they still appear
                 # in win/loss counts and the per-tour breakdown, just not the total.
                 skip_units = (r.sport == "tennis" and
-                              (r.subcat or "").upper() not in ("ATP", "WTA", "CHALLENGER"))
+                              (r.subcat or "").upper() not in TENNIS_UNIT_TOURS)
                 if not skip_units:
                     s["priced"] += 1
                     s["units"] += pl
@@ -169,7 +179,7 @@ def recent_results(days: int = 5):
         headline record on the same page."""
         if r.taken_odds is None or abs(r.taken_odds) < 100:
             return None
-        if r.sport == "tennis" and (r.subcat or "").upper() not in ("ATP", "WTA", "CHALLENGER"):
+        if r.sport == "tennis" and (r.subcat or "").upper() not in TENNIS_UNIT_TOURS:
             return None
         prof = (r.taken_odds / 100.0) if r.taken_odds > 0 else (100.0 / (-r.taken_odds))
         return round(prof if r.correct else -1.0, 4)
@@ -545,7 +555,7 @@ def tennis_tours():
         sub = (r.subcat or "EARLIER").upper()
         won = bool(r.correct)
         add(tours.setdefault(sub, blank()), r, won)
-        if sub in ("ATP", "WTA", "CHALLENGER"):     # headline = the three main tours only
+        if sub in TENNIS_UNIT_TOURS:     # headline = main tours only (see constant)
             add(total, r, won)
 
     def finish(b):
@@ -560,6 +570,7 @@ def tennis_tours():
     order = ["ATP", "WTA", "CHALLENGER", "ITF", "EARLIER"]
     out = {k: finish(tours[k]) for k in order if k in tours}
     return {"total_excl_itf": finish(total), "tours": out,
+            "counted_tours": list(TENNIS_UNIT_TOURS),
             "itf_included": "ITF" in tours}
 
 

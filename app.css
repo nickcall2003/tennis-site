@@ -1602,3 +1602,25 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .mn-foot{font-size:10.5px;color:var(--muted-2);line-height:1.5;margin-top:10px;
   padding-top:9px;border-top:1px dashed var(--line)}
 .mn-foot b{color:var(--muted)}
+
+/* ===== Public changelog ===== */
+.cl-entry{border-left:2px solid var(--line);padding:0 0 14px 14px;margin-left:2px;position:relative}
+.cl-entry:last-child{padding-bottom:0}
+.cl-entry::before{content:"";position:absolute;left:-5px;top:5px;width:8px;height:8px;
+  border-radius:50%;background:var(--accent)}
+.cl-head{display:flex;align-items:baseline;gap:9px;margin-bottom:6px}
+.cl-v{font-family:"Space Mono",monospace;font-size:12.5px;font-weight:700;color:var(--accent)}
+.cl-date{font-family:"Space Mono",monospace;font-size:10.5px;color:var(--muted-2)}
+.cl-list{margin:0;padding-left:17px}
+.cl-list li{font-size:13px;line-height:1.6;color:#dfe4ea;margin:5px 0}
+.cl-list b{color:var(--ink)}
+
+/* ===== Pick actions: track + share ===== */
+.pick-acts{display:flex;gap:8px;margin-top:12px}
+.pick-acts .pick-track{margin-top:0;flex:1}
+.pick-share{flex:0 0 auto;padding:9px 14px;border-radius:9px;cursor:pointer;
+  background:transparent;border:1px solid var(--line);color:var(--muted);
+  font-weight:700;font-size:12.5px;transition:border-color .12s,color .12s,background .12s}
+.pick-share:hover{border-color:var(--accent);color:var(--accent)}
+.pick-share:active{transform:scale(.98)}
+.pick-share.ok{border-color:var(--win);color:var(--win);background:rgba(95,200,138,.10)}

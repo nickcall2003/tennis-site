@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=21">
+<link rel="stylesheet" href="/app.css?v=24">
 </head>
 <body>
 <div class="shell">
@@ -204,6 +204,13 @@ let selected=startOfDay(new Date());
 // like "your" tool. One helper so future prefs don't scatter localStorage
 // calls across the file, and so a browser with storage disabled degrades to
 // defaults instead of throwing.
+// Switching views never reset the scroll position. On a phone the hero CTA
+// sits below the fold, so tapping "Unlock the full board" swapped the view
+// but left you scrolled halfway down the NEW page — looking at blank space,
+// which reads as "the button is broken". Every view switch now returns to
+// the top. instant, not smooth: a scroll animation on a view change feels
+// like lag, not polish.
+function toTop(){try{window.scrollTo(0,0);}catch(e){}}
 function prefGet(k,dflt){
   try{var v=localStorage.getItem("ll_"+k);return v===null?dflt:v;}catch(e){return dflt;}
 }
@@ -252,7 +259,7 @@ if (typeof window !== "undefined") {
 // same question a skeptical visitor asks: "is this thing actually alive and
 // maintained, or a dashboard someone abandoned?" A version string and a live
 // "updated N ago" answers it without a word of marketing copy.
-var MODEL_VERSION = "v3.1";
+var MODEL_VERSION = "v3.2";   // keep in step with CHANGELOG[0].v
 var _lastFetch = 0;
 function freshnessText(){
   if(!_lastFetch) return "";
@@ -689,12 +696,12 @@ function setSport(s){view="sport";if(s===sport&&document.getElementById("main").
   sport=s;prefSet("sport",s);tFilter=null;tabMode="all";if(detailId)closeDetail();
   selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent=SPORT_LABEL[s]||"Tennis";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.sport===s));
   const useSide=(s==="tennis"||s==="soccer");
-  document.getElementById("acc-badge").style.display="";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="";
+  var _ab0=document.getElementById("acc-badge");if(_ab0)_ab0.style.display="";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="";
   document.getElementById("side").style.display=useSide?"":"none";
   document.querySelector(".shell").style.gridTemplateColumns=useSide?"":"1fr";
   document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
@@ -2350,11 +2357,11 @@ let bestFilter={sport:"",min:0,edge:0};
 function openPicks(which){view=which;if(detailId)closeDetail();
   selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent=which==="free"?"Free Picks":"Best Bets";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view===which));
-  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  var _ab1=document.getElementById("acc-badge");if(_ab1)_ab1.style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
   document.getElementById("side").style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
@@ -2481,11 +2488,11 @@ function clvSummaryHTML(res){
 }
 function openRecord(){view="record";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="Track Record";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="record"));
-  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  var _ab1=document.getElementById("acc-badge");if(_ab1)_ab1.style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
   document.getElementById("side").style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
@@ -2523,13 +2530,21 @@ async function renderRecord(){
     return (b.pct||0)-(a.pct||0);});
   const uc=u=>u>0?"u-pos":(u<0?"u-neg":"");
   const sg=u=>(u>0?"+":"")+u.toFixed(2)+"u";
+  // Normalise tennis BEFORE rendering. The tour rollup is the authoritative
+  // tennis figure; doing this inside the row loop meant the charts above the
+  // rows were drawn from the raw wagers number and silently disagreed with them.
+  rows.forEach(function(r){
+    if(r.sport==="tennis"&&tours&&tours.total_excl_itf){
+      var te=tours.total_excl_itf;
+      r.wins=te.wins;r.losses=te.losses;r.pct=te.win_pct;r.units=te.units;
+      r.roi=te.roi_pct;r.wager_n=te.priced;r.mature=(te.priced>=minN);}
+  });
   let h='<div class="rec-hero"><div class="rec-hero-u">'+tPct+'%</div>'+
     '<div class="rec-hero-sub">'+tW+'-'+tL+' all-time across '+rows.length+' sports'+(hasU?' &middot; '+sg(tU)+' on graded wagers':'')+'</div></div>'+
     '<div class="rec-note">Verified prediction accuracy across every graded pick. <b>Betting units are tracked separately, only on recommended +EV wagers</b>, and each sport posts its ROI once it clears '+minN+' graded wagers \u2014 so the units you see are real plays, never \u201Cbet every favorite.\u201D</div>'+
     unitsTrendHTML(_res)+clvSummaryHTML(_res)+winRateTrendHTML(_res)+profitBySportHTML(rows,minN);
   rows.forEach(function(r){
     if(r.sport==="golf")return;  // golf removed from the record
-    if(r.sport==="tennis"&&tours&&tours.total_excl_itf){var te=tours.total_excl_itf;r.wins=te.wins;r.losses=te.losses;r.pct=te.win_pct;r.units=te.units;r.roi=te.roi_pct;r.wager_n=te.priced;r.mature=(te.priced>=minN);}
     const lbl=(typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[r.sport])||r.sport.toUpperCase();
     const showClv=(r.clv!=null&&r.wager_n>=20);
     const clv=showClv?('<span class="rec-clv'+(r.clv>=50?' good':'')+'">CLV '+r.clv+'%</span>'):'';
@@ -2554,7 +2569,11 @@ async function renderRecord(){
         const uu=(t.units!=null)?('<span class="'+(t.units>0?"u-pos":t.units<0?"u-neg":"")+'">'+(t.units>0?"+":"")+t.units.toFixed(1)+'u</span>'):'';
         const roi=(t.roi_pct!=null)?(' \u00b7 '+t.roi_pct+'% ROI'):'';
         const cl=(t.clv_beat_pct!=null&&t.priced>=20)?(' \u00b7 CLV '+t.clv_beat_pct+'%'):'';
-        const itf=(k==="ITF")?' <span class="rec-itf">excluded from total</span>':'';
+        // Challenger and ITF are shown but no longer counted — label both so the
+        // breakdown visibly reconciles to the total above it.
+        const counted=(tours&&tours.counted_tours)||["ATP","WTA"];
+        const itf=(counted.indexOf(k)<0&&k!=="EARLIER")
+          ?' <span class="rec-itf">excluded from total</span>':'';
         sh+='<div class="rec-tour"><span class="rec-tour-n">'+nm[k]+itf+'</span>'+
             '<span class="rec-tour-v">'+t.wins+'-'+t.losses+(t.win_pct!=null?' ('+t.win_pct+'%)':'')+' '+uu+roi+cl+'</span></div>';
       });
@@ -2566,6 +2585,11 @@ function toggleTours(){var el=document.getElementById("ten-tours"),c=document.ge
 function tROIstr(tU,rows){let n=0;rows.forEach(r=>{if(r.units!=null&&r.roi!=null&&r.roi!==0){n+=Math.round(100*r.units/r.roi);}});return n?(Math.round(100*tU/n*10)/10)+'% ROI':'';}
 /* ===== My Bets — view (storage + auth helpers are defined just below) ===== */
 let _betPrefill=null;
+// _attr escapes the usual four characters but leaves raw newlines in the
+// attribute. Browsers normally preserve those, but "normally" isn't good
+// enough for a multi-line payload — encode them explicitly so the share
+// text round-trips byte-for-byte.
+function _attrNL(s){return _attr(s).replace(/\r/g,"").replace(/\n/g,"&#10;");}
 function _attr(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 function trackPickFromEl(ev,el){if(ev)ev.stopPropagation();trackPick(el.getAttribute("data-sport"),el.getAttribute("data-desc"),el.getAttribute("data-odds")||"");}
 function trackPick(sport,desc,odds){_betPrefill={sport:sport,desc:desc,odds:(odds==null?"":odds)};_betFormOpen=true;_mktOpen=false;openBets();}
@@ -2634,7 +2658,7 @@ function marketBrowserHTML(){
 }
 function openBets(){view="bets";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="My Bets";
   document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="bets");});
@@ -2780,7 +2804,7 @@ function betStats(bets){
 }
 function openAuth(mode){view="auth";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent=authUser?"Account":"Sign in";
   document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="auth");});
@@ -2898,7 +2922,7 @@ async function maybeMigrateLocalBets(){
   betsSaveLocal([]);}
 function openCalibration(){view="calibration";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="Model Accuracy";
   document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="calibration");});
@@ -2951,11 +2975,11 @@ async function renderCalibration(){
 function openParlays(){view="parlays";if(detailId)closeDetail();
   selected=startOfDay(new Date());
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="Parlays";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="parlays"));
-  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  var _ab1=document.getElementById("acc-badge");if(_ab1)_ab1.style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
   document.getElementById("side").style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
@@ -3028,7 +3052,7 @@ function renderPicksDatebar(){const bar=document.getElementById("datebar");bar.i
   const next=document.createElement("button");next.className="arrow";next.textContent="\u203A";next.onclick=()=>{selected=addDays(selected,1);renderPicksDatebar();_picksRefresh();};bar.appendChild(next);}
 function openTransparency(){view="transparency";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="How the model works";
   document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="transparency");});
@@ -3055,8 +3079,32 @@ function renderTransparency(){
   h+=sec("How often it updates","<p>Live games refresh continuously. Tennis ratings are rebuilt monthly from updated match data; team Elo ratings are rebuilt each season. Calibration and umpire tendencies build forward from live results \u2014 the model gets a little sharper the longer it runs.</p>");
   h+=sec("What we refuse to fake","<p>Honesty means saying what we <i>don't</i> have:</p>"+
     li(["<b>No \u201Csharp money\u201D or public betting %.</b> That requires paid data feeds; we won't invent it.","<b>No NBA/NFL referee tendencies.</b> There's no reliable free source, so we don't pretend to have one. (MLB umpire data is real and is used.)","Predictions are analytics, <b>not betting advice</b>, and no model wins every time."]));
+  h+=sec("Changelog","<p>Model changes that move a number, newest first. The version in the header is the one running right now.</p>"+changelogHTML());
   h+='<div class="tp-foot">The whole point: a prediction you can interrogate, an edge measured against the market, and a permanent, honest record of how it\u2019s done \u2014 wins and losses.</div></div>';
   list.innerHTML=h;}
+// Public changelog. Ties directly to MODEL_VERSION in the hero — a version
+// number with nothing behind it is decoration. This makes "actively maintained"
+// checkable instead of claimed. Newest first. Only add entries for changes that
+// actually move a number; a changelog padded with cosmetics stops being read.
+var CHANGELOG=[
+  {v:"3.2", date:"2026-07-23", items:[
+    "Added a <b>Share</b> button to every pick \u2014 copies the model number, the market number and the edge, so what gets shared is a receipt rather than a hype line.",
+    "Tennis units and ROI now count <b>ATP and WTA only</b>. Challenger pricing is thin and moves hard, so including it described a market you can\u2019t reliably bet. Challenger and ITF results are still shown in full \u2014 they just no longer move the tracked bankroll.",
+    "Fixed a mismatch where the profit chart and the per-sport rows below it could show different tennis numbers.",
+    "Added per-pick units and closing-line value to the results feed, which unlocked the units and CLV charts on this record."]},
+  {v:"3.1", date:"2026-07-22", items:[
+    "MLB projections now publish a full <b>driver breakdown</b> \u2014 every multiplier the model applied, in order, which multiplies out to the projection itself.",
+    "Fixed the offence factor being reported from season-only run rate while the model actually used a 70/30 blend with recent form (a ~0.3-run gap on hot teams).",
+    "Pitching lines now label <b>FIP</b> where FIP is what the model consumed, rather than mislabelling it as ERA.",
+    "Added model notes: when confidence drops, the reason is stated (unannounced starter, thin innings sample, tired bullpen)."]},
+];
+function changelogHTML(){
+  return CHANGELOG.map(function(c){
+    return '<div class="cl-entry">'+
+      '<div class="cl-head"><span class="cl-v">v'+c.v+'</span><span class="cl-date">'+c.date+'</span></div>'+
+      '<ul class="cl-list">'+c.items.map(function(i){return '<li>'+i+'</li>';}).join("")+'</ul>'+
+      '</div>';}).join("");
+}
 var simSport="";
 var CALIB={};
 function calProb(sport,p){var c=CALIB[sport];if(!c||p==null||isNaN(p))return p;var q=Math.min(0.999,Math.max(0.001,p));var x=Math.log(q/(1-q));return 1/(1+Math.exp(-(c.a*x+c.b)));}
@@ -3065,7 +3113,7 @@ function devigPair(oSide,oOther){function im(o){return o>0?100/(o+100):Math.abs(
 function setSimSport(s){simSport=s;renderSimulator();}
 function openSimulator(){view="simulator";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="Betting Simulator";
   document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="simulator");});
@@ -3108,7 +3156,7 @@ async function renderSimulator(){
   list.innerHTML=h;}
 function openValueBoard(){view="value";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="Value Board";
   document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="value");});
@@ -3150,10 +3198,10 @@ async function renderValueBoard(){
   list.innerHTML=h;}
 function openHelp(){view="help";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("side").style.display="none";
-  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  var _ab1=document.getElementById("acc-badge");if(_ab1)_ab1.style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("sport-tag").textContent="How to";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="help"));
@@ -3183,10 +3231,10 @@ let newsSport="nba";
 function openNews(){view="news";if(detailId)closeDetail();
   selected=startOfDay(new Date());   // reset date on tab switch
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("side").style.display="none";
-  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  var _ab1=document.getElementById("acc-badge");if(_ab1)_ab1.style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("sport-tag").textContent="News";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="news"));
@@ -3248,7 +3296,7 @@ function openHome(){view="home";if(detailId)closeDetail();
   document.getElementById("main").style.display="none";
   document.getElementById("detail").style.display="none";
   document.getElementById("side").style.display="none";
-  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  var _ab1=document.getElementById("acc-badge");if(_ab1)_ab1.style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("sport-tag").textContent="";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="home"));
@@ -3379,11 +3427,11 @@ function playerCardHTML(d){
 }
 function openLadder(){view="ladder";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
-  document.getElementById("main").style.display="";
+  document.getElementById("main").style.display="";toTop();
   document.getElementById("detail").style.display="none";
   document.getElementById("sport-tag").textContent="Ladder Challenge";
   document.querySelectorAll(".menu-item").forEach(it=>it.classList.toggle("active",it.dataset.view==="ladder"));
-  document.getElementById("acc-badge").style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  var _ab1=document.getElementById("acc-badge");if(_ab1)_ab1.style.display="none";var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
   document.getElementById("side").style.display="none";
   document.querySelector(".shell").style.gridTemplateColumns="1fr";
   document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
@@ -4000,7 +4048,67 @@ function pickCardHTML(p,isFree){const pct=Math.round(p.prob*100);const slabel=(S
     '<div class="pick-match">'+p.match+(p.tournament?" \u00b7 "+p.tournament:"")+(p.event_time?" \u00b7 "+p.event_time:"")+'</div>'+
     oddsLine+
     '<div class="pick-reason">'+(p.reason||"")+'</div>'+lineMoveHTML(p)+premiumBlock+
-    '<button class="pick-track" data-sport="'+p.sport+'" data-odds="'+(p.market_odds!=null?p.market_odds:"")+'" data-desc="'+_attr(p.pick+(p.match?" \u2014 "+p.match:""))+'" onclick="trackPickFromEl(event,this)">+ Track this pick</button></div>';}
+    '<div class="pick-acts">'+
+      '<button class="pick-track" data-sport="'+p.sport+'" data-odds="'+(p.market_odds!=null?p.market_odds:"")+'" data-desc="'+_attr(p.pick+(p.match?" \u2014 "+p.match:""))+'" onclick="trackPickFromEl(event,this)">+ Track this pick</button>'+
+      '<button class="pick-share" title="Copy a shareable card" data-share="'+_attrNL(sharePayload(p))+'" onclick="sharePick(event,this)">\u2934 Share</button>'+
+    '</div></div>';}
+// ===== Share a pick =====
+// Lowers the friction for someone to market for you. Deliberately shares a
+// RECEIPT, not a hype line: the model's number, the market's number, the edge,
+// and the transparency claim. It reads like evidence, which is the only kind of
+// sharing that survives contact with a sceptical timeline.
+function sharePayload(p){
+  var L=[];
+  var pct=Math.round((p.prob||0)*100);
+  var sp=((typeof SPORT_LABEL!=="undefined"&&SPORT_LABEL[p.sport])||p.sport||"").toUpperCase();
+  L.push("\uD83D\uDCCA "+(sp?sp+" \u2014 ":"")+(p.pick||""));
+  if(p.match)L.push(p.match);
+  var bits=["Model "+pct+"%"];
+  if(p.market_odds!=null)bits.push("Market "+fmtOdds(p.market_odds));
+  if(p.edge_pct!=null)bits.push((p.edge_pct>=0?"+":"")+p.edge_pct+"% edge");
+  L.push(bits.join(" \u00b7 "));
+  L.push("");
+  L.push("Every pick graded, win or lose \u2014 nothing deleted.");
+  L.push("thelinelogic.com");
+  return L.join("\n");
+}
+function sharePick(ev,el){
+  if(ev){ev.stopPropagation();ev.preventDefault();}
+  var txt=el.getAttribute("data-share")||"";
+  function done(){
+    var old=el.innerHTML;el.innerHTML="\u2713 Copied";el.classList.add("ok");
+    setTimeout(function(){el.innerHTML=old;el.classList.remove("ok");},1600);
+  }
+  // Native share sheet on mobile is the better experience where it exists;
+  // clipboard everywhere else; and a manual-select fallback for old browsers so
+  // the button is never a dead end.
+  if(navigator.share){
+    navigator.share({text:txt}).then(done).catch(function(){copyText(txt,done,el);});
+    return;
+  }
+  copyText(txt,done,el);
+}
+function copyText(txt,ok,el){
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(txt).then(ok).catch(function(){legacyCopy(txt,ok,el);});
+      return;
+    }
+  }catch(e){}
+  legacyCopy(txt,ok,el);
+}
+function legacyCopy(txt,ok,el){
+  try{
+    var ta=document.createElement("textarea");
+    ta.value=txt;ta.setAttribute("readonly","");
+    ta.style.position="fixed";ta.style.top="-1000px";
+    document.body.appendChild(ta);ta.select();
+    var good=document.execCommand("copy");
+    document.body.removeChild(ta);
+    if(good){ok();return;}
+  }catch(e){}
+  if(el){el.innerHTML="Copy failed";setTimeout(function(){el.innerHTML="\u2934 Share";},1600);}
+}
 function bindPickCards(){document.querySelectorAll(".pick-card").forEach(c=>{
   c.onclick=()=>{const s=c.dataset.sport,id=c.dataset.id;
     if(s==="mlb"){sport="mlb";openMLBDetail(id);}
@@ -4015,7 +4123,7 @@ window.addEventListener("hashchange",()=>{if(!location.hash&&detailId)closeDetai
     await loadAccuracy();
     try{const _sm=await getJSON("/api/sports");if(Array.isArray(_sm)&&_sm.length){SPORTS_META=_sm.map(function(s){return {key:s.key,emoji:s.emoji,label:s.label,blurb:(s.blurb||s.source||""),color:s.color,team:!!s.team,has_props:!!s.has_props,active:(s.active!==false)};});applySportsMeta();if(document.getElementById("home").classList.contains("show"))renderHome();}}catch(e){}
     const h=location.hash||"";
-    if(h.indexOf("#m")===0){view="sport";sport="tennis";document.getElementById("home").classList.remove("show");document.getElementById("main").style.display="";await reload();openDetail(parseInt(h.slice(2)));}
+    if(h.indexOf("#m")===0){view="sport";sport="tennis";document.getElementById("home").classList.remove("show");document.getElementById("main").style.display="";toTop();await reload();openDetail(parseInt(h.slice(2)));}
     else if(h.indexOf("#g")===0){setSport("mlb");openMLBDetail(h.slice(2));}
     else if(h.indexOf("#t")===0){openHome();}
     else{openHome();}
@@ -4294,7 +4402,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=21"></script>
+<script src="/ll-enhance.js?v=24"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
