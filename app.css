@@ -1624,3 +1624,5 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .pick-share:hover{border-color:var(--accent);color:var(--accent)}
 .pick-share:active{transform:scale(.98)}
 .pick-share.ok{border-color:var(--win);color:var(--win);background:rgba(95,200,138,.10)}
+/* hero stat: a quieter note beside the headline number (e.g. game total) */
+.proj-line .pl-note{color:var(--muted-2);font-size:10px;text-transform:none;letter-spacing:0}

@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=25">
+<link rel="stylesheet" href="/app.css?v=27">
 </head>
 <body>
 <div class="shell">
@@ -1379,6 +1379,39 @@ function teamFactorsHTML(g,sp){
     '<div class="fac"><span class="va">'+aa+'</span><span class="lab"></span><span class="vb">'+ah+'</span></div>'+
     rows+summary;
 }
+// ===== Per-sport hero stat =====
+// MLB's detail leads with a big "PROJECTED RUNS" band and it's the number
+// people quote back. Every other sport buried its equivalent in a stats table.
+// One memorable number per sport, in the same visual slot, using the projection
+// that sport actually produces — margin for team sports, goals for soccer,
+// win probability where that's genuinely all the model has (UFC).
+function heroStatHTML(g,sp){
+  if(!g)return "";
+  var A=(g.away&&(g.away.abbr||g.away.name))||"Away";
+  var H=(g.home&&(g.home.abbr||g.home.name))||"Home";
+  // soccer: expected goals
+  if(sp==="soccer"&&g.exp_goals_home!=null&&g.exp_goals_away!=null){
+    return '<div class="proj-line"><span class="pr">'+A+' <b>'+g.exp_goals_away+'</b></span>'+
+      ' projected goals <span class="pr"><b>'+g.exp_goals_home+'</b> '+H+'</span></div>';
+  }
+  // team sports: expected margin, stated as "who by how much"
+  if(g.exp_margin!=null&&!isNaN(g.exp_margin)){
+    var m=Math.abs(g.exp_margin);
+    if(m<0.05)return '<div class="proj-line">projected margin <span class="pr"><b>even</b></span></div>';
+    var fav=(g.exp_margin>0)?H:A;
+    return '<div class="proj-line">projected margin <span class="pr">'+fav+
+      ' by <b>'+m.toFixed(1)+'</b></span>'+
+      (g.avg_total!=null?' <span class="pl-note">\u00b7 total '+g.avg_total+'</span>':'')+'</div>';
+  }
+  // last resort — a win probability is still one number worth leading with
+  if(g.prob_home!=null){
+    var ph=Math.round(g.prob_home*100);
+    var lead=(ph>=50)?H:A, lp=(ph>=50)?ph:100-ph;
+    return '<div class="proj-line">model favours <span class="pr">'+lead+
+      ' <b>'+lp+'%</b></span></div>';
+  }
+  return "";
+}
 function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status==="live";const ph=Math.round(g.prob_home*100),pa=100-ph;
   const sa=g.score&&g.score.away!=null?g.score.away:"",sh=g.score&&g.score.home!=null?g.score.home:"";
   let statTxt=live?'<span class="live-tag"><span class="pulse"></span>'+((g.score&&g.score.detail)||"Live")+'</span>':fin?"Final":(g.event_time||(g.score&&g.score.detail)||"Scheduled");
@@ -1388,6 +1421,7 @@ function renderTeamDetail(g,sp){const fin=g.status==="finished",live=g.status===
     '<img src="'+(g.home.logo||"")+'" onerror="this.style.visibility=\'hidden\'"></div>'+
     '<div class="d-score"><span>'+g.away.name+(g.away.record?' &middot; '+g.away.record:"")+'</span></div>'+
     '<div class="d-score"><span>'+g.home.name+(g.home.record?' &middot; '+g.home.record:"")+'</span></div>'+
+    heroStatHTML(g,sp)+
     ((g.status==="live"&&sp==="ncaabb")?ncaabbLiveBarHTML(g):(g.status==="live"&&(sp==="nfl"||sp==="ncaaf"))?nflLiveBarHTML(g):(g.status==="live"&&sp==="nba")?nbaLiveBarHTML(g):(g.status==="live"&&sp==="nhl")?nhlLiveBarHTML(g):(g.status==="live"&&sp==="ncaab")?ncaabLiveBarHTML(g):(g.status==="live"&&sp==="wncaab")?wncaabLiveBarHTML(g):g.status==="live"?predBarHTML(g.away.abbr,pa,g.home.abbr,ph,g.status):dPredBar(g.away.abbr,pa,g.home.abbr,ph))+((g.status==="live"&&(sp==="nfl"||sp==="ncaaf"))?nflFieldHTML(g):(g.status==="live"&&sp==="ncaabb")?mlbSituationHTML(g):"")+'</div>';
   const propsTab=(sp==="nba"||sp==="wnba"||sp==="nfl")?'<button class="d-tab '+(teamDetailTab==="props"?"active":"")+'" onclick="setTeamTab(\'props\')">Props</button>':'';
   const tabs='<div class="d-tabs"><button class="d-tab '+(teamDetailTab==="prediction"?"active":"")+'" onclick="setTeamTab(\'prediction\')">Prediction</button>'+propsTab+
@@ -1856,7 +1890,7 @@ function renderUFCDetail(g){
       '<div class="tale-head"><span class="th-a">'+(F[0].name||"")+'</span><span></span><span class="th-h">'+(F[1].name||"")+'</span></div>'+body+bars+why+'</div>';
   }
   document.getElementById("detail").innerHTML='<button class="back" onclick="goBack()">\u2039 Back to card</button>'+
-    '<div class="detail-wrap">'+head+mvMount("ufc",g.id)+fighters+ufcBarHTML(g)+edge+reason+tale+rest+'</div>';
+    '<div class="detail-wrap">'+head+mvMount("ufc",g.id)+fighters+heroStatHTML(g,'ufc')+ufcBarHTML(g)+edge+reason+tale+rest+'</div>';
 }
 async function loadSoccer(){
   let d;try{d=await getJSON("/api/soccer/games?league="+soccerLeague+"&date="+ymd(selected));}catch(e){d={games:[],leagues:[]};}
@@ -2052,7 +2086,7 @@ function renderSoccerDetail(g){
     '<img src="'+(g.home.logo||"")+'" onerror="this.style.visibility=\'hidden\'"></div>'+
     '<div class="d-score"><span>'+g.away.name+(g.away.record?" &middot; "+g.away.record:"")+'</span></div>'+
     '<div class="d-score"><span>'+g.home.name+(g.home.record?" &middot; "+g.home.record:"")+'</span></div>'+
-    soccerBarHTML(g,true)+'</div>';
+    heroStatHTML(g,'soccer')+soccerBarHTML(g,true)+'</div>';
   const tabs='<div class="d-tabs"><button class="d-tab '+(soccerDetailTab==="prediction"?"active":"")+'" onclick="setSoccerTab(\'prediction\')">Prediction</button>'+
     '<button class="d-tab '+(soccerDetailTab==="events"?"active":"")+'" onclick="setSoccerTab(\'events\')">Match Events</button>'+
     '<button class="d-tab '+(soccerDetailTab==="box"?"active":"")+'" onclick="setSoccerTab(\'box\')">Live Stats</button><button class="d-tab '+(soccerDetailTab==="props"?"active":"")+'" onclick="setSoccerTab(\'props\')">Props</button></div>';
@@ -3088,6 +3122,8 @@ function renderTransparency(){
 // actually move a number; a changelog padded with cosmetics stops being read.
 var CHANGELOG=[
   {v:"3.2", date:"2026-07-23", items:[
+    "Every sport now leads its matchup page with one headline projection \u2014 margin for team sports, goals for soccer \u2014 instead of burying it in a stats table the way only MLB avoided.",
+    "Your starred teams now order the homepage \u2014 follow three MLB teams and MLB leads your board. Sport, board sort and prop filter are also remembered between visits.",
     "Added an operations health endpoint so odds-provider outages, quota exhaustion and unloaded model files surface immediately instead of quietly degrading picks.",
     "Added a <b>Share</b> button to every pick \u2014 copies the model number, the market number and the edge, so what gets shared is a receipt rather than a hype line.",
     "Tennis units and ROI now count <b>ATP and WTA only</b>. Challenger pricing is thin and moves hard, so including it described a market you can\u2019t reliably bet. Challenger and ITF results are still shown in full \u2014 they just no longer move the tracked bankroll.",
@@ -3508,8 +3544,21 @@ async function loadLadderCard(){
 }
 function renderHome(){
   loadLadderCard();
+  // Personalised ordering. Favourites already exist ("My Board") but only ever
+  // fed a separate page — they never changed what you see first. If someone has
+  // starred three Braves games, MLB should lead their homepage without them
+  // asking. Falls back to the flagship-first order for a new visitor.
+  var _favSports={};
+  try{
+    (JSON.parse(localStorage.getItem("ll_favs")||"[]")||[]).forEach(function(f){
+      if(f&&f.s)_favSports[f.s]=(_favSports[f.s]||0)+1;});
+  }catch(e){}
   const tiles=SPORTS_META.filter(function(s){return s.active!==false;})
-    .slice().sort(function(a,b){return (a.key==="mlb"?-1:0)-(b.key==="mlb"?-1:0);})
+    .slice().sort(function(a,b){
+      var fa=_favSports[a.key]||0, fb=_favSports[b.key]||0;
+      if(fa!==fb)return fb-fa;                       // most-followed first
+      return (a.key==="mlb"?-1:0)-(b.key==="mlb"?-1:0);   // then the flagship
+    })
     .map(function(s){return [s.key,s.emoji,s.label,s.blurb];});
   const acc=_accData&&_accData.by_sport||{};
   const tileHTML=tiles.map(t=>{const a=acc[t[0]];const am=(a&&a.accuracy!=null)?'<div class="acc-mini">'+a.accuracy+'%<span>30d</span></div>':"";
@@ -4403,7 +4452,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=25"></script>
+<script src="/ll-enhance.js?v=27"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
