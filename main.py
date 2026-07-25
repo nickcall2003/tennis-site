@@ -6499,8 +6499,14 @@ def picks_quick(date: str | None = None, sport: str | None = None,
             "market_odds": p.get("market_odds"), "fair_odds": p.get("fair_odds"),
             "edge_pct": p.get("edge_pct"), "event_time": p.get("event_time"),
             # tour level (tennis: ATP/WTA/CHALLENGER/ITF) so clients can filter
-            # out low-tier events where lines are thin and edges are often noise
-            "tier": p.get("tier"), "tournament": p.get("tournament"),
+            # out low-tier events where lines are thin and edges are often noise.
+            # The tennis play object stores this as `subcat`; falling back to it
+            # is essential — without it `tier` is always null and the alert bot's
+            # ITF/CHALLENGER exclusion silently never fires.
+            "tier": p.get("tier") or p.get("subcat"), "tournament": p.get("tournament"),
+            # machine-readable start so alerts can refuse to fire on a match that
+            # has already begun (the event_time string above is display-only).
+            "start_ts": p.get("start_ts") or p.get("commence_time") or p.get("start"),
         })
     # cache the unfiltered board so later calls (any filter) are instant
     if not sport and min_prob <= 0 and min_edge <= 0:
