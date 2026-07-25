@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=27">
+<link rel="stylesheet" href="/app.css?v=28">
 </head>
 <body>
 <div class="shell">
@@ -1206,12 +1206,33 @@ function driverSide(d,accentPos){
 function driversHTML(g){
   var d=g&&g.drivers; if(!d||!d.home||!d.away)return "";
   var m=d.margin;
-  return '<div class="stat-sec">How the projection was built</div>'+
-    '<div class="dv-intro">Every number below is a multiplier the model actually applied, in order. '+
-    'Multiply the chain and you get the projection \u2014 nothing hidden, nothing rounded away.</div>'+
-    '<div class="dv-wrap">'+driverSide(d.away)+driverSide(d.home)+'</div>'+
-    (m!=null?'<div class="dv-margin">Projected margin: <b>'+(m>0?d.home.team:d.away.team)+
-      ' by '+Math.abs(m).toFixed(2)+' runs</b></div>':"");
+  // Progressive disclosure. The full multiplier chain is the proof, but it's a
+  // lot of rows and most readers just want the number. Lead with the one-line
+  // takeaway; the chain is one tap away for anyone who wants to audit it. The
+  // proof stays fully present — it's just not the first thing you scroll past.
+  var summary=(m!=null)
+    ? '<b>'+(m>0?d.home.team:d.away.team)+'</b> by <b>'+Math.abs(m).toFixed(2)+'</b> projected runs'
+    : 'Projection breakdown';
+  return '<div class="dv-collapse">'+
+    '<button class="dv-toggle" onclick="toggleDrivers(this)" aria-expanded="false">'+
+      '<span class="dv-sum">\uD83D\uDCC8 '+summary+'</span>'+
+      '<span class="dv-caret">Show how \u25be</span>'+
+    '</button>'+
+    '<div class="dv-body" hidden>'+
+      '<div class="dv-intro">Every number below is a multiplier the model actually applied, in order. '+
+      'Multiply the chain and you get the projection \u2014 nothing hidden, nothing rounded away.</div>'+
+      '<div class="dv-wrap">'+driverSide(d.away)+driverSide(d.home)+'</div>'+
+    '</div>'+
+    '</div>';
+}
+function toggleDrivers(btn){
+  var body=btn.parentNode.querySelector(".dv-body");
+  if(!body)return;
+  var open=body.hasAttribute("hidden");
+  if(open){body.removeAttribute("hidden");}else{body.setAttribute("hidden","");}
+  btn.setAttribute("aria-expanded",open?"true":"false");
+  var caret=btn.querySelector(".dv-caret");
+  if(caret)caret.innerHTML=open?"Hide \u25b4":"Show how \u25be";
 }
 // The AI write-up prompt asks for plain prose, but models return markdown
 // anyway ("# Braves vs. Padres Preview"), and it was rendering literally with
@@ -3122,6 +3143,7 @@ function renderTransparency(){
 // actually move a number; a changelog padded with cosmetics stops being read.
 var CHANGELOG=[
   {v:"3.2", date:"2026-07-23", items:[
+    "The MLB driver breakdown now leads with the projected margin and expands to the full multiplier chain on tap \u2014 the proof is all still there, just no longer the first thing you scroll past.",
     "Every sport now leads its matchup page with one headline projection \u2014 margin for team sports, goals for soccer \u2014 instead of burying it in a stats table the way only MLB avoided.",
     "Your starred teams now order the homepage \u2014 follow three MLB teams and MLB leads your board. Sport, board sort and prop filter are also remembered between visits.",
     "Added an operations health endpoint so odds-provider outages, quota exhaustion and unloaded model files surface immediately instead of quietly degrading picks.",
@@ -3896,6 +3918,14 @@ function _confBits(modelProb,edge){
   var segs="";for(var i=1;i<=3;i++){segs+='<span class="pr-cseg'+(i<=cn?" on c"+cn:"")+'"></span>';}
   return {cn:cn,conf:conf,segs:segs};
 }
+// Per-pick freshness. The global hero shows when data was last pulled; this
+// surfaces the same signal on an individual prediction so a stale line is
+// visible where it matters \u2014 right next to the number you might bet.
+function freshStampHTML(){
+  var t=(typeof freshnessText==="function")?freshnessText():"";
+  if(!t)return "";
+  return '<div class="pr-fresh">\u23f1 '+t+'</div>';
+}
 function predictionReportHTML(g,sp){
   // Consolidated "terminal" header — assembles fields the model ALREADY produces
   // (winner, win prob, confidence, expected score, edge, recommended bet). No
@@ -3960,7 +3990,7 @@ function predictionReportHTML(g,sp){
   return '<div class="pr-card">'+
     '<div class="pr-top"><div><div class="pr-k">Predicted Winner</div><div class="pr-win">'+wname+' '+_fav+'</div></div>'+
       '<div class="pr-wp"><div class="pr-wpn">'+wpct+'%</div><div class="pr-k">win prob</div></div></div>'+
-    '<div class="pr-conf"><span class="pr-k">Confidence</span><span class="pr-cbar">'+segs+'</span><span class="pr-clab c'+cn+'">'+conf.toUpperCase()+'</span></div>'+
+    freshStampHTML()+'<div class="pr-conf"><span class="pr-k">Confidence</span><span class="pr-cbar">'+segs+'</span><span class="pr-clab c'+cn+'">'+conf.toUpperCase()+'</span></div>'+
     (cells?'<div class="pr-grid">'+cells+'</div>':"")+rec+'</div>';
 }
 function tennisReportHTML(m){
@@ -4007,7 +4037,7 @@ function tennisReportHTML(m){
   return '<div class="pr-card">'+
     '<div class="pr-top"><div><div class="pr-k">Predicted Winner</div><div class="pr-win">'+wname+' '+_fav+'</div></div>'+
       '<div class="pr-wp"><div class="pr-wpn">'+wpct+'%</div><div class="pr-k">win prob</div></div></div>'+
-    '<div class="pr-conf"><span class="pr-k">Confidence</span><span class="pr-cbar">'+segs+'</span><span class="pr-clab c'+cn+'">'+conf.toUpperCase()+'</span></div>'+
+    freshStampHTML()+'<div class="pr-conf"><span class="pr-k">Confidence</span><span class="pr-cbar">'+segs+'</span><span class="pr-clab c'+cn+'">'+conf.toUpperCase()+'</span></div>'+
     '<div class="pr-grid">'+cells+'</div>'+rec+'</div>';
 }
 function edgeLineHTML(g,homeWP){
@@ -4452,7 +4482,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=27"></script>
+<script src="/ll-enhance.js?v=28"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

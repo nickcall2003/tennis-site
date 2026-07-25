@@ -1626,3 +1626,17 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .pick-share.ok{border-color:var(--win);color:var(--win);background:rgba(95,200,138,.10)}
 /* hero stat: a quieter note beside the headline number (e.g. game total) */
 .proj-line .pl-note{color:var(--muted-2);font-size:10px;text-transform:none;letter-spacing:0}
+
+/* ===== Progressive disclosure: driver breakdown ===== */
+.dv-collapse{margin:12px 0 0;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:var(--panel-2)}
+.dv-toggle{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;
+  background:transparent;border:none;cursor:pointer;padding:14px 15px;text-align:left;
+  font-family:inherit;color:var(--ink)}
+.dv-toggle:hover{background:var(--panel-3)}
+.dv-sum{font-family:"Fraunces",serif;font-size:15px}
+.dv-sum b{color:var(--clay-bright)}
+.dv-caret{font-family:"Space Mono",monospace;font-size:11px;color:var(--accent);white-space:nowrap;flex:none}
+.dv-body{padding:0 13px 14px}
+.dv-body .dv-intro{margin-top:2px}
+.pr-fresh{font-family:"Space Mono",monospace;font-size:10px;color:var(--muted-2);
+  letter-spacing:.03em;margin:2px 0 8px}
