@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=28">
+<link rel="stylesheet" href="/app.css?v=29">
 </head>
 <body>
 <div class="shell">
@@ -59,7 +59,8 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-view="home">&#127968; Home</div>
           <div class="menu-item" data-view="record">&#128202; Track Record</div>
           <div class="menu-item" data-view="help">&#10067; How to use</div>
-          <div class="menu-sec">Sports</div>
+          <div class="menu-sec menu-gear open" id="sports-toggle" onclick="var s=document.getElementById('sports-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#127942; Sports</div>
+          <div id="sports-body">
           <div class="menu-item" data-sport="mlb">&#9918; MLB</div>
           <div class="menu-item" data-sport="tennis">&#127934; Tennis</div>
           <div class="menu-item" data-sport="nba">&#127936; NBA</div>
@@ -73,6 +74,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-sport="wncaab">&#127936; Women's CBB</div>
           <div class="menu-item" data-sport="soccer">&#9917; Soccer</div>
           <div class="menu-item" data-sport="ufc">&#129354; UFC</div>
+          </div>
           <div class="menu-sec menu-gear" id="offseason-toggle" style="display:none" onclick="var s=document.getElementById('offseason-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#128197; Off-season leagues</div>
           <div id="offseason-body" style="display:none"></div>
           <div class="menu-sec menu-gear open" onclick="var s=document.getElementById('picks-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#128081; Picks</div>
@@ -709,7 +711,18 @@ function setSport(s){view="sport";if(s===sport&&document.getElementById("main").
   toggleMenu(false);
   document.getElementById("list").innerHTML=sportLoader(s);   // play the new sport's animation on swap
   setTimeout(reload,520);}
-function toggleMenu(force){const m=document.getElementById("menu");const open=force===undefined?!m.classList.contains("open"):force;m.classList.toggle("open",open);}
+function toggleMenu(force){const m=document.getElementById("menu");const open=force===undefined?!m.classList.contains("open"):force;m.classList.toggle("open",open);
+  // On a phone the full sports list is a long scroll before you reach anything
+  // else. Collapse it by default on narrow screens the first time the menu
+  // opens; desktop keeps it expanded. The user's manual toggle sticks after.
+  if(open&&!m._sportsInit){
+    m._sportsInit=true;
+    if(window.matchMedia&&window.matchMedia("(max-width:760px)").matches){
+      var body=document.getElementById("sports-body"),tog=document.getElementById("sports-toggle");
+      if(body&&tog){body.style.display="none";tog.classList.remove("open");}
+    }
+  }
+}
 document.getElementById("menu-btn").onclick=e=>{e.stopPropagation();toggleMenu();};
 document.querySelectorAll(".menu-item").forEach(it=>it.onclick=()=>{toggleMenu(false);selectMenu(it);});
 document.addEventListener("click",()=>toggleMenu(false));
@@ -3143,6 +3156,8 @@ function renderTransparency(){
 // actually move a number; a changelog padded with cosmetics stops being read.
 var CHANGELOG=[
   {v:"3.2", date:"2026-07-23", items:[
+    "Recommended bets now include a bankroll calculator \u2014 enter your bankroll once and every unit recommendation shows the exact dollar stake and to-win. Stays on your device.",
+    "The sports list in the mobile menu is now collapsible, so the phone menu no longer opens to a wall of links.",
     "The MLB driver breakdown now leads with the projected margin and expands to the full multiplier chain on tap \u2014 the proof is all still there, just no longer the first thing you scroll past.",
     "Every sport now leads its matchup page with one headline projection \u2014 margin for team sports, goals for soccer \u2014 instead of burying it in a stats table the way only MLB avoided.",
     "Your starred teams now order the homepage \u2014 follow three MLB teams and MLB leads your board. Sport, board sort and prop filter are also remembered between visits.",
@@ -3926,6 +3941,46 @@ function freshStampHTML(){
   if(!t)return "";
   return '<div class="pr-fresh">\u23f1 '+t+'</div>';
 }
+// Bankroll -> dollars. "Bet 2.9u" is meaningless to a casual user until it's a
+// dollar figure. One input (their bankroll, remembered across visits) turns the
+// unit recommendation into an exact stake and to-win, updating live. Purely
+// client-side; nothing about their bankroll leaves the device.
+function bankrollCalcHTML(units,odds){
+  if(!units||units<=0||odds==null)return "";
+  var saved="";try{saved=localStorage.getItem("ll_bankroll")||"";}catch(e){}
+  return '<div class="brc" data-u="'+units+'" data-odds="'+odds+'">'+
+    '<div class="brc-row">'+
+      '<label class="brc-lab">Your bankroll</label>'+
+      '<div class="brc-inwrap">$<input class="brc-in" type="number" inputmode="numeric" '+
+        'placeholder="1000" value="'+_attr(saved)+'" oninput="brcCalc(this)"></div>'+
+    '</div>'+
+    '<div class="brc-out"'+(saved?'':' style="display:none"')+'>'+
+      (saved?_brcCompute(saved,units,odds):"")+
+    '</div>'+
+    '<div class="brc-note">1 unit = 1% of bankroll \u00b7 stays on your device</div>'+
+    '</div>';
+}
+function _brcCompute(bank,units,odds){
+  var b=parseFloat(bank);
+  if(!b||b<=0)return "";
+  var unitSize=b*0.01;                       // 1u = 1% of bankroll (standard)
+  var stake=unitSize*units;
+  var dec=(odds>0)?(odds/100+1):(100/(-odds)+1);
+  var toWin=stake*(dec-1);
+  var fmt=function(n){return "$"+n.toLocaleString(undefined,{maximumFractionDigits:2});};
+  return '<span class="brc-stake">Risk <b>'+fmt(stake)+'</b></span>'+
+         '<span class="brc-win">to win <b>'+fmt(toWin)+'</b></span>';
+}
+function brcCalc(inp){
+  var box=inp.closest(".brc");if(!box)return;
+  var units=parseFloat(box.getAttribute("data-u")),odds=parseFloat(box.getAttribute("data-odds"));
+  var out=box.querySelector(".brc-out");
+  var v=inp.value.trim();
+  try{if(v)localStorage.setItem("ll_bankroll",v);}catch(e){}
+  if(!v||parseFloat(v)<=0){out.style.display="none";out.innerHTML="";return;}
+  out.innerHTML=_brcCompute(v,units,odds);
+  out.style.display="";
+}
 function predictionReportHTML(g,sp){
   // Consolidated "terminal" header — assembles fields the model ALREADY produces
   // (winner, win prob, confidence, expected score, edge, recommended bet). No
@@ -3968,7 +4023,7 @@ function predictionReportHTML(g,sp){
       edgeVal=edge;
       cells+='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
       if(edge>=3){const k=kellyUnits(modelProb,mkt);
-        rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
+        rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>'+bankrollCalcHTML(k,mkt);
       }else{rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model agrees with the market \u2014 no edge here</span></div>';}
     }else{
       cells+='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v">off-market <span class="pr-sub">(model '+Math.round(modelProb*100)+'% vs market '+Math.round(mImp*100)+'% \u2014 line too thin to trust)</span></div></div>';
@@ -4024,7 +4079,7 @@ function tennisReportHTML(m){
       edgeVal=edge;
       cells='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v '+ec+'">'+(edge>=0?"+":"")+edge+'% <span class="pr-sub">(fair '+fmtOdds(fair)+' vs '+fmtOdds(mkt)+')</span></div></div>';
       if(edge>=3){const k=kellyUnits(modelProb,mkt);
-        rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>';
+        rec='<div class="pr-rec on"><span class="pr-rec-lab">\u2705 Recommended Bet</span><span class="pr-rec-v">'+lastName(wname)+" ML "+fmtOdds(mkt)+(k?' \u00b7 '+k+'u':"")+'</span></div>'+bankrollCalcHTML(k,mkt);
       }else{rec='<div class="pr-rec"><span class="pr-rec-lab">No play</span><span class="pr-rec-v">model agrees with the market \u2014 no edge here</span></div>';}
     }else{
       cells='<div class="pr-cell"><div class="pr-k">Edge vs Market</div><div class="pr-v">off-market <span class="pr-sub">(model '+wpct+'% vs market '+Math.round(mImp*100)+'% \u2014 line too thin to trust)</span></div></div>';
@@ -4482,7 +4537,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=28"></script>
+<script src="/ll-enhance.js?v=29"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
