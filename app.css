@@ -1698,3 +1698,7 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 .wt-sos.hard{color:var(--loss)} .wt-sos.soft{color:var(--win)}
 .wt-inj{font-family:"Space Mono",monospace;font-size:10.5px;padding:2px 8px;border-radius:5px;
   background:rgba(232,178,58,.10);color:#e8b23a}
+
+/* sharp-user tools sink to the bottom of More with a quieter treatment */
+.menu-item.menu-adv{opacity:.72;font-size:13px}
+.menu-item.menu-adv:hover{opacity:1}
