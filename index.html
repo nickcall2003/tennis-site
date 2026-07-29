@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=31">
+<link rel="stylesheet" href="/app.css?v=32">
 </head>
 <body>
 <div class="shell">
@@ -81,22 +81,21 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div id="picks-body">
           <div class="menu-item" data-view="free">&#11088; Free Picks</div>
           <div class="menu-item" data-view="best">&#128081; Best Bets</div>
+          <div class="menu-item" data-view="results">&#128203; Recent Results</div>
           <div class="menu-item" data-view="ladder">&#129948; Ladder Challenge</div>
           <div class="menu-item" data-view="myboard">&#11088; My Board</div>
-          <div class="menu-item" data-view="results">&#128203; Recent Results</div>
           <div class="menu-item" data-view="promote" id="promote-nav" style="display:none">&#128227; Promote</div>
-          <div class="menu-item" data-view="parlays">&#127922; Parlays</div>
           </div>
           <div class="menu-sec menu-gear" onclick="var s=document.getElementById('more-body');var o=s.style.display==='none';s.style.display=o?'':'none';this.classList.toggle('open',o);">&#8943; More</div>
           <div id="more-body" style="display:none">
-          <div class="menu-item" data-view="calibration">&#128208; Model Accuracy</div>
-          <div class="menu-item" data-view="transparency">&#128270; How the model works</div>
-          <div class="menu-item" data-view="simulator">&#129514; Edge Backtest</div>
           <div class="menu-item" data-view="wintotals">&#127942; Win Totals</div>
+          <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
+          <div class="menu-item" data-view="transparency">&#128270; How the model works</div>
           <div class="menu-item" data-view="bets">&#128176; My Bets</div>
           <div class="menu-item" id="menu-account" data-view="auth">&#128100; Sign in</div>
-          <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
           <div class="menu-item" data-view="stocks">&#128200; Markets</div>
+          <div class="menu-item menu-adv" data-view="calibration">&#128208; Model Accuracy</div>
+          <div class="menu-item menu-adv" data-view="simulator">&#129514; Edge Backtest</div>
           </div>
           <div class="menu-sec menu-gear" id="settings-toggle" onclick="var s=document.getElementById('settings-body');var o=s.style.display==='none';s.style.display=o?'block':'none';this.classList.toggle('open',o);">&#9881;&#65039; Display &amp; settings</div>
           <div id="settings-body" style="display:none">
@@ -3740,7 +3739,6 @@ function renderHome(){
       '<div class="home-pick-btn best" onclick="openPicks(\'best\')"><div class="nm">\u{1f451} Best Bets</div><div class="sub">The full model board, filterable and in-depth.</div></div>'+
     '</div>'+
     '<div class="home-picks" style="margin-top:13px">'+
-      '<div class="home-pick-btn" style="background:var(--panel-2)" onclick="openParlays()"><div class="nm">\u{1F3AB} Parlays</div><div class="sub">The day\u2019s locked model parlays with a 30-day unit record.</div></div>'+
       '<div class="home-pick-btn" style="background:var(--panel-2)" onclick="openNews()"><div class="nm">\u{1F4F0} News &amp; Injuries</div><div class="sub">Headlines and the injury report for today\u2019s games.</div></div>'+
     '</div>'+
     '<div class="home-picks" style="margin-top:13px">'+
@@ -4647,7 +4645,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=31"></script>
+<script src="/ll-enhance.js?v=32"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
