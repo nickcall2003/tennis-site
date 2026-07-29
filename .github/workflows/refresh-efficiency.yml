@@ -1,0 +1,73 @@
+name: Refresh efficiency ratings
+
+# Rebuilds the sport efficiency files (ncaab_ratings.json, ncaaf_sp.json,
+# nfl_stats.json) on GitHub's runners — which have internet, can install pandas,
+# and aren't IP-blocked the way Railway is — then commits the JSON back to the
+# repo. The live site just reads those committed files. Zero terminal needed.
+#
+# ONE-TIME SETUP (do this once, in the browser):
+#   Repo -> Settings -> Secrets and variables -> Actions -> New repository secret
+#     Name: CFBD_KEY      Value: <your free key from collegefootballdata.com>
+#   NCAAB (Torvik) and NFL (nflfastR) need no key.
+#
+# You can also trigger it by hand anytime: Actions tab -> this workflow -> Run.
+
+on:
+  schedule:
+    # Times are UTC. Each runs weekly DURING that sport's season only, so we
+    # never spend a run fetching data that doesn't exist yet.
+    # NCAAF — Sat mornings, Sep through early Jan
+    - cron: "0 12 * 9-12 6"
+    - cron: "0 12 1-7 1 6"
+    # NFL — Tue mornings (after Mon-night games settle), Sep through early Feb
+    - cron: "0 13 * 9-12 2"
+    - cron: "0 13 1-14 1-2 2"
+    # NCAAB — Mon mornings, Nov through early Apr
+    - cron: "0 12 * 11-12 1"
+    - cron: "0 12 * 1-4 1"
+  workflow_dispatch:      # the "Run workflow" button — build on demand anytime
+
+# Let the job push the regenerated JSON back to the repo.
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        # httpx for the CFBD/Torvik fetches; nfl_data_py + pandas for NFL EPA.
+        run: |
+          python -m pip install --upgrade pip
+          pip install httpx pandas nfl_data_py
+
+      - name: Rebuild efficiency files
+        env:
+          CFBD_KEY: ${{ secrets.CFBD_KEY }}
+          CFBD_API_KEY: ${{ secrets.CFBD_KEY }}
+        # Never fail the whole job just because one sport is out of season or a
+        # key isn't set — the script already exits 0 unless EVERYTHING failed.
+        run: |
+          python refresh_efficiency.py || true
+
+      - name: Commit any updated ratings
+        run: |
+          git config user.name  "efficiency-bot"
+          git config user.email "actions@github.com"
+          # Only the generated files; nothing else the run might touch.
+          git add ncaab_ratings.json ncaaf_sp.json nfl_stats.json 2>/dev/null || true
+          if git diff --staged --quiet; then
+            echo "No ratings changed — nothing to commit (likely out of season)."
+          else
+            git commit -m "chore: refresh efficiency ratings [skip ci]"
+            git push
+            echo "Committed updated efficiency ratings."
+          fi
