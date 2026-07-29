@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=32">
+<link rel="stylesheet" href="/app.css?v=33">
 </head>
 <body>
 <div class="shell">
@@ -3256,6 +3256,11 @@ function wtTeamCard(t){
   if(t.injuries_applied){
     ctx.push('<span class="wt-inj">\u26a1 injuries factored into '+t.injuries_applied+' game'+(t.injuries_applied>1?"s":"")+'</span>');
   }
+  if(t.model_source==="efficiency"){
+    ctx.push('<span class="wt-model">\uD83D\uDCD0 efficiency model</span>');
+  }else if(t.model_source==="elo"){
+    ctx.push('<span class="wt-model elo">Elo model</span>');
+  }
   var ctxHTML=ctx.length?'<div class="wt-ctx">'+ctx.join("")+'</div>':"";
   return '<div class="wt-card">'+
     '<button class="wt-cardhead" onclick="wtToggle(\''+id+'\')">'+
@@ -4645,7 +4650,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=32"></script>
+<script src="/ll-enhance.js?v=33"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

@@ -1702,3 +1702,6 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
 /* sharp-user tools sink to the bottom of More with a quieter treatment */
 .menu-item.menu-adv{opacity:.72;font-size:13px}
 .menu-item.menu-adv:hover{opacity:1}
+.wt-model{font-family:"Space Mono",monospace;font-size:10.5px;padding:2px 8px;border-radius:5px;
+  background:rgba(95,150,220,.12);color:var(--accent)}
+.wt-model.elo{background:var(--panel-3);color:var(--muted-2)}
