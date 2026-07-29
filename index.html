@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=29">
+<link rel="stylesheet" href="/app.css?v=31">
 </head>
 <body>
 <div class="shell">
@@ -92,6 +92,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
           <div class="menu-item" data-view="calibration">&#128208; Model Accuracy</div>
           <div class="menu-item" data-view="transparency">&#128270; How the model works</div>
           <div class="menu-item" data-view="simulator">&#129514; Edge Backtest</div>
+          <div class="menu-item" data-view="wintotals">&#127942; Win Totals</div>
           <div class="menu-item" data-view="bets">&#128176; My Bets</div>
           <div class="menu-item" id="menu-account" data-view="auth">&#128100; Sign in</div>
           <div class="menu-item" data-view="news">&#128240; News &amp; Injuries</div>
@@ -261,7 +262,7 @@ if (typeof window !== "undefined") {
 // same question a skeptical visitor asks: "is this thing actually alive and
 // maintained, or a dashboard someone abandoned?" A version string and a live
 // "updated N ago" answers it without a word of marketing copy.
-var MODEL_VERSION = "v3.2";   // keep in step with CHANGELOG[0].v
+var MODEL_VERSION = "v3.3";   // keep in step with CHANGELOG[0].v
 var _lastFetch = 0;
 function freshnessText(){
   if(!_lastFetch) return "";
@@ -684,6 +685,7 @@ function selectMenu(el){
   else if(el.dataset.view==="calibration"){openCalibration();}
   else if(el.dataset.view==="transparency"){openTransparency();}
   else if(el.dataset.view==="simulator"){openSimulator();}
+  else if(el.dataset.view==="wintotals"){openWinTotals();}
   else if(el.dataset.view==="value"){openValueBoard();}
   else if(el.dataset.view==="myboard"){openMyBoard();}
   else if(el.dataset.view==="promote"){openPromote();}
@@ -3155,6 +3157,10 @@ function renderTransparency(){
 // checkable instead of claimed. Newest first. Only add entries for changes that
 // actually move a number; a changelog padded with cosmetics stops being read.
 var CHANGELOG=[
+  {v:"3.3", date:"2026-07-24", items:[
+    "Win Totals now layer injuries and strength-of-schedule on top of the rating model \u2014 an opponent missing a key player shifts that game\u2019s projection, and each team shows whether its slate is hard or soft.",
+    "New Win Totals page: model-projected season wins for every team, walked game by game with a win probability on each. Book lines coming next \u2014 for now it\u2019s the pure projection.",
+  ]},
   {v:"3.2", date:"2026-07-23", items:[
     "Recommended bets now include a bankroll calculator \u2014 enter your bankroll once and every unit recommendation shows the exact dollar stake and to-win. Stays on your device.",
     "The sports list in the mobile menu is now collapsible, so the phone menu no longer opens to a wall of links.",
@@ -3185,6 +3191,110 @@ function calProb(sport,p){var c=CALIB[sport];if(!c||p==null||isNaN(p))return p;v
 function devigPair(oSide,oOther){function im(o){return o>0?100/(o+100):Math.abs(o)/(Math.abs(o)+100);}if(oOther==null)return im(oSide);var a=im(oSide),b=im(oOther);return (a+b)?a/(a+b):a;}
 (function loadCalib(){try{getJSON("/api/calib").then(function(d){if(d)CALIB=d;}).catch(function(){});}catch(e){}})();
 function setSimSport(s){simSport=s;renderSimulator();}
+// ===== Win Totals =====
+// Projected season wins from the schedule + Elo, walked game by game. No book
+// lines yet (projection-only MVP) — the walk-through is the value; the line is
+// just the comparison, and we'll wire it later rather than fake it now.
+var _wtSport=prefGet("wtsport","nfl");
+var WT_SPORTS=[["nfl","NFL"],["ncaaf","CFB"],["nba","NBA"],["ncaab","CBB"],["nhl","NHL"],["mlb","MLB"]];
+function openWinTotals(){view="wintotals";if(detailId)closeDetail();
+  document.getElementById("home").classList.remove("show");
+  document.getElementById("main").style.display="";toTop();
+  document.getElementById("detail").style.display="none";
+  document.getElementById("sport-tag").textContent="Win Totals";
+  document.querySelectorAll(".menu-item").forEach(function(it){it.classList.toggle("active",it.dataset.view==="wintotals");});
+  var _ab=document.getElementById("acc-badge");if(_ab)_ab.style.display="none";
+  var _tb=document.getElementById("today-badge");if(_tb)_tb.style.display="none";
+  document.getElementById("side").style.display="none";
+  document.querySelector(".shell").style.gridTemplateColumns="1fr";
+  document.getElementById("tabs").innerHTML="";document.getElementById("bubbles").innerHTML="";
+  var _db=document.getElementById("datebar");if(_db)_db.innerHTML="";
+  toggleMenu(false);renderWinTotals();}
+
+function setWtSport(s){_wtSport=s;prefSet("wtsport",s);renderWinTotals();}
+
+async function renderWinTotals(){
+  const list=document.getElementById("list");
+  var chips=WT_SPORTS.map(function(s){
+    return '<button class="wt-chip'+(_wtSport===s[0]?" active":"")+'" onclick="setWtSport(\''+s[0]+'\')">'+s[1]+'</button>';
+  }).join("");
+  var head='<div class="wt-head">'+
+    '<div class="wt-title">Season Win Totals</div>'+
+    '<div class="wt-sub">Model-projected wins, every game on the schedule walked one by one. '+
+    'Book lines coming soon \u2014 for now this is the pure projection.</div>'+
+    '<div class="wt-chips">'+chips+'</div></div>';
+  list.innerHTML=head+'<div id="wt-body">'+sportLoader(_wtSport,"Projecting the season")+'</div>';
+  var body=document.getElementById("wt-body");
+  var d;try{d=await getJSON("/api/wintotals/"+_wtSport);}catch(e){d=null;}
+  if(!body||!body.isConnected)return;
+  if(!d||d.error||!d.teams||!d.teams.length){
+    body.innerHTML='<div class="empty">No projections available for '+_wtSport.toUpperCase()+
+      ' right now \u2014 this fills in once the season schedule is posted.</div>';
+    return;
+  }
+  body.innerHTML=d.teams.map(wtTeamCard).join("");
+}
+
+function wtTeamCard(t){
+  var rec=t.projected_record||"";
+  var exp=(t.expected_wins!=null)?t.expected_wins.toFixed(1):"\u2014";
+  var played=(t.games_played?('<span class="wt-banked">'+t.actual_wins+'W banked \u00b7 '+t.games_played+' played</span>'):"");
+  // lean vs line only when a line exists; projection-only for now
+  var leanHTML="";
+  if(t.line!=null){
+    var up=(t.lean==="over");
+    leanHTML='<div class="wt-lean '+(t.lean||"none")+'">'+
+      (t.lean?((up?"OVER ":"UNDER ")+t.line+" ("+t.confidence+")"):"no edge vs "+t.line)+'</div>';
+  }
+  var id="wt_"+(t.team||"").replace(/[^a-z0-9]/gi,"");
+  // context strip: strength of schedule + injury note, so the projection isn't
+  // a bare number — you can see what's behind it
+  var ctx=[];
+  if(t.sos!=null&&t.sos_rank_hint){
+    var sc=(t.sos_rank_hint==="hard")?"hard":(t.sos_rank_hint==="soft")?"soft":"avg";
+    ctx.push('<span class="wt-sos '+sc+'">'+(t.sos>0?"+":"")+t.sos+' SOS \u00b7 '+t.sos_rank_hint+' slate</span>');
+  }
+  if(t.injuries_applied){
+    ctx.push('<span class="wt-inj">\u26a1 injuries factored into '+t.injuries_applied+' game'+(t.injuries_applied>1?"s":"")+'</span>');
+  }
+  var ctxHTML=ctx.length?'<div class="wt-ctx">'+ctx.join("")+'</div>':"";
+  return '<div class="wt-card">'+
+    '<button class="wt-cardhead" onclick="wtToggle(\''+id+'\')">'+
+      '<div class="wt-team">'+esc2(t.team)+'</div>'+
+      '<div class="wt-nums"><span class="wt-exp">'+exp+'</span><span class="wt-expk">proj wins</span></div>'+
+      '<span class="wt-caret" id="'+id+'_c">\u25be</span>'+
+    '</button>'+
+    '<div class="wt-meta">'+rec+' projected'+(played?' \u00b7 '+played:"")+leanHTML+'</div>'+
+    ctxHTML+
+    '<div class="wt-sched" id="'+id+'" hidden>'+wtSchedule(t.games)+'</div>'+
+    '</div>';
+}
+
+function wtSchedule(games){
+  if(!games||!games.length)return '<div class="wt-empty">Schedule not posted yet.</div>';
+  return '<div class="wt-games">'+games.map(function(g){
+    var res=g.played?g.result:g.projected;
+    var cls=g.played?(g.won?"w":"l"):(g.projected==="W"?"pw":"pl");
+    var loc=g.home?"vs":"@";
+    var wp=(g.win_prob!=null)?(g.win_prob+"%"):"";
+    return '<div class="wt-g">'+
+      '<span class="wt-mark '+cls+'">'+(res||"\u00b7")+'</span>'+
+      '<span class="wt-opp">'+loc+" "+esc2(g.opponent)+'</span>'+
+      '<span class="wt-wp'+(g.played?" done":"")+'">'+wp+'</span>'+
+      '</div>';
+  }).join("")+'</div>'+
+  '<div class="wt-legend">Solid = final result \u00b7 outline = projected \u00b7 % is model win probability</div>';
+}
+
+function wtToggle(id){
+  var el=document.getElementById(id),c=document.getElementById(id+"_c");
+  if(!el)return;
+  var open=el.hasAttribute("hidden");
+  if(open)el.removeAttribute("hidden");else el.setAttribute("hidden","");
+  if(c)c.style.transform=open?"rotate(180deg)":"";
+}
+function esc2(s){return (s==null?"":String(s)).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
 function openSimulator(){view="simulator";if(detailId)closeDetail();
   document.getElementById("home").classList.remove("show");
   document.getElementById("main").style.display="";toTop();
@@ -4537,7 +4647,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=29"></script>
+<script src="/ll-enhance.js?v=31"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>

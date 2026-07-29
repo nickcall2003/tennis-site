@@ -6460,6 +6460,53 @@ _quick_cache: dict = {}
 _QUICK_TTL = int(os.environ.get("PICKS_QUICK_TTL", "600"))   # seconds
 
 
+# ---- Win totals : projected season wins vs the book -------------------------
+WIN_TOTAL_SPORTS = {"nfl", "ncaaf", "nba", "ncaab", "nhl", "mlb"}
+_wt_cache: dict = {}
+_WT_TTL = int(os.environ.get("WIN_TOTALS_TTL", "3600"))   # schedules move slowly
+
+
+@app.get("/api/wintotals/{sport}")
+def win_totals_league(sport: str):
+    """Whole-league win-total projections. Projection-only for now (no book
+    lines wired), ranked by projected wins."""
+    sport = sport.lower()
+    if sport not in WIN_TOTAL_SPORTS:
+        return {"error": "unsupported", "supported": sorted(WIN_TOTAL_SPORTS)}
+    now = time.time()
+    hit = _wt_cache.get(sport)
+    if hit and now - hit[0] < _WT_TTL:
+        return hit[1]
+    try:
+        import win_totals_provider as WTP
+        data = WTP.project_league(sport)
+    except Exception as e:
+        print(f"[wintotals] {sport} failed: {e}")
+        return {"error": "unavailable"}
+    _wt_cache[sport] = (now, data)
+    return data
+
+
+@app.get("/api/wintotals/{sport}/{team_id}")
+def win_totals_team(sport: str, team_id: str):
+    """One team's projected win total + game-by-game walk-through."""
+    sport = sport.lower()
+    if sport not in WIN_TOTAL_SPORTS:
+        return {"error": "unsupported"}
+    try:
+        import win_totals_provider as WTP
+        teams = {t["team_id"]: t for t in WTP.league_teams(sport)}
+        meta = teams.get(str(team_id))
+        name = meta["name"] if meta else str(team_id)
+        pr = WTP.project_team(sport, str(team_id), name)
+    except Exception as e:
+        print(f"[wintotals] team {team_id} failed: {e}")
+        return {"error": "unavailable"}
+    if not pr:
+        return {"error": "not_found"}
+    return pr
+
+
 @app.get("/api/picks/quick")
 def picks_quick(date: str | None = None, sport: str | None = None,
                 min_prob: float = 0.0, min_edge: float = 0.0):
