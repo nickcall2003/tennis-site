@@ -402,6 +402,9 @@ class CapperPick(Base):
     market_odds: Mapped[int | None] = mapped_column(Integer, nullable=True)
     market_type: Mapped[str] = mapped_column(String(8), default="ml", index=True)  # ml | total | spread
     line: Mapped[float | None] = mapped_column(Float, nullable=True)  # total/spread number; None for ml
+    close_line: Mapped[float | None] = mapped_column(Float, nullable=True)  # closing total/spread number
+    close_odds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # closing price for the picked side
+    close_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # when the close was frozen
     stake_units: Mapped[float] = mapped_column(Float, default=1.0)
     prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|win|loss|push

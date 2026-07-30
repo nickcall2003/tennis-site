@@ -639,6 +639,26 @@ async def lifespan(app: FastAPI):
         import threading as _thr_gt
         _thr_gt.Thread(target=_golf_tracker_bg, daemon=True).start()
 
+    # Closing-line capture for tracked (tournament) picks — snapshots each pending
+    # spread/total/ml pick's book line while its game is pre-game and freezes it at
+    # start, so the leaderboard can show CLV ("did they beat the close"). Cheap: the
+    # book reads share SGO's cached per-league slate. Disable with CAPPER_CLOSES=0.
+    if run_bg and os.environ.get("CAPPER_CLOSES", "1") == "1":
+        def _capper_closes_bg():
+            import time as _t
+            _t.sleep(160)   # let startup settle + pass healthcheck
+            import capper_routes as _cap
+            while True:
+                try:
+                    n = _cap.sweep_closes()
+                    if n:
+                        print(f"[capper-closes] snapshotted {n} pick(s)")
+                except Exception as e:
+                    print(f"[capper-closes] loop error: {e}")
+                _t.sleep(int(os.environ.get("CAPPER_CLOSES_SECS", "600") or 600))
+        import threading as _thr_cc
+        _thr_cc.Thread(target=_capper_closes_bg, daemon=True).start()
+
     # AI narration warmer — pre-narrates today's board in the background so user
     # page loads are instant and fully Claude-written. No-op without a key.
     if run_bg and LLM_COMPLETE is not None:
