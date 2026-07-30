@@ -2440,20 +2440,32 @@ def _capper_pick_won(pick_text, match_text, actual):
     return a in p                        # name-based result
 
 
-def _capper_apply_result(r, actual):
-    """Set status/units on a CapperPick from a settled result. Returns True if
-    the pick was graded, False if it stays pending."""
-    a = str(actual or "").strip().lower()
+def _capper_side_of(match, pick):
+    """Which side ('home'|'away') a capper pick sits on, by token overlap between
+    the pick's team words and each side of 'Away @ Home'. None if ambiguous. Uses
+    the SAME token logic capture uses to place the side, so the two always agree."""
+    import re as _re
+    parts = _re.split(r"\s+@\s+|\s+vs\.?\s+", match or "")
+    if len(parts) != 2:
+        return None
+    away_nm, home_nm = parts[0].strip(), parts[1].strip()
+
+    def _toks(s):
+        return set(w for w in _re.sub(r"[^a-z ]", " ", (s or "").lower()).split() if len(w) > 2)
+    pset, hset, aset = _toks(pick), _toks(home_nm), _toks(away_nm)
+    hh, ah = len(pset & hset), len(pset & aset)
+    if hh > ah:
+        return "home"
+    if ah > hh:
+        return "away"
+    return None
+
+
+def _capper_settle_units(r, won):
+    """Set status + units on r for a decided win/loss at its captured odds."""
     stake = r.stake_units or 1.0
-    if a in ("canceled", "cancelled", "void", "draw", "push"):
-        r.status, r.units_pl = "push", 0.0
-        r.graded_at = dt.datetime.now()
-        return True
-    won = _capper_pick_won(r.pick, r.match, actual)
-    if won is None:
-        return False                     # undecidable — leave pending
-    r.status = "win" if won else "loss"
     odds = r.market_odds
+    r.status = "win" if won else "loss"
     if not won:
         r.units_pl = -stake
     elif odds is None:
@@ -2463,6 +2475,73 @@ def _capper_apply_result(r, actual):
     else:
         r.units_pl = stake * (100.0 / abs(odds))
     r.graded_at = dt.datetime.now()
+
+
+def _capper_line_result(r):
+    """Grade a total (over/under) against the final score persisted in game_store.
+    Returns 'win' | 'loss' | 'push', or None if the score isn't available yet
+    (leave the pick pending). Spread grading slots in here once spread capture
+    ships; for now only totals are produced."""
+    if r.line is None:
+        return None
+    try:
+        import game_store
+        sc = game_store.game_final_score(r.sport, r.ref, r.event_date)
+    except Exception:
+        sc = None
+    if not sc:
+        return None
+    home, away = sc
+    mtype = (getattr(r, "market_type", None) or "ml").lower()
+    if mtype == "total":
+        combined = home + away
+        side = (r.pick or "").lower()
+        if "over" in side:
+            over = True
+        elif "under" in side:
+            over = False
+        else:
+            return None
+        if combined == r.line:
+            return "push"
+        hit = (combined > r.line) if over else (combined < r.line)
+        return "win" if hit else "loss"
+    if mtype == "spread":
+        which = _capper_side_of(r.match, r.pick)
+        if which is None:
+            return None
+        margin = (home - away) if which == "home" else (away - home)
+        adj = margin + r.line          # r.line is signed from the picked side's view
+        if adj == 0:
+            return "push"
+        return "win" if adj > 0 else "loss"
+    return None
+
+
+def _capper_apply_result(r, actual):
+    """Set status/units on a CapperPick from a settled result. Returns True if
+    graded, False if it stays pending. Moneyline grades off the settled winner
+    (`actual`); totals/spreads grade off the final score in game_store."""
+    a = str(actual or "").strip().lower()
+    if a in ("canceled", "cancelled", "void", "draw", "push"):
+        r.status, r.units_pl = "push", 0.0
+        r.graded_at = dt.datetime.now()
+        return True
+    mtype = (getattr(r, "market_type", None) or "ml").lower()
+    if mtype in ("total", "spread"):
+        outcome = _capper_line_result(r)
+        if outcome is None:
+            return False                 # score not persisted yet — stay pending
+        if outcome == "push":
+            r.status, r.units_pl = "push", 0.0
+            r.graded_at = dt.datetime.now()
+            return True
+        _capper_settle_units(r, outcome == "win")
+        return True
+    won = _capper_pick_won(r.pick, r.match, actual)
+    if won is None:
+        return False                     # undecidable — leave pending
+    _capper_settle_units(r, won)
     return True
 
 

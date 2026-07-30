@@ -400,6 +400,8 @@ class CapperPick(Base):
     match: Mapped[str] = mapped_column(String(200))          # "Texas Rangers @ Atlanta Braves"
     pick: Mapped[str] = mapped_column(String(200))           # "Atlanta Braves to win"
     market_odds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    market_type: Mapped[str] = mapped_column(String(8), default="ml", index=True)  # ml | total | spread
+    line: Mapped[float | None] = mapped_column(Float, nullable=True)  # total/spread number; None for ml
     stake_units: Mapped[float] = mapped_column(Float, default=1.0)
     prob: Mapped[float | None] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(12), default="pending", index=True)  # pending|win|loss|push
