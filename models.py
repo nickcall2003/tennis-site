@@ -412,3 +412,17 @@ class CapperPick(Base):
     event_date: Mapped[str | None] = mapped_column(String(10), nullable=True)  # ISO game date
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     graded_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class TournamentConfig(Base):
+    """Single-row config for the active capper tournament. The tournament
+    leaderboard counts only picks created at/after `start_at` (and before `end_at`
+    if set), so 'resetting' the tournament is just moving `start_at` to now — the
+    underlying picks and all-time stats are kept, only the board's window changes."""
+    __tablename__ = "tournament_config"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    start_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    end_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
