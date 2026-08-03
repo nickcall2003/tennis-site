@@ -5,8 +5,13 @@ Run:  uvicorn main:app --reload   (locally)
 On Render the start command is: uvicorn main:app --host 0.0.0.0 --port $PORT
 
 DATA FEED (env vars):
-  TENNIS_PROVIDER=apitennis + TENNIS_API_KEY=<key>  -> real matches
-  (anything else)                                   -> simulated demo
+  TENNIS_PROVIDER=apitennis      + TENNIS_API_KEY=<key>        -> real matches
+  TENNIS_PROVIDER=livetennisapi  + LIVETENNISAPI_KEY=<key>     -> real matches
+                                                                  (optional alt feed;
+                                                                   no odds / H2H /
+                                                                   rankings — see
+                                                                   livetennisapi.py)
+  (anything else)                                             -> simulated demo
 
 Endpoints:
   GET /api/matches?date=YYYY-MM-DD   -> day's matches (+ prediction, score, prominence)
@@ -38,7 +43,10 @@ from ws import manager
 import sports
 
 PROVIDER_NAME = os.environ.get("TENNIS_PROVIDER", "mock").lower()
-USE_REAL = PROVIDER_NAME == "apitennis"
+# Real feeds, in the order they were added. The default is still "mock", and
+# "apitennis" still resolves to exactly the provider it always did.
+REAL_PROVIDERS = ("apitennis", "livetennisapi")
+USE_REAL = PROVIDER_NAME in REAL_PROVIDERS
 
 # Optional AI narrative for write-ups. If ANTHROPIC_API_KEY is set in the
 # environment, we use Claude to turn the computed FACTS into richer prose
@@ -70,9 +78,13 @@ def _make_llm_complete():
 LLM_COMPLETE = _make_llm_complete()
 
 if USE_REAL:
-    from apitennis import APITennisProvider
     from seed import build_day
-    provider = APITennisProvider()
+    if PROVIDER_NAME == "livetennisapi":
+        from livetennisapi import LiveTennisAPIProvider
+        provider = LiveTennisAPIProvider()
+    else:
+        from apitennis import APITennisProvider
+        provider = APITennisProvider()
     engine = PredictionEngine()
     _MODEL_STATUS = {"ratings_loaded": 0, "ranking_fallback": 0, "mode": "ranking-only"}
     # Prefer the feed-built ratings on the persistent volume (survives redeploys),

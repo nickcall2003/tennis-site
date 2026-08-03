@@ -83,6 +83,52 @@ Not betting or financial advice.
 
 ---
 
+## Optional: an alternative feed (livetennisapi.com)
+
+API-Tennis stays the default real feed and everything above is unchanged. If you
+happen to have a livetennisapi.com key instead, the app can run on it:
+
+| Variable            | Value           |
+|---------------------|-----------------|
+| `TENNIS_PROVIDER`   | `livetennisapi` |
+| `LIVETENNISAPI_KEY` | your key        |
+
+Disclosure: this alternative was contributed by the person who runs
+livetennisapi.com. Pick whichever feed suits you — it is not a replacement.
+
+**What it gives you:** the day's schedule (ATP / WTA / Challenger / ITF, tiers
+taken from the API's own tour filter), live scores with per-set games, in-game
+points and server, and in-match statistics — aces, double faults, the first- and
+second-serve split, and break points.
+
+**What it does NOT give you.** These are real gaps, so read them before
+switching:
+
+| Feature | With `livetennisapi` |
+|---|---|
+| Bookmaker odds (units / ROI / CLV) | **off** — the feed has no bookmaker odds |
+| Head-to-head + form context on the match page | **off** — no H2H endpoint |
+| Ranking fallback for unrated players | **off** — no rank-ordered listing |
+| Career serve/return averages | **off** — only per-match statistics exist |
+| Player photos | **off** |
+| The API-Tennis raw diagnostic routes | **off** — they're feed-specific |
+
+Nothing there is faked to look present: the adapter simply doesn't define those
+methods, so the app's existing `hasattr(...)` / try-except guards switch each
+feature off on their own. Predictions fall back to `ratings.json` (or
+ranking-only), which is the same path the app already takes when the API-Tennis
+ranking pull fails.
+
+Plan notes: live + upcoming matches are free; completed matches and history need
+BASIC; in-match statistics need ULTRA. Anything the key isn't entitled to
+returns 403 — the adapter records it in `.last_error`, stops re-asking, and
+degrades instead of crashing. History starts in 2026, so there's no older
+backfill. `INCLUDE_ITF=0` turns ITF off, same as with API-Tennis.
+
+If you use odds, H2H or the ranking fallback, stay on `apitennis`.
+
+---
+
 ## Betting metrics: Odds, CLV, ROI, Units (The Odds API)
 
 The performance metrics (units won/lost, ROI, CLV, and market odds on each pick)
