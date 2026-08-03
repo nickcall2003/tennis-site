@@ -6146,36 +6146,79 @@ def index():
         "Pragma": "no-cache", "Expires": "0"})
 
 
+def _maybe_void_ladder_leg(db, leg, now, stale_days):
+    """If a leg has been unsettled longer than stale_days and still can't be graded
+    (game never posted a result, bad ref, etc.), void it: mark it settled with
+    result='void' so it's excluded from the W/L record and the bankroll/rung are
+    left untouched. This guarantees the ladder can never freeze for days on an
+    ungradable leg again -- the next day picks a fresh one. Returns True if voided."""
+    if not leg.pick_date:
+        return False
+    if (now - leg.pick_date).days >= stale_days:
+        leg.settled = True
+        leg.result = "void"
+        return True
+    return False
+
+
 def _settle_ladder():
     """Grade finished ladder legs into the challenge state, using the SAME win/loss
     the pick record uses (PickResult).
 
-    Walks EVERY unsettled leg oldest-first. The previous version looked only at
-    the NEWEST unsettled leg and returned early when it wasn't graded yet — so the
-    moment a new day's leg was created, the prior day's leg dropped to second place
-    and could never be reached again. A won rung would sit unsettled forever while
-    the bankroll and rung silently froze. An ungraded leg is now skipped, not
-    treated as a stop sign, so older legs always catch up."""
+    Walks EVERY unsettled leg oldest-first so older legs always catch up. Handles
+    two leg shapes:
+      * single-game leg -> settle from its PickResult (sport+ref).
+      * COMBO leg (game_ref 'combo:g1,g2,...') -> wins only if ALL sub-games win,
+        loses if ANY loses, else stays pending. (The old code matched a single
+        PickResult by ref, so a combo's synthetic ref never matched and the leg sat
+        unsettled forever -- freezing the ladder and re-posting the same pick daily.)
+    A leg that stays ungradable past LADDER_STALE_DAYS is voided so it can't freeze
+    the ladder."""
     settled = []
     try:
         import ladder as L
         from models import LadderLeg, PickResult
+        stale_days = int(os.environ.get("LADDER_STALE_DAYS", "4"))
+        now = dt.datetime.utcnow()
         with SessionLocal() as db:
+            def _pr(sport, ref):
+                q = db.query(PickResult).filter(PickResult.ref == ref)
+                if sport and sport != "combo":
+                    q = q.filter(PickResult.sport == sport)
+                return q.first()
+
             legs = (db.query(LadderLeg)
                       .filter(LadderLeg.settled == False)  # noqa: E712
                       .order_by(LadderLeg.pick_date.asc(), LadderLeg.id.asc()).all())
             for leg in legs:
-                if not leg.game_ref:
-                    continue                       # nothing to grade against
-                pr = (db.query(PickResult)
-                        .filter(PickResult.sport == leg.sport,
-                                PickResult.ref == leg.game_ref).first())
-                if not pr or pr.correct is None:
-                    continue                       # game not graded yet — keep going
-                L.settle_leg(db, leg, bool(pr.correct))
+                ref = leg.game_ref or ""
+                if ref.startswith("combo:"):
+                    gids = [g for g in ref[len("combo:"):].split(",") if g]
+                    prs = [_pr(None, g) for g in gids] if gids else []
+                    if gids and any(pr is not None and pr.correct is False for pr in prs):
+                        L.settle_leg(db, leg, False)          # any leg lost -> combo loses
+                    elif gids and all(pr is not None and pr.correct is True for pr in prs):
+                        L.settle_leg(db, leg, True)           # every leg won -> combo wins
+                    elif _maybe_void_ladder_leg(db, leg, now, stale_days):
+                        pass                                  # ungradable too long -> voided
+                    else:
+                        continue                              # still pending
+                else:
+                    if not ref:
+                        if not _maybe_void_ladder_leg(db, leg, now, stale_days):
+                            continue
+                    else:
+                        pr = _pr(leg.sport, ref)
+                        if not pr or pr.correct is None:
+                            if not _maybe_void_ladder_leg(db, leg, now, stale_days):
+                                continue                      # not graded yet -> wait
+                        else:
+                            L.settle_leg(db, leg, bool(pr.correct))
                 settled.append({"date": str(leg.pick_date)[:10], "rung": leg.rung,
                                 "pick": leg.pick, "result": leg.result})
-            pending = sum(1 for l in legs if not l.settled)
+            db.commit()
+            pending = (db.query(LadderLeg)
+                         .filter(LadderLeg.settled == False).count())  # noqa: E712
         return {"settled": len(settled), "legs": settled, "still_pending": pending}
     except Exception as e:
         print(f"[ladder] settle failed: {e}")
