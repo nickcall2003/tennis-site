@@ -6233,6 +6233,88 @@ def ladder_settle(token: str = ""):
     return _settle_ladder()
 
 
+@app.get("/api/mlb/diag")
+def mlb_diag(token: str = "", days: int = 40):
+    """Read-only diagnostic for the MLB model over the last `days`. Reports record,
+    calibration (model prob vs actual), units, and — the key one — CLV (did the
+    picks beat the closing line). Positive CLV while losing = variance; negative
+    CLV = real degradation. Also splits favorites vs underdogs and by week so we
+    can see where it turned."""
+    admin_tok = os.environ.get("PROMO_CRON_TOKEN", "").strip()
+    if admin_tok and (token or "").strip() != admin_tok:
+        return {"error": "forbidden"}
+    from models import PickResult
+
+    def imp(o):
+        if o is None:
+            return None
+        o = float(o)
+        return (-o / (-o + 100.0)) if o < 0 else (100.0 / (o + 100.0))
+
+    def payout(o, won):
+        if o is None:
+            return 0.0
+        o = float(o)
+        if won:
+            return (o / 100.0) if o > 0 else (100.0 / -o)
+        return -1.0
+
+    since = dt.datetime.now() - dt.timedelta(days=days)
+    try:
+        with SessionLocal() as db:
+            rows = (db.query(PickResult)
+                      .filter(PickResult.sport == "mlb",
+                              PickResult.settled_date >= since)
+                      .order_by(PickResult.settled_date).all())
+    except Exception as e:
+        return {"error": f"query failed: {str(e)[:150]}"}
+    if not rows:
+        return {"picks": 0, "note": "no MLB pick_results in this window"}
+
+    n = len(rows)
+    wins = sum(1 for r in rows if r.correct)
+    probs = [r.prob for r in rows if r.prob is not None]
+    priced = [r for r in rows if r.taken_odds is not None]
+    units = round(sum(payout(r.taken_odds, r.correct) for r in priced), 2)
+    clv_rows = [r for r in rows if r.taken_odds is not None and r.close_odds is not None]
+    clv_vals = [imp(r.close_odds) - imp(r.taken_odds) for r in clv_rows]
+    avg_clv = round(100.0 * sum(clv_vals) / len(clv_vals), 2) if clv_vals else None
+    beat_close = sum(1 for v in clv_vals if v > 0)
+
+    from collections import defaultdict
+    wk = defaultdict(lambda: [0, 0, 0.0])
+    for r in rows:
+        k = r.settled_date.strftime("%Y-W%U")
+        wk[k][0] += 1
+        wk[k][1] += 1 if r.correct else 0
+        if r.taken_odds is not None:
+            wk[k][2] += payout(r.taken_odds, r.correct)
+    weekly = [{"week": k, "picks": v[0], "wins": v[1],
+               "win_pct": round(100.0 * v[1] / v[0], 1) if v[0] else 0,
+               "units": round(v[2], 2)} for k, v in sorted(wk.items())]
+
+    def split(rs):
+        if not rs:
+            return None
+        w = sum(1 for r in rs if r.correct)
+        return {"picks": len(rs), "wins": w,
+                "win_pct": round(100.0 * w / len(rs), 1),
+                "units": round(sum(payout(r.taken_odds, r.correct) for r in rs), 2)}
+
+    return {
+        "window_days": days, "picks": n, "wins": wins,
+        "win_pct": round(100.0 * wins / n, 1),
+        "avg_model_prob_pct": round(100.0 * sum(probs) / len(probs), 1) if probs else None,
+        "units": units, "priced_picks": len(priced),
+        "clv": {"picks_with_close": len(clv_rows), "avg_clv_pct": avg_clv,
+                "beat_close": beat_close,
+                "beat_close_pct": round(100.0 * beat_close / len(clv_rows), 1) if clv_rows else None},
+        "favorites": split([r for r in priced if r.taken_odds < 0]),
+        "underdogs": split([r for r in priced if r.taken_odds >= 0]),
+        "weekly": weekly,
+    }
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # LINE LOGIC DISCORD BOT INTEGRATION
 #   /api/model     — single-team read for the bot's /model
