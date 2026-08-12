@@ -3231,7 +3231,22 @@ async function renderWinTotals(){
       ' right now \u2014 this fills in once the season schedule is posted.</div>';
     return;
   }
-  body.innerHTML=d.teams.map(wtTeamCard).join("");
+  var teams=d.teams.slice();
+  var anyPlayed=teams.some(function(t){return (t.games_played||0)>0;});
+  var banner="";
+  if(!anyPlayed){
+    // Preseason: ratings are last season's and the order is schedule-driven, so a
+    // projected-wins sort reads like a power ranking when it isn't. Sort A-Z
+    // instead (a neutral lookup) and say plainly what the numbers are.
+    teams.sort(function(a,b){return (a.team||"").localeCompare(b.team||"");});
+    banner='<div style="background:rgba(224,138,60,0.08);border:1px solid rgba(224,138,60,0.28);'+
+      'border-radius:12px;padding:12px 14px;margin:0 0 14px;color:#a9b7cc;font-size:13px;line-height:1.45;">'+
+      '<b style="color:#e08a3c;">Preseason projection.</b> Based on last season\u2019s ratings and each '+
+      'team\u2019s schedule strength \u2014 <b>not a power ranking</b>. A team with an easy schedule projects '+
+      'more wins than a stronger team in a tougher one, and roster/coaching changes aren\u2019t reflected until '+
+      '2026 games are played. Listed A\u2013Z; the numbers sharpen as the season starts.</div>';
+  }
+  body.innerHTML=banner+teams.map(wtTeamCard).join("");
 }
 
 function wtTeamCard(t){
