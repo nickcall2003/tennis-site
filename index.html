@@ -4401,6 +4401,7 @@ setInterval(loadAccuracy,300000);
   }
   function ph(){
     try{
+      if(view==="wintotals")return "Search teams\u2026";
       if(sport==="tennis")return "Search players\u2026";
       if(sport==="ufc")return "Search fighters\u2026";
     }catch(e){}
