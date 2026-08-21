@@ -124,12 +124,124 @@ def best_combo(picks, max_legs=3):
     return best
 
 
+# How many days a leg may stay unsettled before the ladder stops waiting on it.
+# Without a cap, a single leg whose result never arrives (e.g. the grader stopped
+# running, or the game_ref can't be matched) blocks EVERY future day — the ladder
+# keeps re-posting that same stale leg forever. After this many days we grade it
+# from whatever result we can find, and if we truly can't find one we void the leg
+# (no bankroll change) so the challenge can move on. Tunable via LADDER_STALE_DAYS.
+STALE_DAYS = int(os.environ.get("LADDER_STALE_DAYS", "2"))
+
+
+def _result_from_picks(leg, picks):
+    """Try to determine win/loss for a leg from a picks list that carries results.
+    Returns True (win), False (loss), or None (unknown / not final yet).
+
+    Matches the leg to its pick by game_ref, then reads whatever result field the
+    feed provides. Combo legs (game_ref 'combo:a,b,c') win only if ALL parts win."""
+    if not picks:
+        return None
+    by_ref = {}
+    for p in picks or []:
+        ref = str(p.get("id") or p.get("game_id") or p.get("match") or "")
+        if ref:
+            by_ref[ref] = p
+
+    def _leg_won(p):
+        # Accept a few common shapes so this works regardless of the feed:
+        #   p["result"] in {"win","loss"} / p["correct"] bool / p["won"] bool
+        r = p.get("result")
+        if isinstance(r, str):
+            rl = r.strip().lower()
+            if rl in ("win", "won", "w"):
+                return True
+            if rl in ("loss", "lost", "l"):
+                return False
+        for k in ("correct", "won", "is_win"):
+            if isinstance(p.get(k), bool):
+                return p[k]
+        return None
+
+    ref = leg.game_ref or ""
+    if ref.startswith("combo:"):
+        parts = [x for x in ref[len("combo:"):].split(",") if x]
+        results = []
+        for part in parts:
+            p = by_ref.get(part)
+            if not p:
+                return None                  # missing a leg -> not gradable yet
+            r = _leg_won(p)
+            if r is None:
+                return None                  # any leg unknown -> whole combo unknown
+            results.append(r)
+        if not results:
+            return None
+        return all(results)                  # combo wins only if every leg wins
+
+    p = by_ref.get(ref)
+    if not p:
+        return None
+    return _leg_won(p)
+
+
+def _auto_settle_stale(db, picks=None, now=None):
+    """Grade any unsettled legs from PRIOR days so the ladder never gets stuck.
+    This makes the ladder self-healing: it no longer depends on an external grader
+    running. A leg is graded when its result is known; if a leg has been pending
+    longer than STALE_DAYS and its result still can't be found, it is VOIDED
+    (deleted, no bankroll change) so a single unresolvable leg can't freeze the
+    challenge forever — which is exactly what caused the same pick to re-post daily.
+
+    Returns the number of legs acted on. Best-effort; never raises to the caller."""
+    now = now or dt.datetime.utcnow()
+    today_lo = dt.datetime.combine((now.date()), dt.time.min)
+    acted = 0
+    try:
+        stale = db.execute(
+            select(LadderLeg)
+            .where(LadderLeg.settled == False,        # noqa: E712
+                   LadderLeg.pick_date < today_lo)
+            .order_by(LadderLeg.pick_date.asc())
+        ).scalars().all()
+    except Exception as e:
+        print(f"[ladder] stale scan failed: {e}")
+        return 0
+
+    for leg in stale:
+        won = _result_from_picks(leg, picks)
+        if won is not None:
+            try:
+                settle_leg(db, leg, bool(won))
+                acted += 1
+            except Exception as e:
+                print(f"[ladder] settle failed for leg {leg.id}: {e}")
+            continue
+        # Result still unknown. If the leg is old enough, stop waiting on it.
+        age_days = (now - leg.pick_date).days
+        if age_days >= STALE_DAYS:
+            try:
+                db.delete(leg)               # void: no bankroll change, unblock ladder
+                db.commit()
+                acted += 1
+                print(f"[ladder] voided stale unsettled leg from "
+                      f"{leg.pick_date.date().isoformat()} (no result after "
+                      f"{age_days}d) so the challenge can advance")
+            except Exception as e:
+                print(f"[ladder] void failed for leg {leg.id}: {e}")
+    return acted
+
+
 def todays_pick(db, day=None, picks=None):
     """Return today's ladder leg (existing if already chosen, else pick one). Skips
     the day silently if nothing qualifies."""
     day = day or dt.date.today()
     lo = dt.datetime.combine(day, dt.time.min)
     hi = dt.datetime.combine(day, dt.time.max)
+
+    # FIRST: settle/clear any stale prior legs so we never re-post an old leg that
+    # never got graded (the "same pick every day, never refreshes" bug). This makes
+    # the ladder self-healing and independent of any external grading job.
+    _auto_settle_stale(db, picks=picks)
     existing = db.execute(
         select(LadderLeg).where(LadderLeg.pick_date >= lo, LadderLeg.pick_date <= hi)
     ).scalars().first()
