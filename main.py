@@ -999,7 +999,63 @@ def tennis_debug(date: str | None = None):
     return out
 
 
-_RATINGS_BUILD = {"running": False, "report": None}
+@app.get("/api/tennis/sofa-debug")
+def tennis_sofa_debug(date: str | None = None):
+    """SofaScore-aware diagnostic. Shows exactly what the SofaScore provider
+    returns for a date and where the pipeline stands: is the provider active, is
+    the raw fetch working, how many events, how they classify by tier, and how
+    many rankings loaded. This is the tool for diagnosing an empty /api/matches
+    on the sofascore provider."""
+    out = {"provider_name": PROVIDER_NAME, "use_real": USE_REAL}
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    out["date"] = target.isoformat()
+    try:
+        if PROVIDER_NAME != "sofascore":
+            out["note"] = ("TENNIS_PROVIDER is not 'sofascore' (it's '%s'). Set "
+                           "TENNIS_PROVIDER=sofascore in Railway variables." % PROVIDER_NAME)
+            return out
+        # Raw fetch straight from SofaScore, bypassing our filtering.
+        raw = provider._get("/sport/tennis/scheduled-events/%s" % target.strftime("%Y-%m-%d"))
+        events = (raw or {}).get("events") or []
+        out["raw_event_count"] = len(events)
+        out["last_error"] = getattr(provider, "last_error", None)
+        # Tier classification breakdown.
+        from collections import Counter
+        from sofatennis import _classify_tier as _ct
+        tiers = Counter()
+        samples = []
+        for ev in events:
+            t = _ct(ev.get("tournament") or {}) or "EXCLUDED"
+            tiers[t] += 1
+            if len(samples) < 12:
+                samples.append({
+                    "tournament": (ev.get("tournament") or {}).get("name"),
+                    "category": ((ev.get("tournament") or {}).get("category") or {}).get("name"),
+                    "tier": t,
+                    "a": (ev.get("homeTeam") or {}).get("name"),
+                    "b": (ev.get("awayTeam") or {}).get("name"),
+                    "status": (ev.get("status") or {}).get("type"),
+                })
+        out["by_tier"] = dict(tiers)
+        out["samples"] = samples
+        # What get_schedule actually yields after filtering.
+        try:
+            sched = provider.get_schedule(dt.datetime.combine(target, dt.time(12, 0)))
+            out["scheduled_after_filter"] = len(sched)
+        except Exception as e:
+            out["schedule_error"] = "%s: %s" % (type(e).__name__, e)
+        # Rankings health (drives prediction quality).
+        try:
+            ranks = provider.get_rankings()
+            out["rankings_loaded"] = len(ranks)
+            out["rankings_sample"] = dict(list(ranks.items())[:5])
+        except Exception as e:
+            out["rankings_error"] = "%s: %s" % (type(e).__name__, e)
+    except Exception as e:
+        import traceback
+        out["error"] = "%s: %s" % (type(e).__name__, e)
+        out["trace"] = traceback.format_exc()[-800:]
+    return out
 
 
 def _run_ratings_build(start, chunk_days=1):
