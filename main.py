@@ -38,7 +38,8 @@ from ws import manager
 import sports
 
 PROVIDER_NAME = os.environ.get("TENNIS_PROVIDER", "mock").lower()
-USE_REAL = PROVIDER_NAME == "apitennis"
+# Real tennis feeds: apitennis (legacy, paid) or sofascore (free, current).
+USE_REAL = PROVIDER_NAME in ("apitennis", "sofascore")
 
 # Optional AI narrative for write-ups. If ANTHROPIC_API_KEY is set in the
 # environment, we use Claude to turn the computed FACTS into richer prose
@@ -70,9 +71,13 @@ def _make_llm_complete():
 LLM_COMPLETE = _make_llm_complete()
 
 if USE_REAL:
-    from apitennis import APITennisProvider
     from seed import build_day
-    provider = APITennisProvider()
+    if PROVIDER_NAME == "sofascore":
+        from sofatennis import SofaTennisProvider
+        provider = SofaTennisProvider()
+    else:
+        from apitennis import APITennisProvider
+        provider = APITennisProvider()
     engine = PredictionEngine()
     _MODEL_STATUS = {"ratings_loaded": 0, "ranking_fallback": 0, "mode": "ranking-only"}
     # Prefer the feed-built ratings on the persistent volume (survives redeploys),

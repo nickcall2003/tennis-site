@@ -286,8 +286,8 @@ async function loadTournaments(){
     it.innerHTML=live+'<span class="tourn" style="flex:1">'+t.name+'</span><span class="cnt">'+t.count+'</span>';
     it.onclick=()=>{tFilter=t.key;render();};el.appendChild(it);});
 }
-let _accData=null,_clvData=null;
-async function loadAccuracy(){try{_accData=await getJSON("/api/accuracy?days=30");}catch(e){}try{_clvData=await getJSON("/api/clv?days=30");}catch(e){}renderAccuracy();}
+let _accData=null,_clvData=null,_wagData=null,_toursData=null;
+async function loadAccuracy(){try{_accData=await getJSON("/api/accuracy?days=30");}catch(e){}try{_clvData=await getJSON("/api/clv?days=30");}catch(e){}try{_wagData=await getJSON("/api/edges/wagers?days=3650&min_edge=0.03&min_sample=25");}catch(e){}try{_toursData=await getJSON("/api/tennis/tours");}catch(e){}renderAccuracy();}
 function renderAccuracy(){if(!_accData)return;
   // On a sport tab, ALWAYS show that sport's own number (never all-sports).
   // If it has no settled picks yet, show its label with a dash rather than
@@ -3773,31 +3773,69 @@ function renderHome(){
 // all-time), laid out like a stamped, un-editable betting slip. Falls back to
 // a clean intro if accuracy data hasn't loaded yet.
 function heroProofHTML(ov){
-  // Flagship framing: show the MLB record specifically (matches "sharpest MLB
-  // model"). Fall back to all-sports overall if MLB stats aren't loaded yet.
-  var mlb=(_accData&&_accData.by_sport&&_accData.by_sport.mlb)||null;
-  var stat=(mlb&&mlb.accuracy!=null)?mlb:ov;
-  var isMlb=(stat===mlb);
+  // Flagship framing: lead with the model's STRONGEST proof — MLB's all-time
+  // net units on graded +EV wagers — not the trailing 30-day window (which can
+  // be a rough stretch). Secondary lines: MLB all-time record, MLB all-time ROI,
+  // and the all-sports net units so the headline sport is backed by the whole
+  // book. Tennis is never shown as its own line here.
+  //
+  // Units come from the SAME source the Track Record page uses
+  // (/api/edges/wagers -> _wagData): a sport's units only count once it has
+  // matured (>=25 graded wagers), so these are real plays, not "bet every fav".
+  var mlbA=(_accData&&_accData.by_sport&&_accData.by_sport.mlb)||null;
+  var ws=(_wagData&&_wagData.by_sport)||null;
+  var mlbW=(ws&&ws.mlb)||null;
   var head='<div class="rcpt-brand"><h2>Line Logic<span class="dot">.</span></h2>'+
     '<div class="rcpt-tag">The sharpest MLB model on the internet \u00b7 every pick graded, win or lose</div></div>';
-  if(!stat||stat.accuracy==null){
-    return '<div class="rcpt">'+head+
-      '<div class="rcpt-sub">A public, tracked MLB betting model \u2014 plus NBA, NFL, NHL, tennis, soccer &amp; college. Loading today\u2019s record\u2026</div></div>';
+  var mU=(mlbW&&mlbW.mature&&mlbW.units!=null)?mlbW.units:null;
+  var mRoi=(mlbW&&mlbW.mature&&mlbW.roi_pct!=null)?mlbW.roi_pct:null;
+  var mAw=(mlbA&&mlbA.alltime_wins)||0, mAl=(mlbA&&mlbA.alltime_losses)||0;
+  // All-sports net units: sum every matured sport's units, exactly like the
+  // Track Record hero's total — INCLUDING the tennis normalization (tennis units
+  // come from the ITF-excluded tour rollup, not the raw wager number, so the two
+  // pages can never disagree).
+  var oU=null;
+  if(ws){
+    var t=0,any=false;
+    var teRoll=(_toursData&&_toursData.total_excl_itf)||null;
+    for(var k in ws){
+      var wv=ws[k];
+      if(k==="tennis"){
+        // authoritative tennis figure = tour rollup excl. ITF (matches Track Record)
+        if(teRoll&&teRoll.units!=null&&(teRoll.priced||0)>=((_wagData&&_wagData.min_sample)||25)){
+          t+=teRoll.units;any=true;
+        } else if(wv&&wv.mature&&wv.units!=null){
+          t+=wv.units;any=true;
+        }
+        continue;
+      }
+      if(wv&&wv.mature&&wv.units!=null){t+=wv.units;any=true;}
+    }
+    if(any)oU=Math.round(t*100)/100;
   }
-  var ovv=stat;
-  var w=(ovv.wins_30d!=null?ovv.wins_30d:ovv.correct);
-  var l=(ovv.losses_30d!=null?ovv.losses_30d:((ovv.picks||0)-(ovv.correct||0)));
-  var acc=ovv.accuracy;
-  var u=ovv.units_30d, roi=ovv.roi_30d, priced=ovv.priced_30d;
-  var aw=ovv.alltime_wins||0, al=ovv.alltime_losses||0;
-  var uPos=(u!=null&&u>=0);
+  // If the wager units haven't loaded yet, show the clean intro rather than a
+  // blank slip.
+  if(mU==null){
+    if(!mlbA||mlbA.accuracy==null){
+      return '<div class="rcpt">'+head+
+        '<div class="rcpt-sub">A public, tracked MLB betting model \u2014 plus NBA, NFL, NHL, tennis, soccer &amp; college. Loading the record\u2026</div></div>';
+    }
+  }
   function leader(k,v,cls){return '<div class="rcpt-line"><span class="rcpt-k">'+k+
     '</span><span class="rcpt-dots"></span><span class="rcpt-v'+(cls?' '+cls:'')+'">'+v+'</span></div>';}
-  var lines=leader((isMlb?"MLB WIN RATE (30D)":"30-DAY WIN RATE"), acc+'%', "big");
-  lines+=leader("RECORD (30D)", w+'\u2013'+l);
-  if(u!=null&&priced) lines+=leader("NET UNITS", (uPos?'+':'')+u+'u', uPos?'pos':'neg');
-  if(roi!=null&&priced) lines+=leader("ROI", (roi>=0?'+':'')+roi+'%', roi>=0?'pos':'neg');
-  if(aw+al) lines+=leader((isMlb?"MLB ALL-TIME":"ALL-TIME"), aw+'\u2013'+al);
+  function u2(x){return (x>=0?'+':'')+ (Math.round(x*100)/100) +'u';}
+  var lines="";
+  // BIG headline: MLB all-time net units.
+  if(mU!=null) lines+=leader("MLB NET UNITS \u00b7 ALL-TIME", u2(mU), "big "+(mU>=0?'pos':'neg'));
+  // MLB all-time record.
+  if(mAw+mAl) lines+=leader("MLB RECORD \u00b7 ALL-TIME", mAw+'\u2013'+mAl);
+  // MLB all-time ROI.
+  if(mRoi!=null) lines+=leader("MLB ROI \u00b7 ALL-TIME", (mRoi>=0?'+':'')+mRoi+'%', mRoi>=0?'pos':'neg');
+  // All-sports net units — the whole book behind the flagship number.
+  if(oU!=null) lines+=leader("ALL SPORTS \u00b7 NET UNITS", u2(oU), oU>=0?'pos':'neg');
+  // Absolute fallback: if wager units never loaded, at least show the all-time
+  // MLB record so the hero is never empty.
+  if(!lines && (mAw+mAl)) lines=leader("MLB RECORD \u00b7 ALL-TIME", mAw+'\u2013'+mAl, "big");
   return '<div class="rcpt">'+head+
     '<div class="rcpt-body">'+lines+'</div>'+
     '<div class="rcpt-perf"></div>'+
