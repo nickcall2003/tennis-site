@@ -267,17 +267,22 @@ class SofaTennisProvider(TennisProvider):
         schedule and report the HTTP status of each. Run once via the debug
         endpoint to find the route that returns 200, then pin it. Best-effort."""
         candidates = [
-            f"/sport/tennis/scheduled-events/{dk}",
-            f"/sport/tennis/events/{dk}",
-            f"/scheduled-events/tennis/{dk}",
+            # date-first variants (SofaScore moved to these on newer API builds)
+            f"/sport/tennis/{dk}/events",
+            f"/sport/tennis/date/{dk}",
             f"/sport/5/scheduled-events/{dk}",
-            f"/mobile/v4/sport/tennis/scheduled-events/{dk}",
-            f"/scheduled-events/{dk}/sport/tennis",
-            f"/sport/tennis/{dk}",
-            f"/tennis/scheduled-events/{dk}",
-            "/config/default-unique-tournaments/EN/tennis",
+            f"/sport/5/events/{dk}",
+            f"/scheduled-events/date/{dk}/sport/tennis",
+            # the classic (kept for regression)
+            f"/sport/tennis/scheduled-events/{dk}",
+            # utc-offset shapes some builds use (0 = server tz)
+            f"/sport/tennis/scheduled-events/{dk}/0",
+            f"/sport/tennis/scheduled-events/{dk}/inverse",
+            # unix-day index shapes
+            f"/sport/tennis/scheduled-events/{dk}?utcOffset=0",
+            # confirmed-working structural endpoints (regression anchors: should be 200)
             "/sport/tennis/categories",
-            "/sport/-1/event-count",
+            f"/mobile/v4/sport/tennis/events/{dk}",
         ]
         return {path: self._raw_probe(path) for path in candidates}
 
