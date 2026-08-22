@@ -43,7 +43,16 @@ import os
 import time
 from datetime import datetime, timedelta, timezone
 
-import httpx
+# curl_cffi impersonates a real browser's TLS/JA3 fingerprint, which is what
+# defeats SofaScore's fingerprint-based 403. Fall back to httpx if curl_cffi
+# isn't installed (the provider still imports; requests just won't be stealthed).
+try:
+    from curl_cffi import requests as _creq
+    _HAVE_CURL = True
+except Exception:                                       # pragma: no cover
+    import httpx as _httpx
+    _creq = None
+    _HAVE_CURL = False
 
 from base import (LiveScore, MatchInfo, MatchStats, PlayerStats,
                   TennisProvider)
@@ -189,20 +198,39 @@ class SofaTennisProvider(TennisProvider):
         self._events: dict[str, dict] = {}        # event_id -> raw event
         self._day_cache: dict[str, tuple[float, list]] = {}   # date -> (ts, MatchInfo[])
         self._live_cache: dict[str, tuple[float, dict]] = {}  # event_id -> (ts, event)
-        self._rank_cache: dict[str, tuple[float, dict]] = {}  # tour -> (ts, {name_lower: rank})
-        self._client = httpx.Client(
-            timeout=_TIMEOUT,
-            headers={"User-Agent": _UA, "Accept": "application/json",
-                     "Referer": "https://www.sofascore.com/"},
-            follow_redirects=True,
-        )
+        self._rank_cache: dict[str, tuple[float, dict]] = {}  # tour -> (ts, {name: rank})
+        # Browser-realistic headers. With curl_cffi's impersonate="chrome" these
+        # ride on a real Chrome TLS/JA3 fingerprint, which is what gets past the
+        # SofaScore 403 that plain httpx triggers.
+        self._headers = {
+            "User-Agent": _UA,
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://www.sofascore.com/",
+            "Origin": "https://www.sofascore.com",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        }
+        self._impersonate = os.environ.get("SOFA_IMPERSONATE", "chrome")
+        if _HAVE_CURL:
+            self._session = _creq.Session()
+        else:
+            self._session = _httpx.Client(
+                timeout=_TIMEOUT, headers=self._headers, follow_redirects=True)
 
     # ---- low-level ------------------------------------------------------
     def _get(self, path: str):
-        """GET {BASE_URL}{path} -> parsed JSON or None. Never raises."""
+        """GET {BASE_URL}{path} -> parsed JSON or None. Never raises.
+        Uses curl_cffi Chrome impersonation when available (defeats the TLS
+        fingerprint 403); falls back to httpx otherwise."""
         url = f"{BASE_URL}{path}"
         try:
-            r = self._client.get(url)
+            if _HAVE_CURL:
+                r = self._session.get(
+                    url, headers=self._headers,
+                    impersonate=self._impersonate, timeout=_TIMEOUT)
+            else:
+                r = self._session.get(url)
             if r.status_code != 200:
                 self.last_error = f"{r.status_code} on {path}"
                 return None
