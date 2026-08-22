@@ -243,6 +243,26 @@ class SofaTennisProvider(TennisProvider):
     def _call(self, method, **params):
         return {"note": "sofascore provider has no _call; use REST paths", "method": method}
 
+    def _raw_probe(self, path: str) -> dict:
+        """Return the raw HTTP status + a body snippet for a path, for diagnosing
+        which endpoint is correct. Never raises."""
+        url = f"{BASE_URL}{path}"
+        try:
+            if _HAVE_CURL:
+                r = self._session.get(url, headers=self._headers,
+                                      impersonate=self._impersonate, timeout=_TIMEOUT)
+            else:
+                r = self._session.get(url)
+            body = ""
+            try:
+                body = r.text[:300]
+            except Exception:
+                body = "<no text>"
+            return {"status": r.status_code, "body_snippet": body,
+                    "content_type": r.headers.get("content-type", "")}
+        except Exception as e:
+            return {"error": f"{type(e).__name__}: {e}"}
+
     def _refresh_live(self):
         """No-op kept for API compatibility; live is pulled per-match on demand."""
         return None
@@ -253,8 +273,11 @@ class SofaTennisProvider(TennisProvider):
 
     _SCHEDULE_PATHS = (
         "/sport/tennis/scheduled-events/{d}",
+        "/sport/tennis/scheduled-events/{d}/inverse",
         "/scheduled-events/tennis/{d}",
         "/sport/tennis/events/{d}",
+        "/sport/5/scheduled-events/{d}",          # tennis sportId is often 5
+        "/mobile/v4/sport/tennis/scheduled-events/{d}",
     )
 
     def _fetch_schedule_raw(self, dk: str):
