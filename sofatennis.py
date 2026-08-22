@@ -251,20 +251,41 @@ class SofaTennisProvider(TennisProvider):
     def _day_key(self, day: datetime) -> str:
         return day.strftime("%Y-%m-%d")
 
+    _SCHEDULE_PATHS = (
+        "/sport/tennis/scheduled-events/{d}",
+        "/scheduled-events/tennis/{d}",
+        "/sport/tennis/events/{d}",
+    )
+
+    def _fetch_schedule_raw(self, dk: str):
+        """Try known SofaScore tennis-schedule path variants; return (events,
+        path_used). Records the working path so later calls skip discovery."""
+        # If we already found a working path, use it directly.
+        if getattr(self, "_sched_path", None):
+            data = self._get(self._sched_path.format(d=dk))
+            if data and (data.get("events") is not None):
+                return data.get("events") or [], self._sched_path
+        for tmpl in self._SCHEDULE_PATHS:
+            data = self._get(tmpl.format(d=dk))
+            if data and (data.get("events") is not None):
+                self._sched_path = tmpl
+                return data.get("events") or [], tmpl
+        return [], None
+
     def get_schedule(self, day: datetime) -> list[MatchInfo]:
         dk = self._day_key(day)
         hit = self._day_cache.get(dk)
         if hit and (time.time() - hit[0] < _DAY_TTL):
             return hit[1]
 
-        data = self._get(f"/sport/tennis/scheduled-events/{dk}")
+        events, _used = self._fetch_schedule_raw(dk)
         out: list[MatchInfo] = []
-        if not data:
+        if not events:
             # cache the empty result briefly so a dead call doesn't hammer
             self._day_cache[dk] = (time.time(), out)
             return out
 
-        for ev in (data.get("events") or []):
+        for ev in events:
             try:
                 tier = _classify_tier(ev.get("tournament") or {})
                 if tier is None:
@@ -388,28 +409,57 @@ class SofaTennisProvider(TennisProvider):
         return out
 
     # ---- rankings + model line -----------------------------------------
+    # Candidate SofaScore ranking type IDs for tennis. type 1/2 turned out to be
+    # football national teams; tennis ATP/WTA are 5/6 (with fallbacks tried).
+    _RANK_TYPES = {"atp": (5, 3), "wta": (6, 4)}
+
+    @staticmethod
+    def _looks_like_players(rows) -> bool:
+        """Reject non-tennis ranking data (e.g. country names). Tennis player
+        names almost always contain a space or a dotted initial; country lists
+        (Spain, France...) are single words."""
+        if not rows:
+            return False
+        hits = 0
+        for r in rows[:10]:
+            nm = ((r.get("team") or r.get("player") or {}).get("name")
+                  if isinstance(r.get("team") or r.get("player"), dict)
+                  else (r.get("name") or ""))
+            nm = (nm or "").strip()
+            if " " in nm or "." in nm:
+                hits += 1
+        return hits >= 3
+
     def get_rankings(self) -> dict:
         """Return {player_name: rank_int} across ATP + WTA, matching the shape
-        apitennis returned (raw display name as key — the PredictionEngine does
-        its own name normalization). Cached 12h. Best-effort: an empty dict just
-        means the model treats players as neutral until ranks load."""
+        apitennis returned. Tries the correct tennis ranking type IDs and
+        VALIDATES the result actually contains players (not countries), so we
+        never load football national-team data by mistake. Cached 12h."""
         out: dict[str, int] = {}
-        for tour, rid in (("atp", 1), ("wta", 2)):
+        for tour, type_ids in self._RANK_TYPES.items():
             hit = self._rank_cache.get(tour)
             if hit and (time.time() - hit[0] < 43200):
                 out.update(hit[1])
                 continue
-            # SofaScore rankings endpoint for tennis tours.
-            data = self._get(f"/rankings/type/{rid}")
             m: dict[str, int] = {}
-            for row in ((data or {}).get("rankings") or []):
-                try:
-                    nm = ((row.get("team") or {}).get("name") or "").strip()
-                    rk = int(row.get("ranking") or row.get("position") or 0)
-                    if nm and rk:
-                        m[nm] = rk
-                except Exception:
-                    continue
+            for tid in type_ids:
+                data = self._get(f"/rankings/type/{tid}")
+                rows = (data or {}).get("rankings") or []
+                if not self._looks_like_players(rows):
+                    continue                      # wrong type (countries) -> try next
+                for row in rows:
+                    try:
+                        team = row.get("team") or row.get("player") or {}
+                        nm = (team.get("name") if isinstance(team, dict) else None) \
+                            or row.get("name") or ""
+                        nm = nm.strip()
+                        rk = int(row.get("ranking") or row.get("position") or 0)
+                        if nm and rk:
+                            m[nm] = rk
+                    except Exception:
+                        continue
+                if m:
+                    break                          # got valid players; stop trying ids
             if m:
                 self._rank_cache[tour] = (time.time(), m)
                 out.update(m)

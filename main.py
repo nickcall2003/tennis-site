@@ -1014,9 +1014,18 @@ def tennis_sofa_debug(date: str | None = None):
             out["note"] = ("TENNIS_PROVIDER is not 'sofascore' (it's '%s'). Set "
                            "TENNIS_PROVIDER=sofascore in Railway variables." % PROVIDER_NAME)
             return out
-        # Raw fetch straight from SofaScore, bypassing our filtering.
-        raw = provider._get("/sport/tennis/scheduled-events/%s" % target.strftime("%Y-%m-%d"))
-        events = (raw or {}).get("events") or []
+        # Raw fetch straight from SofaScore, trying each known schedule path.
+        dk = target.strftime("%Y-%m-%d")
+        path_probe = {}
+        for tmpl in getattr(provider, "_SCHEDULE_PATHS", ("/sport/tennis/scheduled-events/{d}",)):
+            p = tmpl.format(d=dk)
+            data = provider._get(p)
+            n = len((data or {}).get("events") or []) if isinstance(data, dict) else None
+            path_probe[p] = {"ok": bool(data), "events": n, "last_error": provider.last_error}
+        out["schedule_path_probe"] = path_probe
+        # Use the provider's own discovery for the authoritative count.
+        events, used = provider._fetch_schedule_raw(dk)
+        out["schedule_path_used"] = used
         out["raw_event_count"] = len(events)
         out["last_error"] = getattr(provider, "last_error", None)
         # Tier classification breakdown.
@@ -1046,6 +1055,17 @@ def tennis_sofa_debug(date: str | None = None):
             out["schedule_error"] = "%s: %s" % (type(e).__name__, e)
         # Rankings health (drives prediction quality).
         try:
+            # Probe each candidate ranking type so we can see which is tennis.
+            rank_probe = {}
+            for tid in (1, 2, 3, 4, 5, 6):
+                d = provider._get(f"/rankings/type/{tid}")
+                rows = (d or {}).get("rankings") or []
+                first = None
+                if rows:
+                    t0 = rows[0].get("team") or rows[0].get("player") or {}
+                    first = (t0.get("name") if isinstance(t0, dict) else None) or rows[0].get("name")
+                rank_probe[tid] = {"rows": len(rows), "first": first}
+            out["ranking_type_probe"] = rank_probe
             ranks = provider.get_rankings()
             out["rankings_loaded"] = len(ranks)
             out["rankings_sample"] = dict(list(ranks.items())[:5])
