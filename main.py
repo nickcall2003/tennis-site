@@ -1025,20 +1025,12 @@ def tennis_sofa_debug(date: str | None = None):
             multi[dd] = {"events": len(ev), "path_used": used,
                          "last_error": provider.last_error}
         out["multi_date"] = multi
-        path_probe = {}
-        for tmpl in getattr(provider, "_SCHEDULE_PATHS", ("/sport/tennis/scheduled-events/{d}",)):
-            p = tmpl.format(d=dk)
-            data = provider._get(p)
-            n = len((data or {}).get("events") or []) if isinstance(data, dict) else None
-            path_probe[p] = {"ok": bool(data), "events": n, "last_error": provider.last_error}
-        out["schedule_path_probe"] = path_probe
-        # Raw status + body snippet for the primary candidate, to reveal the
-        # real shape/error SofaScore returns (helps find the correct path).
+        # Broad path discovery: try many candidate URL shapes at once and report
+        # each HTTP status, so ONE request reveals the route that returns 200.
         try:
-            raw = provider._raw_probe(f"/sport/tennis/scheduled-events/{dk}")
-            out["raw_primary"] = raw
+            out["path_discovery"] = provider.discover_schedule_path(dk)
         except Exception as e:
-            out["raw_primary_error"] = str(e)
+            out["path_discovery_error"] = str(e)
         # Use the provider's own discovery for the authoritative count.
         events, used = provider._fetch_schedule_raw(dk)
         out["schedule_path_used"] = used

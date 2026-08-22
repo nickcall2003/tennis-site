@@ -255,13 +255,31 @@ class SofaTennisProvider(TennisProvider):
                 r = self._session.get(url)
             body = ""
             try:
-                body = r.text[:300]
+                body = r.text[:200]
             except Exception:
                 body = "<no text>"
-            return {"status": r.status_code, "body_snippet": body,
-                    "content_type": r.headers.get("content-type", "")}
+            return {"status": r.status_code, "body_snippet": body}
         except Exception as e:
             return {"error": f"{type(e).__name__}: {e}"}
+
+    def discover_schedule_path(self, dk: str) -> dict:
+        """Try a broad batch of candidate URL shapes for the daily tennis
+        schedule and report the HTTP status of each. Run once via the debug
+        endpoint to find the route that returns 200, then pin it. Best-effort."""
+        candidates = [
+            f"/sport/tennis/scheduled-events/{dk}",
+            f"/sport/tennis/events/{dk}",
+            f"/scheduled-events/tennis/{dk}",
+            f"/sport/5/scheduled-events/{dk}",
+            f"/mobile/v4/sport/tennis/scheduled-events/{dk}",
+            f"/scheduled-events/{dk}/sport/tennis",
+            f"/sport/tennis/{dk}",
+            f"/tennis/scheduled-events/{dk}",
+            "/config/default-unique-tournaments/EN/tennis",
+            "/sport/tennis/categories",
+            "/sport/-1/event-count",
+        ]
+        return {path: self._raw_probe(path) for path in candidates}
 
     def _refresh_live(self):
         """No-op kept for API compatibility; live is pulled per-match on demand."""
