@@ -1079,15 +1079,25 @@ def ncaaf_roster_impact(limit: int = 0, team: str = ""):
     key transfers in/out. Reads the committed ncaaf_roster.json (built by the
     GitHub Action). ?team= filters to one team's full transfer list."""
     import json as _json, os as _os
-    path = (_os.environ.get("NCAAF_ROSTER_PATH")
-            or ("/data/ncaaf_roster.json" if _os.path.exists("/data/ncaaf_roster.json")
-                else "ncaaf_roster.json"))
-    try:
-        with open(path) as f:
-            blob = _json.load(f)
-    except Exception as e:
-        return {"ok": False, "error": f"no roster file ({e}). Run the "
-                "'Refresh efficiency ratings' GitHub Action.", "teams": []}
+    _cands = [p for p in [
+        _os.environ.get("NCAAF_ROSTER_PATH"),
+        "/data/ncaaf_roster.json",
+        _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "ncaaf_roster.json"),
+        "ncaaf_roster.json",
+    ] if p]
+    blob = None
+    for _p in _cands:
+        try:
+            with open(_p) as f:
+                blob = _json.load(f)
+            break
+        except Exception:
+            continue
+    if blob is None:
+        return {"ok": False, "error": "no roster file found in any known location "
+                "(" + ", ".join(_cands) + "). Run the 'Refresh efficiency ratings' "
+                "GitHub Action, and confirm it committed ncaaf_roster.json.",
+                "teams": []}
     teams = list((blob.get("teams") or {}).values())
     if team:
         tn = team.strip().lower()
