@@ -86,10 +86,19 @@ jobs:
         run: |
           git config user.name  "efficiency-bot"
           git config user.email "actions@github.com"
-          # Only the generated files; nothing else the run might touch.
-          git add ncaab_ratings.json ncaaf_sp.json nfl_stats.json ncaaf_roster.json 2>/dev/null || true
+          # Force-add (-f) so these GENERATED files commit even if .gitignore
+          # excludes *.json / data files — that ignore was silently blocking the
+          # roster file from ever being committed. Missing files are skipped
+          # individually so one absent file doesn't abort the add.
+          for f in ncaab_ratings.json ncaaf_sp.json nfl_stats.json ncaaf_roster.json; do
+            if [ -f "$f" ]; then
+              git add -f "$f" && echo "staged $f ($(wc -c < "$f") bytes)"
+            else
+              echo "skip $f (not produced this run)"
+            fi
+          done
           if git diff --staged --quiet; then
-            echo "No ratings changed — nothing to commit (likely out of season)."
+            echo "No ratings changed — nothing to commit."
           else
             git commit -m "chore: refresh efficiency + roster ratings [skip ci]"
             git push
