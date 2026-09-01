@@ -1003,6 +1003,67 @@ def tennis_debug(date: str | None = None):
     return out
 
 
+@app.get("/api/ncaaf/player-probe")
+def ncaaf_player_probe(name: str = "", year: int = 0):
+    """Look up ONE player across the CFBD feeds to see exactly how a marquee
+    transfer is represented: portal entry (stars/rating/origin/dest), prior-season
+    PPA, and whether our join would find them. Use ?name=Cam Coleman ."""
+    import os as _os, datetime as _dt, httpx as _httpx
+    key = (_os.environ.get("CFBD_KEY") or _os.environ.get("CFBD_API_KEY") or "").strip()
+    yr = year or (_dt.date.today().year if _dt.date.today().month >= 8
+                  else _dt.date.today().year - 1)
+    out = {"query": name, "season": yr, "key_set": bool(key)}
+    if not key or not name:
+        out["note"] = "need ?name= and CFBD_API_KEY set"
+        return out
+    base = "https://api.collegefootballdata.com"
+    hdr = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
+    ln = name.strip().lower()
+
+    def _fetch(path, params):
+        try:
+            r = _httpx.get(base + path, params=params, headers=hdr,
+                           timeout=40.0, follow_redirects=True)
+            return r.json() if r.status_code == 200 else {"_status": r.status_code}
+        except Exception as e:
+            return {"_error": str(e)[:150]}
+
+    # portal hits for this name
+    portal = _fetch("/player/portal", {"year": yr})
+    phits = []
+    if isinstance(portal, list):
+        for p in portal:
+            full = f"{p.get('firstName','')} {p.get('lastName','')}".strip().lower()
+            if ln in full or full in ln:
+                phits.append(p)
+    out["portal_matches"] = phits[:8]
+    out["portal_total_rows"] = len(portal) if isinstance(portal, list) else portal
+
+    # prior-season PPA hits
+    ppa = _fetch("/ppa/players/season", {"year": yr - 1})
+    ehits = []
+    if isinstance(ppa, list):
+        for p in ppa:
+            if ln in (p.get("name", "") or "").lower():
+                ehits.append({"name": p.get("name"), "team": p.get("team"),
+                              "position": p.get("position"),
+                              "conference": p.get("conference"),
+                              "totalPPA_all": ((p.get("totalPPA") or {}) or {}).get("all"),
+                              "avgPPA_all": ((p.get("averagePPA") or {}) or {}).get("all")})
+    out["ppa_matches"] = ehits[:8]
+
+    # current-season PPA too (in case they already have games this year)
+    ppa_cur = _fetch("/ppa/players/season", {"year": yr})
+    chits = []
+    if isinstance(ppa_cur, list):
+        for p in ppa_cur:
+            if ln in (p.get("name", "") or "").lower():
+                chits.append({"name": p.get("name"), "team": p.get("team"),
+                              "totalPPA_all": ((p.get("totalPPA") or {}) or {}).get("all")})
+    out["ppa_current_matches"] = chits[:8]
+    return out
+
+
 @app.get("/api/ncaaf/roster-probe")
 def ncaaf_roster_probe(year: int = 0):
     """One-shot probe of the CFBD roster-change endpoints we'd build the
