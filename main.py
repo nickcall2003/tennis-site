@@ -38,8 +38,9 @@ from ws import manager
 import sports
 
 PROVIDER_NAME = os.environ.get("TENNIS_PROVIDER", "mock").lower()
-# Real tennis feeds: apitennis (legacy, paid) or sofascore (free, current).
-USE_REAL = PROVIDER_NAME in ("apitennis", "sofascore")
+# Real tennis feeds: livetennis (current, free tier), sofascore (blocked from
+# datacenter IPs), or apitennis (legacy, paid/cancelled).
+USE_REAL = PROVIDER_NAME in ("apitennis", "sofascore", "livetennis")
 
 # Optional AI narrative for write-ups. If ANTHROPIC_API_KEY is set in the
 # environment, we use Claude to turn the computed FACTS into richer prose
@@ -72,7 +73,10 @@ LLM_COMPLETE = _make_llm_complete()
 
 if USE_REAL:
     from seed import build_day
-    if PROVIDER_NAME == "sofascore":
+    if PROVIDER_NAME == "livetennis":
+        from livetennis import LiveTennisProvider
+        provider = LiveTennisProvider()
+    elif PROVIDER_NAME == "sofascore":
         from sofatennis import SofaTennisProvider
         provider = SofaTennisProvider()
     else:
@@ -996,6 +1000,103 @@ def tennis_debug(date: str | None = None):
                           "b": f.get("event_second_player")} for f in raw[:10]]
     except Exception as e:
         out["error"] = str(e)
+    return out
+
+
+@app.get("/api/ncaaf/roster-probe")
+def ncaaf_roster_probe(year: int = 0):
+    """One-shot probe of the CFBD roster-change endpoints we'd build the
+    transfer/returning-production model on. Reports HTTP status, row counts, real
+    field names, and one sample row per endpoint — so we build against the actual
+    data shape, not guesses. Read-only; safe to hit anytime."""
+    import os as _os
+    import datetime as _dt
+    key = (_os.environ.get("CFBD_KEY") or _os.environ.get("CFBD_API_KEY") or "").strip()
+    yr = year or (_dt.date.today().year if _dt.date.today().month >= 8
+                  else _dt.date.today().year - 1)
+    out = {"season": yr, "key_set": bool(key)}
+    if not key:
+        out["note"] = "CFBD_API_KEY not set"
+        return out
+    import httpx as _httpx
+    base = "https://api.collegefootballdata.com"
+    hdr = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
+
+    def probe(label, path, params):
+        info = {"path": path, "params": params}
+        try:
+            r = _httpx.get(base + path, params=params, headers=hdr,
+                           timeout=25.0, follow_redirects=True)
+            info["status"] = r.status_code
+            if r.status_code == 200:
+                data = r.json()
+                info["rows"] = len(data) if isinstance(data, list) else "not-a-list"
+                if isinstance(data, list) and data and isinstance(data[0], dict):
+                    info["fields"] = list(data[0].keys())
+                    info["sample"] = data[0]
+                    # a second sample helps see variety (e.g. portal in vs out)
+                    if len(data) > 1:
+                        info["sample2"] = data[1]
+            else:
+                info["body"] = r.text[:200]
+        except Exception as e:
+            info["error"] = f"{type(e).__name__}: {e}"
+        return info
+
+    out["returning_production"] = probe(
+        "returning", "/player/returning", {"year": yr})
+    out["transfer_portal"] = probe(
+        "portal", "/player/portal", {"year": yr})
+    out["player_ppa"] = probe(
+        "player_ppa", "/ppa/players/season", {"year": yr - 1})  # prior season value
+    out["recruiting_teams"] = probe(
+        "recruiting", "/recruiting/teams", {"year": yr})
+    return out
+
+
+@app.get("/api/tennis/live-debug")
+def tennis_live_debug(date: str | None = None):
+    """LiveTennisAPI diagnostic: proves connectivity (/health), the API key, and
+    how many fixtures come back for a date, broken down by tier. Use this to
+    verify tennis is flowing after switching TENNIS_PROVIDER=livetennis."""
+    out = {"provider_name": PROVIDER_NAME, "use_real": USE_REAL}
+    target = dt.date.fromisoformat(date) if date else dt.date.today()
+    out["date"] = target.isoformat()
+    try:
+        if PROVIDER_NAME != "livetennis":
+            out["note"] = ("TENNIS_PROVIDER is '%s', not 'livetennis'. Set "
+                           "TENNIS_PROVIDER=livetennis in Railway." % PROVIDER_NAME)
+            return out
+        try:
+            out["health"] = provider.health()
+        except Exception as e:
+            out["health_error"] = str(e)
+        sched = provider.get_schedule(dt.datetime.combine(target, dt.time(12, 0)))
+        out["scheduled_count"] = len(sched)
+        out["last_error"] = getattr(provider, "last_error", None)
+        from collections import Counter
+        tiers = Counter(s.tier for s in sched)
+        out["by_tier"] = dict(tiers)
+        out["samples"] = [{
+            "a": s.player_a, "b": s.player_b, "tier": s.tier,
+            "surface": s.surface, "tournament": s.tournament, "status": s.status,
+            "when": s.scheduled.isoformat() if s.scheduled else None,
+        } for s in sched[:12]]
+        try:
+            ranks = provider.get_rankings()
+            out["rankings_harvested"] = len(ranks)
+            out["rankings_sample"] = dict(list(ranks.items())[:5])
+        except Exception as e:
+            out["rankings_error"] = str(e)
+        if sched:
+            try:
+                out["sample_model_line"] = provider.model_line(sched[0])
+            except Exception as e:
+                out["model_line_error"] = str(e)
+    except Exception as e:
+        import traceback
+        out["error"] = "%s: %s" % (type(e).__name__, e)
+        out["trace"] = traceback.format_exc()[-800:]
     return out
 
 
