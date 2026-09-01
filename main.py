@@ -1003,6 +1003,119 @@ def tennis_debug(date: str | None = None):
     return out
 
 
+@app.get("/portal")
+def portal_board():
+    """Self-contained Transfer Portal Impact board. Fetches /api/ncaaf/roster-impact
+    and renders every team ranked by roster change with key transfers in/out.
+    Styled to match the site's dark theme; no separate file to maintain."""
+    html = """<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Transfer Portal Impact — Line Logic</title>
+<style>
+:root{--bg:#0e1014;--panel:#171a20;--panel2:#1e222a;--ink:#eef1f5;--muted:#9aa3b0;
+--muted2:#6b7382;--line:#2f3540;--clay:#e2683a;--win:#5fc88a;--loss:#e2685f;--blue:#3f7fc4}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;max-width:900px;margin:0 auto}
+h1{font-size:22px;margin:8px 0 2px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+padding:14px 16px;margin-bottom:10px}
+.row1{display:flex;align-items:center;gap:12px}
+.rank{color:var(--muted2);font:600 13px/1 monospace;min-width:26px}
+.team{font-weight:700;font-size:17px;flex:1}
+.impact{font:700 15px/1 monospace;padding:4px 8px;border-radius:8px}
+.adj{color:var(--muted);font:600 13px/1 monospace;margin-left:8px}
+.tx{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.txcol h4{margin:0 0 4px;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.in h4{color:var(--win)} .out h4{color:var(--loss)}
+.p{font-size:13px;color:var(--ink);padding:2px 0;display:flex;gap:6px}
+.pos{color:var(--muted2);font:600 11px/1.4 monospace;min-width:26px}
+.pn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pv{color:var(--muted);font:600 12px/1.4 monospace}
+.none{color:var(--muted2);font-size:12px;font-style:italic}
+.err{color:var(--loss);padding:20px;text-align:center}
+.foot{color:var(--muted2);font-size:11px;margin:18px 0 40px;text-align:center}
+@media(max-width:520px){.tx{grid-template-columns:1fr}}
+</style></head><body>
+<h1>Transfer Portal Impact</h1>
+<div class="sub" id="sub">Loading…</div>
+<div id="list"></div>
+<div class="foot">Impact 0–100 (50 = no net change). Ranks roster change by portal
+moves + recruiting, valuing each player by the better of last-season production or
+talent grade. Not betting advice.</div>
+<script>
+function col(x){ // impact 0..100 -> loss..muted..win
+  if(x>=50){var t=(x-50)/50;return 'rgba(95,200,138,'+(0.12+t*0.28)+')';}
+  var t=(50-x)/50;return 'rgba(226,104,95,'+(0.12+t*0.28)+')';}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function plist(arr,dir){
+  if(!arr||!arr.length)return '<div class="none">none tracked</div>';
+  return arr.map(p=>'<div class="p"><span class="pos">'+esc(p.pos||'')+'</span>'+
+    '<span class="pn">'+esc(p.name)+'</span>'+
+    '<span class="pv">'+(dir==='in'?(p.from?('← '+esc(p.from)):''):(p.to?('→ '+esc(p.to)):''))+'</span></div>').join('');}
+fetch('/api/ncaaf/roster-impact').then(r=>r.json()).then(d=>{
+  if(!d.ok){document.getElementById('sub').innerHTML='';
+    document.getElementById('list').innerHTML='<div class="err">'+esc(d.error||'No data yet. Run the roster refresh.')+'</div>';return;}
+  var up=new Date(d.updated); 
+  document.getElementById('sub').textContent=d.count+' teams · '+(d.season||'')+' cycle · updated '+(isNaN(up)?d.updated:up.toLocaleDateString());
+  document.getElementById('list').innerHTML=d.teams.map((t,i)=>{
+    return '<div class="card"><div class="row1">'+
+      '<span class="rank">'+(i+1)+'</span>'+
+      '<span class="team">'+esc(t.team)+'</span>'+
+      '<span class="impact" style="background:'+col(t.impact)+'">'+t.impact+'</span>'+
+      '<span class="adj">'+(t.adj_sp>=0?'+':'')+t.adj_sp+' pts</span></div>'+
+      '<div class="tx"><div class="txcol in"><h4>Added ('+(t.moves||0)+' moves)</h4>'+plist(t.key_in,'in')+'</div>'+
+      '<div class="txcol out"><h4>Lost</h4>'+plist(t.key_out,'out')+'</div></div></div>';
+  }).join('');
+}).catch(e=>{document.getElementById('list').innerHTML='<div class="err">Failed to load: '+e+'</div>';});
+</script></body></html>"""
+    return Response(content=html, media_type="text/html")
+
+
+@app.get("/api/ncaaf/roster-impact")
+def ncaaf_roster_impact(limit: int = 0, team: str = ""):
+    """The transfer-portal impact board: every team ranked by roster change, with
+    key transfers in/out. Reads the committed ncaaf_roster.json (built by the
+    GitHub Action). ?team= filters to one team's full transfer list."""
+    import json as _json, os as _os
+    path = (_os.environ.get("NCAAF_ROSTER_PATH")
+            or ("/data/ncaaf_roster.json" if _os.path.exists("/data/ncaaf_roster.json")
+                else "ncaaf_roster.json"))
+    try:
+        with open(path) as f:
+            blob = _json.load(f)
+    except Exception as e:
+        return {"ok": False, "error": f"no roster file ({e}). Run the "
+                "'Refresh efficiency ratings' GitHub Action.", "teams": []}
+    teams = list((blob.get("teams") or {}).values())
+    if team:
+        tn = team.strip().lower()
+        hit = [t for t in teams if tn in (t.get("name", "").lower())]
+        return {"ok": True, "updated": blob.get("updated"),
+                "season": blob.get("year"), "matches": hit}
+    # rank by impact (desc); include the compact per-team summary + key transfers
+    teams.sort(key=lambda t: -(t.get("impact") or 0))
+    rows = []
+    for t in teams:
+        if not t.get("moves"):
+            continue
+        rows.append({
+            "team": t.get("name"),
+            "impact": t.get("impact"),
+            "adj_sp": t.get("adj_sp"),
+            "moves": t.get("moves"),
+            "in_value": t.get("in_value"),
+            "out_value": t.get("out_value"),
+            "key_in": t.get("key_in", []),
+            "key_out": t.get("key_out", []),
+        })
+    if limit and limit > 0:
+        rows = rows[:limit]
+    return {"ok": True, "updated": blob.get("updated"), "season": blob.get("year"),
+            "count": len(rows), "teams": rows}
+
+
 @app.get("/api/ncaaf/player-probe")
 def ncaaf_player_probe(name: str = "", year: int = 0):
     """Look up ONE player across the CFBD feeds to see exactly how a marquee
