@@ -2277,34 +2277,53 @@ def _attach_odds(sport, games):
     """Attach real market odds to each game and snapshot the pick's line.
 
     Load-balances two free odds sources: SportsGameOdds (SGO) covers the major
-    team leagues + UFC on its own quota, so for those sports we DON'T spend a
-    scarce Odds API call — we reserve the Odds API's limited monthly quota for
-    the sports SGO can't do (tennis, golf, NCAA baseball, WNBA). Falls through to
-    SGO below so the model-vs-market edge renders on either source."""
-    book = {}
-    sgo_covers = False
-    try:
-        import sgo_api
-        sgo_covers = (sgo_api.available() and sport in getattr(sgo_api, "SGO_LEAGUE", {}))
-    except Exception:
-        sgo_covers = False
-    try:
-        import odds_api
-        if odds_api.enabled() and not sgo_covers:
-            book = odds_api.get_odds(sport) or {}
-    except Exception as e:
-        print(f"[odds] odds-api {sport} skipped: {e}")
+    team leagues + UFC on its own quota, so for those sports we try SGO FIRST to
+    reserve the Odds API's limited monthly quota for the sports SGO can't do
+    (tennis, golf, NCAA baseball, WNBA). BUT if SGO returns no line for a game
+    (common early-season / smaller matchups), we fall back to the Odds API so the
+    card shows a market instead of 'Awaiting market' — and so the SPREAD is
+    captured (SGO doesn't give spreads; the Odds API does, which the ATS opener
+    tracking needs)."""
     sgo = None
+    sgo_covers = False
     try:
         import sgo_api
         if sgo_api.enabled():
             sgo = sgo_api
+            sgo_covers = sport in getattr(sgo_api, "SGO_LEAGUE", {})
     except Exception:
         sgo = None
+        sgo_covers = False
+    # Load the Odds API book lazily: always for sports SGO can't cover, and as a
+    # per-game fallback for SGO-covered sports (fetched once, cached 15 min, so it
+    # costs at most one call per sport per cycle).
+    _oa = None
+    _oa_book = None
+
+    def _oa_get():
+        nonlocal _oa, _oa_book
+        if _oa_book is not None:
+            return _oa_book
+        try:
+            import odds_api as _m
+            if _m.enabled():
+                _oa = _m
+                _oa_book = _m.get_odds(sport) or {}
+            else:
+                _oa_book = {}
+        except Exception as e:
+            print(f"[odds] odds-api {sport} skipped: {e}")
+            _oa_book = {}
+        return _oa_book
+
+    # For sports SGO does NOT cover, prime the Odds API book up front.
+    book = {} if sgo_covers else _oa_get()
+
     for g in games:
         if g.get("odds"):
             continue                          # provider already attached (soccer)
-        o = book.get(_norm_team(g["home"]["name"]) + "|" + _norm_team(g["away"]["name"])) if book else None
+        key = _norm_team(g["home"]["name"]) + "|" + _norm_team(g["away"]["name"])
+        o = book.get(key) if book else None
         if o:
             mlh, mla = _odds_rec_sides(g["home"]["name"], o)
             g["odds"] = {"ml_home": mlh, "ml_away": mla,
@@ -2317,8 +2336,18 @@ def _attach_odds(sport, games):
                 so = None
             if so and (so.get("ml_home") is not None or so.get("ml_away") is not None):
                 g["odds"] = {"ml_home": so.get("ml_home"), "ml_away": so.get("ml_away"),
-                             "spread_home": None, "total": None,
+                             "spread_home": so.get("spread_home"), "total": so.get("total"),
                              "books": ["SportsGameOdds"]}
+            # SGO had no line -> fall back to the Odds API so the game isn't left
+            # 'Awaiting market' and we capture a spread for ATS.
+            if not g.get("odds"):
+                ob = _oa_get()
+                o2 = ob.get(key) if ob else None
+                if o2:
+                    mlh, mla = _odds_rec_sides(g["home"]["name"], o2)
+                    g["odds"] = {"ml_home": mlh, "ml_away": mla,
+                                 "spread_home": o2.get("spread_home"),
+                                 "total": o2.get("total"), "books": o2.get("books")}
         if g.get("odds"):                     # snapshot the side we pick (CLV)
             side = "home" if g["prob_home"] >= 0.5 else "away"
             taken = g["odds"]["ml_home"] if side == "home" else g["odds"]["ml_away"]
