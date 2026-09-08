@@ -38,9 +38,8 @@ from ws import manager
 import sports
 
 PROVIDER_NAME = os.environ.get("TENNIS_PROVIDER", "mock").lower()
-# Real tennis feeds: livetennis (current, free tier), sofascore (blocked from
-# datacenter IPs), or apitennis (legacy, paid/cancelled).
-USE_REAL = PROVIDER_NAME in ("apitennis", "sofascore", "livetennis")
+# Real tennis feeds: apitennis (legacy, paid) or sofascore (free, current).
+USE_REAL = PROVIDER_NAME in ("apitennis", "sofascore")
 
 # Optional AI narrative for write-ups. If ANTHROPIC_API_KEY is set in the
 # environment, we use Claude to turn the computed FACTS into richer prose
@@ -73,10 +72,7 @@ LLM_COMPLETE = _make_llm_complete()
 
 if USE_REAL:
     from seed import build_day
-    if PROVIDER_NAME == "livetennis":
-        from livetennis import LiveTennisProvider
-        provider = LiveTennisProvider()
-    elif PROVIDER_NAME == "sofascore":
+    if PROVIDER_NAME == "sofascore":
         from sofatennis import SofaTennisProvider
         provider = SofaTennisProvider()
     else:
@@ -589,31 +585,53 @@ async def lifespan(app: FastAPI):
             import time as _t
             _t.sleep(150)
             every = max(1, int(os.environ.get("ODDS_SNAPSHOT_HOURS", "12") or 12)) * 3600
+            # How many days AHEAD to snapshot. Capturing upcoming games (not just
+            # today) is what freezes a real OPENING line — a game gets its first
+            # spread recorded days before kickoff, close to the market open,
+            # instead of on game-day morning after the line has already moved.
+            ahead = max(0, int(os.environ.get("ODDS_SNAPSHOT_AHEAD_DAYS", "7") or 7))
             while True:
                 try:
                     import odds_api
                     if odds_api.enabled():
-                        today = dt.date.today().isoformat()
-                        jobs = [
-                            ("mlb", lambda: mlb_games(date=today)),
-                            ("ncaabb", lambda: ncaabb_games(date=today)),
+                        # Build the list of dates to cover: today .. today+ahead.
+                        base = dt.date.today()
+                        dates = [(base + dt.timedelta(days=i)).isoformat()
+                                 for i in range(ahead + 1)]
+                        # Per-sport builders take a date; calling each across the
+                        # forward window snapshots every upcoming game's line via
+                        # the normal _attach_odds path. UFC/soccer handle their own
+                        # windows, so they're called once.
+                        per_day = [
+                            ("mlb", lambda d: mlb_games(date=d)),
+                            ("ncaabb", lambda d: ncaabb_games(date=d)),
+                            ("nba", lambda d: team_games("nba", date=d)),
+                            ("nfl", lambda d: team_games("nfl", date=d)),
+                            ("nhl", lambda d: team_games("nhl", date=d)),
+                            ("ncaaf", lambda d: team_games("ncaaf", date=d)),
+                            ("ncaab", lambda d: team_games("ncaab", date=d)),
+                        ]
+                        once = [
                             ("ufc", lambda: ufc_games(date=None)),
-                            ("nba", lambda: team_games("nba", date=today)),
-                            ("nfl", lambda: team_games("nfl", date=today)),
-                            ("nhl", lambda: team_games("nhl", date=today)),
-                            ("ncaaf", lambda: team_games("ncaaf", date=today)),
-                            ("ncaab", lambda: team_games("ncaab", date=today)),
-                            ("soccer", lambda: soccer_games(date=today, league="all")),
+                            ("soccer", lambda: soccer_games(date=dt.date.today().isoformat(), league="all")),
                         ]
                         n = 0
-                        for name, fn in jobs:
+                        for name, fn in per_day:
+                            for d in dates:
+                                try:
+                                    fn(d)
+                                    n += 1
+                                except Exception as e:
+                                    print(f"[odds-snapshot] {name} {d} failed: {e}")
+                                _t.sleep(1)
+                        for name, fn in once:
                             try:
                                 fn()
                                 n += 1
                             except Exception as e:
                                 print(f"[odds-snapshot] {name} failed: {e}")
-                            _t.sleep(3)
-                        print(f"[odds-snapshot] cycle done ({n} boards)")
+                            _t.sleep(2)
+                        print(f"[odds-snapshot] cycle done ({n} board-days, {ahead}d ahead)")
                 except Exception as e:
                     print(f"[odds-snapshot] loop error: {e}")
                 _t.sleep(every)
@@ -1000,287 +1018,6 @@ def tennis_debug(date: str | None = None):
                           "b": f.get("event_second_player")} for f in raw[:10]]
     except Exception as e:
         out["error"] = str(e)
-    return out
-
-
-@app.get("/portal")
-def portal_board():
-    """Self-contained Transfer Portal Impact board. Fetches /api/ncaaf/roster-impact
-    and renders every team ranked by roster change with key transfers in/out.
-    Styled to match the site's dark theme; no separate file to maintain."""
-    html = """<!doctype html><html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Transfer Portal Impact — Line Logic</title>
-<style>
-:root{--bg:#0e1014;--panel:#171a20;--panel2:#1e222a;--ink:#eef1f5;--muted:#9aa3b0;
---muted2:#6b7382;--line:#2f3540;--clay:#e2683a;--win:#5fc88a;--loss:#e2685f;--blue:#3f7fc4}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
-font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px;max-width:900px;margin:0 auto}
-h1{font-size:22px;margin:8px 0 2px}
-.sub{color:var(--muted);font-size:13px;margin-bottom:16px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-padding:14px 16px;margin-bottom:10px}
-.row1{display:flex;align-items:center;gap:12px}
-.rank{color:var(--muted2);font:600 13px/1 monospace;min-width:26px}
-.team{font-weight:700;font-size:17px;flex:1}
-.impact{font:700 15px/1 monospace;padding:4px 8px;border-radius:8px}
-.adj{color:var(--muted);font:600 13px/1 monospace;margin-left:8px}
-.tx{margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.txcol h4{margin:0 0 4px;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
-.in h4{color:var(--win)} .out h4{color:var(--loss)}
-.p{font-size:13px;color:var(--ink);padding:2px 0;display:flex;gap:6px}
-.pos{color:var(--muted2);font:600 11px/1.4 monospace;min-width:26px}
-.pn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pv{color:var(--muted);font:600 12px/1.4 monospace}
-.none{color:var(--muted2);font-size:12px;font-style:italic}
-.err{color:var(--loss);padding:20px;text-align:center}
-.foot{color:var(--muted2);font-size:11px;margin:18px 0 40px;text-align:center}
-@media(max-width:520px){.tx{grid-template-columns:1fr}}
-</style></head><body>
-<h1>Transfer Portal Impact</h1>
-<div class="sub" id="sub">Loading…</div>
-<div id="list"></div>
-<div class="foot">Impact 0–100 (50 = no net change). Ranks roster change by portal
-moves + recruiting, valuing each player by the better of last-season production or
-talent grade. Not betting advice.</div>
-<script>
-function col(x){ // impact 0..100 -> loss..muted..win
-  if(x>=50){var t=(x-50)/50;return 'rgba(95,200,138,'+(0.12+t*0.28)+')';}
-  var t=(50-x)/50;return 'rgba(226,104,95,'+(0.12+t*0.28)+')';}
-function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
-function plist(arr,dir){
-  if(!arr||!arr.length)return '<div class="none">none tracked</div>';
-  return arr.map(p=>'<div class="p"><span class="pos">'+esc(p.pos||'')+'</span>'+
-    '<span class="pn">'+esc(p.name)+'</span>'+
-    '<span class="pv">'+(dir==='in'?(p.from?('← '+esc(p.from)):''):(p.to?('→ '+esc(p.to)):''))+'</span></div>').join('');}
-fetch('/api/ncaaf/roster-impact').then(r=>r.json()).then(d=>{
-  if(!d.ok){document.getElementById('sub').innerHTML='';
-    document.getElementById('list').innerHTML='<div class="err">'+esc(d.error||'No data yet. Run the roster refresh.')+'</div>';return;}
-  var up=new Date(d.updated); 
-  document.getElementById('sub').textContent=d.count+' teams · '+(d.season||'')+' cycle · updated '+(isNaN(up)?d.updated:up.toLocaleDateString());
-  document.getElementById('list').innerHTML=d.teams.map((t,i)=>{
-    return '<div class="card"><div class="row1">'+
-      '<span class="rank">'+(i+1)+'</span>'+
-      '<span class="team">'+esc(t.team)+'</span>'+
-      '<span class="impact" style="background:'+col(t.impact)+'">'+t.impact+'</span>'+
-      '<span class="adj">'+(t.adj_sp>=0?'+':'')+t.adj_sp+' pts</span></div>'+
-      '<div class="tx"><div class="txcol in"><h4>Added ('+(t.moves||0)+' moves)</h4>'+plist(t.key_in,'in')+'</div>'+
-      '<div class="txcol out"><h4>Lost</h4>'+plist(t.key_out,'out')+'</div></div></div>';
-  }).join('');
-}).catch(e=>{document.getElementById('list').innerHTML='<div class="err">Failed to load: '+e+'</div>';});
-</script></body></html>"""
-    return Response(content=html, media_type="text/html")
-
-
-@app.get("/api/ncaaf/roster-impact")
-def ncaaf_roster_impact(limit: int = 0, team: str = ""):
-    """The transfer-portal impact board: every team ranked by roster change, with
-    key transfers in/out. Reads the committed ncaaf_roster.json (built by the
-    GitHub Action). ?team= filters to one team's full transfer list."""
-    import json as _json, os as _os
-    _cands = [p for p in [
-        _os.environ.get("NCAAF_ROSTER_PATH"),
-        "/data/ncaaf_roster.json",
-        _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "ncaaf_roster.json"),
-        "ncaaf_roster.json",
-    ] if p]
-    blob = None
-    for _p in _cands:
-        try:
-            with open(_p) as f:
-                blob = _json.load(f)
-            break
-        except Exception:
-            continue
-    if blob is None:
-        return {"ok": False, "error": "no roster file found in any known location "
-                "(" + ", ".join(_cands) + "). Run the 'Refresh efficiency ratings' "
-                "GitHub Action, and confirm it committed ncaaf_roster.json.",
-                "teams": []}
-    teams = list((blob.get("teams") or {}).values())
-    if team:
-        tn = team.strip().lower()
-        hit = [t for t in teams if tn in (t.get("name", "").lower())]
-        return {"ok": True, "updated": blob.get("updated"),
-                "season": blob.get("year"), "matches": hit}
-    # rank by impact (desc); include the compact per-team summary + key transfers
-    teams.sort(key=lambda t: -(t.get("impact") or 0))
-    rows = []
-    for t in teams:
-        if not t.get("moves"):
-            continue
-        rows.append({
-            "team": t.get("name"),
-            "impact": t.get("impact"),
-            "adj_sp": t.get("adj_sp"),
-            "moves": t.get("moves"),
-            "in_value": t.get("in_value"),
-            "out_value": t.get("out_value"),
-            "key_in": t.get("key_in", []),
-            "key_out": t.get("key_out", []),
-        })
-    if limit and limit > 0:
-        rows = rows[:limit]
-    return {"ok": True, "updated": blob.get("updated"), "season": blob.get("year"),
-            "count": len(rows), "teams": rows}
-
-
-@app.get("/api/ncaaf/player-probe")
-def ncaaf_player_probe(name: str = "", year: int = 0):
-    """Look up ONE player across the CFBD feeds to see exactly how a marquee
-    transfer is represented: portal entry (stars/rating/origin/dest), prior-season
-    PPA, and whether our join would find them. Use ?name=Cam Coleman ."""
-    import os as _os, datetime as _dt, httpx as _httpx
-    key = (_os.environ.get("CFBD_KEY") or _os.environ.get("CFBD_API_KEY") or "").strip()
-    yr = year or (_dt.date.today().year if _dt.date.today().month >= 8
-                  else _dt.date.today().year - 1)
-    out = {"query": name, "season": yr, "key_set": bool(key)}
-    if not key or not name:
-        out["note"] = "need ?name= and CFBD_API_KEY set"
-        return out
-    base = "https://api.collegefootballdata.com"
-    hdr = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
-    ln = name.strip().lower()
-
-    def _fetch(path, params):
-        try:
-            r = _httpx.get(base + path, params=params, headers=hdr,
-                           timeout=40.0, follow_redirects=True)
-            return r.json() if r.status_code == 200 else {"_status": r.status_code}
-        except Exception as e:
-            return {"_error": str(e)[:150]}
-
-    # portal hits for this name
-    portal = _fetch("/player/portal", {"year": yr})
-    phits = []
-    if isinstance(portal, list):
-        for p in portal:
-            full = f"{p.get('firstName','')} {p.get('lastName','')}".strip().lower()
-            if ln in full or full in ln:
-                phits.append(p)
-    out["portal_matches"] = phits[:8]
-    out["portal_total_rows"] = len(portal) if isinstance(portal, list) else portal
-
-    # prior-season PPA hits
-    ppa = _fetch("/ppa/players/season", {"year": yr - 1})
-    ehits = []
-    if isinstance(ppa, list):
-        for p in ppa:
-            if ln in (p.get("name", "") or "").lower():
-                ehits.append({"name": p.get("name"), "team": p.get("team"),
-                              "position": p.get("position"),
-                              "conference": p.get("conference"),
-                              "totalPPA_all": ((p.get("totalPPA") or {}) or {}).get("all"),
-                              "avgPPA_all": ((p.get("averagePPA") or {}) or {}).get("all")})
-    out["ppa_matches"] = ehits[:8]
-
-    # current-season PPA too (in case they already have games this year)
-    ppa_cur = _fetch("/ppa/players/season", {"year": yr})
-    chits = []
-    if isinstance(ppa_cur, list):
-        for p in ppa_cur:
-            if ln in (p.get("name", "") or "").lower():
-                chits.append({"name": p.get("name"), "team": p.get("team"),
-                              "totalPPA_all": ((p.get("totalPPA") or {}) or {}).get("all")})
-    out["ppa_current_matches"] = chits[:8]
-    return out
-
-
-@app.get("/api/ncaaf/roster-probe")
-def ncaaf_roster_probe(year: int = 0):
-    """One-shot probe of the CFBD roster-change endpoints we'd build the
-    transfer/returning-production model on. Reports HTTP status, row counts, real
-    field names, and one sample row per endpoint — so we build against the actual
-    data shape, not guesses. Read-only; safe to hit anytime."""
-    import os as _os
-    import datetime as _dt
-    key = (_os.environ.get("CFBD_KEY") or _os.environ.get("CFBD_API_KEY") or "").strip()
-    yr = year or (_dt.date.today().year if _dt.date.today().month >= 8
-                  else _dt.date.today().year - 1)
-    out = {"season": yr, "key_set": bool(key)}
-    if not key:
-        out["note"] = "CFBD_API_KEY not set"
-        return out
-    import httpx as _httpx
-    base = "https://api.collegefootballdata.com"
-    hdr = {"Authorization": f"Bearer {key}", "Accept": "application/json"}
-
-    def probe(label, path, params):
-        info = {"path": path, "params": params}
-        try:
-            r = _httpx.get(base + path, params=params, headers=hdr,
-                           timeout=25.0, follow_redirects=True)
-            info["status"] = r.status_code
-            if r.status_code == 200:
-                data = r.json()
-                info["rows"] = len(data) if isinstance(data, list) else "not-a-list"
-                if isinstance(data, list) and data and isinstance(data[0], dict):
-                    info["fields"] = list(data[0].keys())
-                    info["sample"] = data[0]
-                    # a second sample helps see variety (e.g. portal in vs out)
-                    if len(data) > 1:
-                        info["sample2"] = data[1]
-            else:
-                info["body"] = r.text[:200]
-        except Exception as e:
-            info["error"] = f"{type(e).__name__}: {e}"
-        return info
-
-    out["returning_production"] = probe(
-        "returning", "/player/returning", {"year": yr})
-    out["transfer_portal"] = probe(
-        "portal", "/player/portal", {"year": yr})
-    out["player_ppa"] = probe(
-        "player_ppa", "/ppa/players/season", {"year": yr - 1})  # prior season value
-    out["recruiting_teams"] = probe(
-        "recruiting", "/recruiting/teams", {"year": yr})
-    return out
-
-
-@app.get("/api/tennis/live-debug")
-def tennis_live_debug(date: str | None = None):
-    """LiveTennisAPI diagnostic: proves connectivity (/health), the API key, and
-    how many fixtures come back for a date, broken down by tier. Use this to
-    verify tennis is flowing after switching TENNIS_PROVIDER=livetennis."""
-    out = {"provider_name": PROVIDER_NAME, "use_real": USE_REAL}
-    target = dt.date.fromisoformat(date) if date else dt.date.today()
-    out["date"] = target.isoformat()
-    try:
-        if PROVIDER_NAME != "livetennis":
-            out["note"] = ("TENNIS_PROVIDER is '%s', not 'livetennis'. Set "
-                           "TENNIS_PROVIDER=livetennis in Railway." % PROVIDER_NAME)
-            return out
-        try:
-            out["health"] = provider.health()
-        except Exception as e:
-            out["health_error"] = str(e)
-        sched = provider.get_schedule(dt.datetime.combine(target, dt.time(12, 0)))
-        out["scheduled_count"] = len(sched)
-        out["last_error"] = getattr(provider, "last_error", None)
-        from collections import Counter
-        tiers = Counter(s.tier for s in sched)
-        out["by_tier"] = dict(tiers)
-        out["samples"] = [{
-            "a": s.player_a, "b": s.player_b, "tier": s.tier,
-            "surface": s.surface, "tournament": s.tournament, "status": s.status,
-            "when": s.scheduled.isoformat() if s.scheduled else None,
-        } for s in sched[:12]]
-        try:
-            ranks = provider.get_rankings()
-            out["rankings_harvested"] = len(ranks)
-            out["rankings_sample"] = dict(list(ranks.items())[:5])
-        except Exception as e:
-            out["rankings_error"] = str(e)
-        if sched:
-            try:
-                out["sample_model_line"] = provider.model_line(sched[0])
-            except Exception as e:
-                out["model_line_error"] = str(e)
-    except Exception as e:
-        import traceback
-        out["error"] = "%s: %s" % (type(e).__name__, e)
-        out["trace"] = traceback.format_exc()[-800:]
     return out
 
 
@@ -2588,7 +2325,8 @@ def _attach_odds(sport, games):
             if taken is not None:
                 try:
                     _snapshot_odds(sport, str(g["id"]), side, int(round(taken)),
-                                   prob=(g["prob_home"] if side == "home" else g.get("prob_away", 1 - g["prob_home"])))
+                                   prob=(g["prob_home"] if side == "home" else g.get("prob_away", 1 - g["prob_home"])),
+                                   spread=g["odds"].get("spread_home"))
                 except Exception:
                     pass
     return games
@@ -2627,10 +2365,39 @@ def _attach_odds_one(sport, g):
     return g
 
 
-def _snapshot_odds(sport, ref, side, odds, prob=None, subcat=None, gate=None):
+def _grade_ats(db, sport, g):
+    """Grade one finished team game ATS vs its OPENING spread. Pulls the frozen
+    open_spread from the game's OddsSnapshot, computes the final home-relative
+    margin from the score, and records the cover/no/push. No-op (returns None) if
+    there's no opening spread or no final score — those simply aren't ATS-graded.
+    Never raises into the caller."""
+    from models import OddsSnapshot
+    import ats
+    ref = str(g.get("id"))
+    snap = db.query(OddsSnapshot).filter_by(sport=sport, ref=ref).first()
+    if not snap or snap.open_spread is None:
+        return None                            # no opener captured -> not gradable
+    score = g.get("score") or {}
+    hs, as_ = score.get("home"), score.get("away")
+    if hs is None or as_ is None:
+        return None
+    actual_margin = float(hs) - float(as_)     # home-relative
+    model_margin = g.get("exp_margin")
+    if model_margin is None:
+        return None
+    return ats.record_ats(db, sport, ref, float(snap.open_spread),
+                          float(model_margin), actual_margin,
+                          subcat=getattr(snap, "subcat", None))
+
+
+def _snapshot_odds(sport, ref, side, odds, prob=None, subcat=None, gate=None,
+                   spread=None):
     """Record/refresh the market line for a pick (open = first seen, last = now).
     Also captures the model's probability and sub-league tag (tennis tour) for the
     picked side so every settled game carries them for edge/wager/tour tracking.
+
+    `spread`: the current HOME-RELATIVE spread. Frozen as open_spread on first
+    sighting (the opening line ATS grades against) and tracked as last_spread.
 
     `gate`: a skip-reason string means "do not OPEN a wager on this pick". An
     EXISTING snapshot is still refreshed, because a wager already taken must keep
@@ -2646,7 +2413,8 @@ def _snapshot_odds(sport, ref, side, odds, prob=None, subcat=None, gate=None):
             if row is None:
                 db.add(OddsSnapshot(sport=sport, ref=ref, side=side,
                                     open_odds=odds, last_odds=odds, prob=prob,
-                                    subcat=subcat, first_seen=now, last_seen=now))
+                                    subcat=subcat, first_seen=now, last_seen=now,
+                                    open_spread=spread, last_spread=spread))
             else:
                 row.last_odds = odds
                 row.last_seen = now
@@ -2655,6 +2423,11 @@ def _snapshot_odds(sport, ref, side, odds, prob=None, subcat=None, gate=None):
                     row.prob = prob
                 if subcat is not None:
                     row.subcat = subcat
+                if spread is not None:
+                    row.last_spread = spread
+                    # Backfill the opener if we somehow never captured it.
+                    if row.open_spread is None:
+                        row.open_spread = spread
             db.commit()
     except Exception:
         pass
@@ -5029,6 +4802,12 @@ def team_games(sport: str, date: str | None = None, debug: int = 0):
                     predicted = "home" if g["prob_home"] >= 0.5 else "away"
                     _record_result(db, sport, g["id"], predicted, g["winner"])
                     wrote = True
+                    # ATS vs the opening line: grade the model's projected margin
+                    # against the frozen opening spread using the final score.
+                    try:
+                        _grade_ats(db, sport, g)
+                    except Exception as _e:
+                        print(f"[ats] {sport}/{g.get('id')} skipped: {_e}")
             if wrote:
                 db.commit()
     except Exception as e:
@@ -6249,6 +6028,19 @@ def sport_news(sport: str, date: str | None = None):
     except Exception as e:
         print(f"[news] {sport} yardbarker failed: {e}")
     return {"sport": sport, "news": news, "injuries": injuries, "headlines": headlines}
+
+
+@app.get("/api/ats")
+def ats_record(sport: str | None = None, days: int = 0):
+    """The model's against-the-spread record vs the OPENING line (first spread we
+    recorded per game). Its own metric, separate from straight-up accuracy.
+    ?sport= filters to one sport; ?days= limits to a recent window."""
+    import ats
+    try:
+        with SessionLocal() as db:
+            return ats.record(db, sport=sport or None, days=(days or None))
+    except Exception as e:
+        return {"error": str(e), "by_sport": {}, "overall": {}}
 
 
 @app.get("/api/clv")

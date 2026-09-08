@@ -128,6 +128,34 @@ class PickResult(Base):
     __table_args__ = (UniqueConstraint("sport", "ref", name="uq_sport_ref"),)
 
 
+class ATSResult(Base):
+    """
+    A settled AGAINST-THE-SPREAD result, graded vs the OPENING line (the first
+    spread we recorded for the game). Deliberately separate from PickResult
+    (straight-up accuracy) — ATS is its own metric: can the model beat the number.
+
+    Grading: the model's projected margin picks a side relative to the opening
+    spread; after the game, the actual margin is compared to that same opening
+    spread. cover = our side beat the number; push = landed exactly on it
+    (excluded from win%); no = missed.
+    """
+    __tablename__ = "ats_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[str] = mapped_column(String(10), index=True)
+    ref: Mapped[str] = mapped_column(String(40), index=True)
+    settled_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    subcat: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    open_spread: Mapped[float] = mapped_column(Float)        # home-relative opening line
+    model_margin: Mapped[float] = mapped_column(Float)       # model's projected margin (home-relative)
+    actual_margin: Mapped[float] = mapped_column(Float)      # final margin (home-relative)
+    pick_side: Mapped[str] = mapped_column(String(8))        # 'home'/'away' the model took ATS
+    result: Mapped[str] = mapped_column(String(8))           # 'cover'/'no'/'push'
+    covered: Mapped[bool] = mapped_column()                  # True only on a cover (push=False)
+
+    __table_args__ = (UniqueConstraint("sport", "ref", name="uq_ats_sport_ref"),)
+
+
 class PropResult(Base):
     """
     A settled PLAYER PROP: what the model projected, the book's line, which side
@@ -242,6 +270,12 @@ class OddsSnapshot(Base):
     side: Mapped[str] = mapped_column(String(8))          # 'home'/'away' the pick is on
     open_odds: Mapped[int | None] = mapped_column(nullable=True)   # first seen
     last_odds: Mapped[int | None] = mapped_column(nullable=True)   # most recent
+    # Opening SPREAD (home-relative points, e.g. -6.5 = home favored by 6.5),
+    # frozen at first sighting — this is the "opening line" ATS grades against.
+    # Kept separate from open_odds (which is the moneyline). last_spread tracks
+    # movement for optional closing-line context.
+    open_spread: Mapped[float | None] = mapped_column(Float, nullable=True)
+    last_spread: Mapped[float | None] = mapped_column(Float, nullable=True)
     prob: Mapped[float | None] = mapped_column(Float, nullable=True)  # model P(pick) at snapshot — durable edge/wager source
     subcat: Mapped[str | None] = mapped_column(String(16), nullable=True)  # sub-league tag (tennis tour) carried to settle
     first_seen: Mapped[datetime] = mapped_column(DateTime)
