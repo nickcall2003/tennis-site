@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=37">
+<link rel="stylesheet" href="/app.css?v=38">
 </head>
 <body>
 <div class="shell">
@@ -3798,27 +3798,23 @@ function renderHome(){
 // all-time), laid out like a stamped, un-editable betting slip. Falls back to
 // a clean intro if accuracy data hasn't loaded yet.
 function heroProofHTML(ov){
-  // Flagship framing: lead with the model's STRONGEST proof — MLB's all-time
-  // net units on graded +EV wagers — not the trailing 30-day window (which can
-  // be a rough stretch). Secondary lines: MLB all-time record, MLB all-time ROI,
-  // and the all-sports net units so the headline sport is backed by the whole
-  // book. Tennis is never shown as its own line here.
-  //
-  // Units come from the SAME source the Track Record page uses
-  // (/api/edges/wagers -> _wagData): a sport's units only count once it has
-  // matured (>=25 graded wagers), so these are real plays, not "bet every fav".
+  // HERO C — compact stat strip. No receipt/ticket styling. Same live data as
+  // before (MLB all-time units/ROI, all-sports units with tennis normalization),
+  // just presented as: record + a gold 30-day pill, then an even 3-cell strip.
   var mlbA=(_accData&&_accData.by_sport&&_accData.by_sport.mlb)||null;
   var ws=(_wagData&&_wagData.by_sport)||null;
   var mlbW=(ws&&ws.mlb)||null;
-  var head='<div class="rcpt-brand"><h2>Line Logic<span class="dot">.</span></h2>'+
-    '<div class="rcpt-tag">A public model that grades every pick across every sport. Wins and losses both stay on the board.</div></div>';
+  var ovAcc=(ov&&ov.accuracy!=null)?Math.round(ov.accuracy):null;
   var mU=(mlbW&&mlbW.mature&&mlbW.units!=null)?mlbW.units:null;
   var mRoi=(mlbW&&mlbW.mature&&mlbW.roi_pct!=null)?mlbW.roi_pct:null;
   var mAw=(mlbA&&mlbA.alltime_wins)||0, mAl=(mlbA&&mlbA.alltime_losses)||0;
-  // All-sports net units: sum every matured sport's units, exactly like the
-  // Track Record hero's total — INCLUDING the tennis normalization (tennis units
-  // come from the ITF-excluded tour rollup, not the raw wager number, so the two
-  // pages can never disagree).
+  // 30-day featured win% + record (the pill + big number). Prefer MLB's window;
+  // fall back to overall so the hero is never empty.
+  var w30=(mlbA&&mlbA.wins_30d!=null)?mlbA.wins_30d:(mlbA&&mlbA.correct);
+  var l30=(mlbA&&mlbA.losses_30d!=null)?mlbA.losses_30d:
+          ((mlbA&&mlbA.picks!=null)?(mlbA.picks-(mlbA.correct||0)):null);
+  var pct30=(mlbA&&mlbA.accuracy!=null)?Math.round(mlbA.accuracy):ovAcc;
+  // All-sports net units (matured sports only, tennis via ITF-excluded rollup).
   var oU=null;
   if(ws){
     var t=0,any=false;
@@ -3826,54 +3822,35 @@ function heroProofHTML(ov){
     for(var k in ws){
       var wv=ws[k];
       if(k==="tennis"){
-        // authoritative tennis figure = tour rollup excl. ITF (matches Track Record)
-        if(teRoll&&teRoll.units!=null&&(teRoll.priced||0)>=((_wagData&&_wagData.min_sample)||25)){
-          t+=teRoll.units;any=true;
-        } else if(wv&&wv.mature&&wv.units!=null){
-          t+=wv.units;any=true;
-        }
+        if(teRoll&&teRoll.units!=null&&(teRoll.priced||0)>=((_wagData&&_wagData.min_sample)||25)){t+=teRoll.units;any=true;}
+        else if(wv&&wv.mature&&wv.units!=null){t+=wv.units;any=true;}
         continue;
       }
       if(wv&&wv.mature&&wv.units!=null){t+=wv.units;any=true;}
     }
     if(any)oU=Math.round(t*100)/100;
   }
-  // If the wager units haven't loaded yet, show the clean intro rather than a
-  // blank slip.
-  if(mU==null){
-    if(!mlbA||mlbA.accuracy==null){
-      return '<div class="rcpt">'+head+
-        '<div class="rcpt-sub">A public, tracked MLB betting model \u2014 plus NBA, NFL, NHL, tennis, soccer &amp; college. Loading the record\u2026</div></div>';
-    }
+  // ATS record for the strip's third cell.
+  var ats=null;
+  if(_atsData&&_atsData.overall&&_atsData.overall.ats_pct!=null&&_atsData.overall.graded>0){
+    ats=_atsData.overall.ats_pct+'%';
   }
-  function leader(k,v,cls){return '<div class="rcpt-line"><span class="rcpt-k">'+k+
-    '</span><span class="rcpt-dots"></span><span class="rcpt-v'+(cls?' '+cls:'')+'">'+v+'</span></div>';}
-  function u2(x){return (x>=0?'+':'')+ (Math.round(x*100)/100) +'u';}
-  var lines="";
-  // BIG headline: MLB all-time net units.
-  if(mU!=null) lines+=leader("MLB NET UNITS \u00b7 ALL-TIME", u2(mU), "big "+(mU>=0?'pos':'neg'));
-  // MLB all-time record.
-  if(mAw+mAl) lines+=leader("MLB RECORD \u00b7 ALL-TIME", mAw+'\u2013'+mAl);
-  // MLB all-time ROI.
-  if(mRoi!=null) lines+=leader("MLB ROI \u00b7 ALL-TIME", (mRoi>=0?'+':'')+mRoi+'%', mRoi>=0?'pos':'neg');
-  // All-sports net units — the whole book behind the flagship number.
-  if(oU!=null) lines+=leader("ALL SPORTS \u00b7 NET UNITS", u2(oU), oU>=0?'pos':'neg');
-  // Absolute fallback: if wager units never loaded, at least show the all-time
-  // MLB record so the hero is never empty.
-  if(!lines && (mAw+mAl)) lines=leader("MLB RECORD \u00b7 ALL-TIME", mAw+'\u2013'+mAl, "big");
-  return '<div class="rcpt">'+head+
-    '<div class="rcpt-body">'+lines+'</div>'+
-    '<div class="rcpt-perf"></div>'+
-    '<div class="rcpt-foot"><span>graded &amp; timestamped \u2014 nothing deleted</span>'+
-      '<span class="rcpt-stamp">TRACKED</span></div>'+
-    '<div class="rcpt-meta">Model '+MODEL_VERSION+
-      (freshnessText()?' \u00b7 '+freshnessText():'')+'</div>'+
-    // The transparency claim is the whole moat — make it PROVABLE, not just
-    // stated. One tap opens the full graded log, losses included.
-    '<button class="rcpt-log" onclick="openRecord()">'+
-      '\uD83E\uDDFE Full public transparency log \u2014 every loss included \u2192</button>'+
-    '<button class="rcpt-cta" onclick="openPicks(\'best\')">Unlock the full board \u2192</button>'+
-    '</div>';}
+  function u2(x){return (x>=0?'+':'')+(Math.round(x*100)/100)+'u';}
+  var recTxt=(w30!=null&&l30!=null)?(w30+'\u2013'+l30):((mAw+mAl)?(mAw+'\u2013'+mAl):'\u2014');
+  var pill=(pct30!=null)?('<span class="hc-pill">'+pct30+'% \u00b7 30d</span>'):'';
+  // Build the 3-cell strip from whatever's available.
+  var cells='';
+  if(mU!=null) cells+='<div class="hc-si"><div class="kk">MLB net units</div><div class="vv pos">'+u2(mU)+'</div></div>';
+  if(oU!=null) cells+='<div class="hc-si"><div class="kk">All sports</div><div class="vv gold">'+u2(oU)+'</div></div>';
+  else if(mRoi!=null) cells+='<div class="hc-si"><div class="kk">MLB ROI</div><div class="vv gold">'+(mRoi>=0?'+':'')+mRoi+'%</div></div>';
+  if(ats) cells+='<div class="hc-si"><div class="kk">ATS</div><div class="vv">'+ats+'</div></div>';
+  else if(mAw+mAl) cells+='<div class="hc-si"><div class="kk">All-time</div><div class="vv">'+mAw+'\u2013'+mAl+'</div></div>';
+  return '<section class="hero-c">'+
+    '<div class="hc-claim">Every pick graded, every sport. Wins and losses both stay on the board.</div>'+
+    '<div class="hc-row"><div class="hc-big">'+recTxt+'</div>'+pill+'</div>'+
+    (cells?'<div class="hc-strip">'+cells+'</div>':'')+
+    '<button class="hc-log" onclick="openRecord()">Read the full graded log, every loss included \u2192</button>'+
+    '</section>';}
 // ==== Discord invite — REPLACE this with your real server invite link ====
 var DISCORD_INVITE="https://discord.gg/WmpF9GdWGE";
 // ===== "How did yesterday go?" =====
@@ -4752,7 +4729,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=37"></script>
+<script src="/ll-enhance.js?v=38"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
