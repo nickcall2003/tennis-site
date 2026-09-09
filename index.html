@@ -39,7 +39,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <body>
 <div class="shell">
   <header class="top">
-    <h1 id="home-link"><span class="brand-lock"><img src="logo.png" alt="Line Logic" onerror="this.style.display='none'">Line Logic<span class="dot">.</span></span> <span class="sport-tag" id="sport-tag"></span></h1>
+    <h1 id="home-link"><span class="brand-lock"><img src="logo.PNG" alt="Line Logic" onerror="this.style.display='none'">Line Logic<span class="dot">.</span></span> <span class="sport-tag" id="sport-tag"></span></h1>
     <div class="head-right">
       <div class="today-badge" id="today-badge" title="Model record settled today">
         <div class="tb-rec" id="tb-rec">&mdash;</div>
@@ -3769,7 +3769,7 @@ function renderHome(){
     return '<div class="sport-tile" onclick="setSport(\''+t[0]+'\')">'+am+'<span class="emoji">'+t[1]+'</span><div class="nm">'+t[2]+'</div><div class="sub">'+t[3]+'</div></div>';}).join("");
   const ov=_accData&&_accData.overall;
   document.getElementById("home").innerHTML=
-    '<img class="home-logo" src="logo.png" alt="Line Logic Sports" onerror="this.style.display=\'none\'">'+
+    '<img class="home-logo" src="logo.PNG" alt="Line Logic Sports" onerror="this.style.display=\'none\'">'+
     heroProofHTML(ov)+
     // Three gateways, right under the hero. A first-time visitor shouldn't have
     // to parse a 15-sport directory to find what they came for — segment them
