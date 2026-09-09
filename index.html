@@ -286,8 +286,8 @@ async function loadTournaments(){
     it.innerHTML=live+'<span class="tourn" style="flex:1">'+t.name+'</span><span class="cnt">'+t.count+'</span>';
     it.onclick=()=>{tFilter=t.key;render();};el.appendChild(it);});
 }
-let _accData=null,_clvData=null,_wagData=null,_toursData=null;
-async function loadAccuracy(){try{_accData=await getJSON("/api/accuracy?days=30");}catch(e){}try{_clvData=await getJSON("/api/clv?days=30");}catch(e){}try{_wagData=await getJSON("/api/edges/wagers?days=3650&min_edge=0.03&min_sample=25");}catch(e){}try{_toursData=await getJSON("/api/tennis/tours");}catch(e){}renderAccuracy();}
+let _accData=null,_clvData=null,_wagData=null,_toursData=null,_atsData=null;
+async function loadAccuracy(){try{_accData=await getJSON("/api/accuracy?days=30");}catch(e){}try{_clvData=await getJSON("/api/clv?days=30");}catch(e){}try{_wagData=await getJSON("/api/edges/wagers?days=3650&min_edge=0.03&min_sample=25");}catch(e){}try{_toursData=await getJSON("/api/tennis/tours");}catch(e){}try{_atsData=await getJSON("/api/ats");}catch(e){}renderAccuracy();}
 function renderAccuracy(){if(!_accData)return;
   // On a sport tab, ALWAYS show that sport's own number (never all-sports).
   // If it has no settled picks yet, show its label with a dash rather than
@@ -313,6 +313,19 @@ function renderAccuracy(){if(!_accData)return;
       const uStr=(priced&&u!=null&&sport!=="tennis")?' <span class="acc-u '+(u>=0?"pos":"neg")+'" title="Net units at a flat 1u stake over '+priced+' priced picks (last 30d)'+(roi!=null?", ROI "+roi+"%":"")+'">'+(u>=0?"+":"")+u+'u'+(roi!=null?' \u00b7 '+(roi>=0?"+":"")+roi+'% ROI':'')+'</span>':'';
       const parts=['<span class="ar-i">30d '+w30+"\u2013"+l30+uStr+'</span>'];
       if(aw+al)parts.push('<span class="ar-i">All-time '+aw+"\u2013"+al+'</span>');
+      // ATS record vs the opening line — its own metric alongside straight-up.
+      // Shown per-sport on a sport tab, overall otherwise. Only when there's a
+      // graded sample, so it never shows an empty "0-0".
+      try{
+        let a=null;
+        if(_atsData){
+          if(view==="sport"&&_atsData.by_sport)a=_atsData.by_sport[sport];
+          else a=_atsData.overall;
+        }
+        if(a&&a.graded>0&&a.ats_pct!=null){
+          parts.push('<span class="ar-i" title="Against the opening spread \u2014 covers-noncovers'+(a.pushes?", "+a.pushes+" pushes":"")+'">ATS '+a.record+' \u00b7 '+a.ats_pct+'%</span>');
+        }
+      }catch(e){}
       at.innerHTML=parts.join(" \u00b7 ");
     }else{at.textContent="";}
   }
@@ -1392,7 +1405,25 @@ function teamLinesHTML(g){const L=g.lines;if(!L)return "";const pc=v=>Math.round
       '<div class="line-row"><span>'+dog+' +'+Math.abs(favLine)+'</span><span class="od">'+pc(sp.favorite==="home"?sp.away_cover:sp.home_cover)+'</span></div></div>'+
     '<div class="line-box"><h5>Projected margin</h5><div class="line-row"><span>'+fav+' by</span><span class="od">'+Math.abs(sp.exp_margin)+'</span></div>'+
       '<div class="line-row" style="opacity:.6;font-size:11px"><span>model line</span><span>own number</span></div></div>'+
+    _marketSpreadBox(g,sp,fav,dog,favLine)+
     '</div>';}
+function _marketSpreadBox(g,sp,fav,dog,favLine){
+  // Market spread vs the model line — the head-to-head that shows legitimacy.
+  if(!g.odds||g.odds.spread_home==null)return "";
+  var H=g.home.abbr,A=g.away.abbr;
+  var mh=g.odds.spread_home;                       // market home-relative spread
+  var mFav=(mh<0)?H:A, mFn=Math.abs(mh);           // market favorite + number
+  var modelHome=sp.exp_margin;                     // model home margin (home-rel)
+  // gap on the home line: model home margin vs market home margin (=-spread)
+  var gap=Math.round((modelHome-(-mh))*10)/10;
+  var gapTeam=gap>=0?H:A, gapAbs=Math.abs(gap);
+  var edgeCls=gapAbs>=3?"pos":(gapAbs>=1?"":"dim");
+  var edgeTxt=gapAbs<0.5?"in line with market"
+    :("model likes "+gapTeam+" by "+gapAbs+" more");
+  return '<div class="line-box"><h5>Market spread</h5>'+
+    '<div class="line-row"><span>'+mFav+' -'+(Math.round(mFn*10)/10)+'</span><span class="od">market</span></div>'+
+    '<div class="line-row"><span>'+fav+' '+favLine+'</span><span class="od">model</span></div>'+
+    '<div class="line-row '+edgeCls+'" style="font-size:11px"><span>edge</span><span>'+edgeTxt+'</span></div></div>';}
 function teamFactorsHTML(g,sp){
   const f=g.factors;if(!f)return "";
   const aa=g.away.abbr,ah=g.home.abbr;
@@ -1434,8 +1465,15 @@ function heroStatHTML(g,sp){
     var m=Math.abs(g.exp_margin);
     if(m<0.05)return '<div class="proj-line">projected margin <span class="pr"><b>even</b></span></div>';
     var fav=(g.exp_margin>0)?H:A;
+    // Market spread inline (home-relative g.odds.spread_home) so the card shows
+    // model vs market at a glance. Favorite line = -|spread|.
+    var mktBit='';
+    if(g.odds&&g.odds.spread_home!=null){
+      var _ms=g.odds.spread_home, _mfav=(_ms<0)?H:A, _mn=Math.abs(_ms);
+      mktBit=' <span class="pl-note">\u00b7 market '+_mfav+' -'+(Math.round(_mn*10)/10)+'</span>';
+    }
     return '<div class="proj-line">projected margin <span class="pr">'+fav+
-      ' by <b>'+m.toFixed(1)+'</b></span>'+
+      ' by <b>'+m.toFixed(1)+'</b></span>'+mktBit+
       (g.avg_total!=null?' <span class="pl-note">\u00b7 total '+g.avg_total+'</span>':'')+'</div>';
   }
   // last resort — a win probability is still one number worth leading with
@@ -4197,6 +4235,29 @@ function predictionReportHTML(g,sp){
     }
   }else{
     cells+='<div class="pr-cell"><div class="pr-k">Fair Odds</div><div class="pr-v">'+fmtOdds(fair)+' <span class="pr-sub">(awaiting market)</span></div></div>';
+  }
+  // Model vs Market SPREAD — the transparency showcase. Model projects a margin
+  // (g.exp_margin, home-relative); the market posts a spread (g.odds.spread_home,
+  // home-relative, negative = home favored). Show both as team-relative lines and
+  // the gap (how many more/fewer points the model gives the favorite than Vegas).
+  if(g.exp_margin!=null&&g.odds&&g.odds.spread_home!=null){
+    var _mm=g.exp_margin;                    // + = home favored by this many
+    var _ms=g.odds.spread_home;              // market spread, home-relative
+    var _ha=(g.home&&(g.home.abbr||g.home.short||g.home.name))||"Home";
+    var _aa=(g.away&&(g.away.abbr||g.away.short||g.away.name))||"Away";
+    // team-relative line strings, e.g. "MIZ -9.4" (model) and "MIZ -5" (market)
+    function _lineStr(hrMargin){
+      var favTeam=hrMargin>=0?_ha:_aa, n=Math.abs(hrMargin);
+      return favTeam+' -'+(Math.round(n*10)/10);
+    }
+    var modelLine=_lineStr(_mm), mktLine=_lineStr(-_ms);   // market spread: home line is _ms; favorite is -_ms magnitude
+    // gap on the HOME line: model home margin vs market home margin (=-spread)
+    var gap=Math.round((_mm-(-_ms))*10)/10;               // + => model higher on home than market
+    var gapTeam=gap>=0?_ha:_aa, gapAbs=Math.abs(gap);
+    var gapCls=gapAbs>=3?"pos":"";
+    cells+='<div class="pr-cell"><div class="pr-k">Model vs Market Spread</div>'+
+      '<div class="pr-v">Model '+modelLine+' <span class="pr-sub">\u00b7 Market '+mktLine+
+      (gapAbs>=0.5?' \u2014 model likes '+gapTeam+' by '+gapAbs+' more':' \u2014 in line with market')+'</span></div></div>';
   }
   if(g.exp_margin!=null&&g.avg_total>0){var _m=Math.abs(g.exp_margin),_t=g.avg_total,_hi=Math.round((_t+_m)/2),_lo=Math.round((_t-_m)/2),_hh=(g.prob_home>=0.5),_hs=_hh?_hi:_lo,_as=_hh?_lo:_hi,
       _ea=(g.home&&(g.home.abbr||g.home.short||g.home.name))||"Home",_eb=(g.away&&(g.away.abbr||g.away.short||g.away.name))||"Away";
