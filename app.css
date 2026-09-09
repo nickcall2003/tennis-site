@@ -919,7 +919,7 @@
   .rec-itf{font-size:10px;color:var(--clay-bright);font-style:italic;font-weight:400}
 
 /* ===== Personalization: favorites, My Board, accent picker ===== */
-:root{--accent:#3ad17a;}
+:root{--accent:#E8B04B;}
 .ll-fav{background:none;border:none;cursor:pointer;font-size:17px;line-height:1;
   color:var(--muted-2);padding:0 2px;vertical-align:middle;transition:color .12s,transform .1s;}
 .ll-fav:hover{color:var(--accent);}
@@ -1716,7 +1716,8 @@ body:has(.sk-app) #ll-chat-pop{display:none !important;}
    ============================================================ */
 .lab,.srf-head,.menu-sec,.pr-h,.pick-conf,.prop-label,.pc-k,.mw-head,
 .mbr-lab,.wx-h,.perf-lab,.news-meta,.yb-src,.hp-flag,.bet-sec,.mv-h,
-.sec-lab,.el-lab,.pr-k,.el-k,.d-k,.stat-sec{
+.sec-lab,.el-lab,.pr-k,.el-k,.d-k,.stat-sec,.rcpt-tag,.rcpt-k,.rcpt-stamp,
+.bubble .lab,.t-lab,.acc-badge .lab,.today-badge .lab{
   font-family:"Hanken Grotesque",sans-serif !important;
   text-transform:none !important;
   letter-spacing:0 !important;
@@ -1742,3 +1743,52 @@ a{color:var(--gold)}
    background blends in rather than showing a hard box. */
 .home-logo{display:block;margin:6px auto 20px;max-width:min(320px,72vw);width:100%;
   height:auto;border-radius:16px}
+
+/* ============================================================
+   HOME REBUILD — cleaner editorial layout (v36+).
+   Softens the receipt-ticket gimmicks into a confident, quiet
+   record hero, and styles the simplified home actions/links.
+   ============================================================ */
+/* Hero: keep it as the record statement, drop the literal-ticket feel. */
+.rcpt{background:var(--panel) !important;border:1px solid var(--line);border-radius:18px;
+  padding:24px 22px !important;}
+.rcpt::before{display:none !important;}            /* kill the left ticket stripe */
+.rcpt-perf{display:none !important;}               /* kill the perforation dots */
+.rcpt-body{border-top:1px solid var(--line) !important;}
+.rcpt-brand h2{font-size:clamp(28px,6.5vw,42px) !important;letter-spacing:-.03em}
+.rcpt-tag{font-size:14px !important;line-height:1.5 !important;color:var(--muted);
+  max-width:52ch;margin-top:8px}
+.rcpt-line{padding:9px 0}
+.rcpt-v.big{font-size:clamp(34px,9vw,52px) !important;color:var(--gold) !important}
+.rcpt-dots{opacity:.25}
+.rcpt-stamp{border-color:var(--gold) !important;color:var(--gold) !important;
+  border-radius:8px !important}
+.rcpt-cta{background:var(--gold) !important;color:#151515 !important;font-weight:700;
+  border-radius:12px !important;font-family:"Hanken Grotesque",sans-serif !important}
+.rcpt-log{color:var(--gold) !important}
+
+/* Home splash logo — a touch larger, breathing room. */
+.home-logo{max-width:min(300px,66vw);margin:4px auto 18px}
+
+/* Primary actions row. */
+.home-actions{display:grid;grid-template-columns:1.4fr 1fr;gap:12px;margin:18px 0 8px}
+.ha{display:flex;flex-direction:column;gap:3px;align-items:flex-start;text-align:left;
+  background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:16px 18px;cursor:pointer;transition:border-color .15s}
+.ha:hover{border-color:var(--gold)}
+.ha-primary{background:var(--gold);border-color:var(--gold)}
+.ha-primary .ha-t,.ha-primary .ha-s{color:#151515}
+.ha-t{font-family:"Archivo",sans-serif;font-weight:700;font-size:17px;color:var(--ink)}
+.ha-s{font-size:12.5px;color:var(--muted)}
+.ha-primary .ha-s{opacity:.75}
+@media(max-width:520px){.home-actions{grid-template-columns:1fr}}
+
+/* Section label above the sport grid. */
+.home-seclab{font-family:"Hanken Grotesque",sans-serif;font-weight:600;font-size:14px;
+  color:var(--muted);margin:24px 2px 12px}
+
+/* Quiet secondary links row. */
+.home-links{display:flex;flex-wrap:wrap;gap:10px;margin:22px 2px 4px}
+.home-links .hl{font-size:13px;color:var(--muted);cursor:pointer;
+  border:1px solid var(--line);border-radius:9px;padding:8px 13px;text-decoration:none}
+.home-links .hl:hover{color:var(--ink);border-color:var(--gold)}
