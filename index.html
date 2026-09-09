@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=36">
+<link rel="stylesheet" href="/app.css?v=37">
 </head>
 <body>
 <div class="shell">
@@ -3771,39 +3771,25 @@ function renderHome(){
   document.getElementById("home").innerHTML=
     '<img class="home-logo" src="logo.PNG" alt="Line Logic Sports" onerror="this.style.display=\'none\'">'+
     heroProofHTML(ov)+
-    // Three gateways, right under the hero. A first-time visitor shouldn't have
-    // to parse a 15-sport directory to find what they came for — segment them
-    // by intent in one tap.
-    '<div class="gateways">'+
-      '<button class="gw gw-1" onclick="openPicks(\'free\')">'+
-        '<span class="gw-ic">\uD83C\uDFAF</span>'+
-        '<span class="gw-t">Just give me today\u2019s best bet</span>'+
-        '<span class="gw-s">One play, highest confidence</span></button>'+
-      '<button class="gw gw-2" onclick="openPicks(\'best\')">'+
-        '<span class="gw-ic">\uD83D\uDCCA</span>'+
-        '<span class="gw-t">Show me the full model board</span>'+
-        '<span class="gw-s">Every edge, every sport</span></button>'+
-      '<button class="gw gw-3" onclick="gotoDiscord()">'+
-        '<span class="gw-ic">\uD83D\uDCAC</span>'+
-        '<span class="gw-t">Join the community</span>'+
-        '<span class="gw-s">Live alerts in Discord</span></button>'+
+    // Primary actions, right under the hero. Two clear paths in, no clutter.
+    '<div class="home-actions">'+
+      '<button class="ha ha-primary" onclick="openPicks(\'best\')">'+
+        '<span class="ha-t">Today\u2019s board</span>'+
+        '<span class="ha-s">Every game, every edge</span></button>'+
+      '<button class="ha" onclick="openPicks(\'free\')">'+
+        '<span class="ha-t">Best bet</span>'+
+        '<span class="ha-s">Highest confidence play</span></button>'+
     '</div>'+
-    '<div id="yesterday"></div>'+
     '<div id="ladder-card"></div>'+
-    '<div id="hotpick"></div>'+
-    discordCtaHTML()+
+    // Pick your sport — the grid, with live 30-day accuracy on each.
+    '<div class="home-seclab">Pick a sport</div>'+
     '<div class="sport-grid">'+tileHTML+'</div>'+
-    '<div class="home-picks">'+
-      '<div class="home-pick-btn free" onclick="openPicks(\'free\')"><div class="nm">\u2b50 Free Picks</div><div class="sub">Today\u2019s highest-confidence plays, across every sport.</div></div>'+
-      '<div class="home-pick-btn best" onclick="openPicks(\'best\')"><div class="nm">\u{1f451} Best Bets</div><div class="sub">The full model board, filterable and in-depth.</div></div>'+
+    // Quieter secondary links, one compact row.
+    '<div class="home-links">'+
+      '<a class="hl" onclick="openNews()">News &amp; injuries</a>'+
+      '<a class="hl" onclick="if(typeof openStocks===\'function\')openStocks()">Markets</a>'+
+      '<a class="hl" onclick="openHelp()">How to use</a>'+
     '</div>'+
-    '<div class="home-picks" style="margin-top:13px">'+
-      '<div class="home-pick-btn" style="background:var(--panel-2)" onclick="openNews()"><div class="nm">\u{1F4F0} News &amp; Injuries</div><div class="sub">Headlines and the injury report for today\u2019s games.</div></div>'+
-    '</div>'+
-    '<div class="home-picks" style="margin-top:13px">'+
-      '<div class="home-pick-btn" style="grid-column:1/-1;background:var(--panel-2)" onclick="if(typeof openStocks===\'function\')openStocks()"><div class="nm">\u{1F4C8} Markets</div><div class="sub">Stocks, ETFs &amp; crypto \u2014 live charts, search any ticker, and the model\u2019s paper-traded signals. Educational only.</div></div>'+
-    '</div>'+
-    '<div class="home-picks" style="margin-top:13px"><div class="home-pick-btn" style="grid-column:1/-1;background:var(--panel-2)" onclick="openHelp()"><div class="nm">\u2753 How to use Line Logic</div><div class="sub">New here? A quick tour of every feature and what the numbers mean.</div></div></div>'+
     installHintHTML()+
     '<div class="home-foot">Predictions are model estimates for informational purposes only. Not betting advice. Lines shown are the model\u2019s own fair numbers, not sportsbook odds.</div>';
   loadHotPick();loadYesterday();}
@@ -4766,7 +4752,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=36"></script>
+<script src="/ll-enhance.js?v=37"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
