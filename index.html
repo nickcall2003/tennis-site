@@ -34,7 +34,7 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800;900&family=Hanken+Grotesque:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/app.css?v=40">
+<link rel="stylesheet" href="/app.css?v=41">
 </head>
 <body>
 <div class="shell">
@@ -143,6 +143,12 @@ window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();win
 <script>
 window.addEventListener("error",function(e){
   try{
+    // Ignore the generic cross-origin "Script error." — the browser strips its
+    // detail for security, it carries no message/line, and it's almost always a
+    // harmless external-script load hiccup, not a real fault. Also ignore errors
+    // with no usable message. Real errors (with a message + line) still show.
+    var msg=(e&&e.message)||"";
+    if(!msg || /^Script error\.?$/i.test(msg) || (!e.lineno && !e.filename)) return;
     var box=document.getElementById("crash-box");
     if(!box){box=document.createElement("div");box.id="crash-box";
       box.style.cssText="position:fixed;left:0;right:0;bottom:0;z-index:99999;background:#2a1416;color:#ffd9d4;font:12px/1.5 monospace;padding:12px 14px;border-top:2px solid #e2685f;max-height:45vh;overflow:auto";
@@ -4729,7 +4735,7 @@ setInterval(loadAccuracy,300000);
 
 
 </script>
-<script src="/ll-enhance.js?v=40"></script>
+<script src="/ll-enhance.js?v=41"></script>
 <script src="/ll-stocks.js?v=1"></script>
 </body>
 </html>
